@@ -54,6 +54,7 @@ A fourth is an operator decision too: **`cleanup archive-drop apply` and `cleanu
 | Start a task | `flow.start` | operator or orchestrator (needs a current approval); an optional `note` reaches the flow's planner, builder and reviewer |
 | Add a note for a running flow's agents | `flow.note` | operator, or delegated |
 | Replan / abandon a flow | `flow.replan` / `flow.abandon` | operator, or delegated |
+| Settle one review ledger entry of a must-fix flow (fixtures only until the enabling release) | `flow.disposeFinding {flowId, findingId, disposition: operator-accepted \| operator-required, note, expectedVersion}` | operator. On a recorded instruction the orchestrator may record `operator-required` on an outcome item in ordinary work only; `operator-accepted` and every protected-class item stay the operator's. See [must-fix enforcement](risk-review.md#must-fix-enforcement-fixtures-only) |
 | Stop a flow | `stop` | operator or orchestrator |
 | Pause / resume / stop all | `pause` / `resume` / `stop.all` | operator, or delegated |
 | Queue order, add, remove | `queue.put` | operator, or delegated |

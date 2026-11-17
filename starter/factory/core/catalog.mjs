@@ -7,6 +7,7 @@ import { changeWorkflow, documentWorkflow, insertPreview } from './configuration
 import { validateStepModels, withBuiltinModelGraphs } from './step-models.mjs';
 import { nodeContract } from './operations.mjs';
 import { REFERENCE_KINDS, WORKFLOW_KINDS, definitionKind, referenceKind } from './workflow-kinds.mjs';
+import { assertMustFixGraph } from './must-fix-budget.mjs';
 
 // Project-owned delivery workflows. The catalog lives in project configuration
 // (so it is part of the commissioned config digest); graph files live in the
@@ -89,6 +90,9 @@ function validateDelivery(name, workflow, config) {
     if (node.satisfiedDecision) assert(node.role === 'operator', `workflow ${name} cannot delegate the already-satisfied decision at ${key}`);
   }
   validatePublishIntegration(name, workflow);
+  // The must-fix bar needs defer and park edges and a correction cycle on every change review node
+  // (review-must-fix design 13.1, 9.5); configuration validation refuses must-fix until the enabling release.
+  if (config.policy?.reviewBar === 'must-fix') assertMustFixGraph(name, workflow);
 }
 
 // Every way into forge.publish must start at the `integrated` result of workspace.integrate and pass

@@ -66,7 +66,11 @@ import { captureConflictScope } from '../operations/conflicts.mjs';
 import { installedOperation, integrationWorkflow, recordIntegrationDecision, readOnlyMaintenance } from '../workflows/integrations.mjs';
 import { spendingSnapshot, SpendingLedger } from '../operations/spending.mjs';
 import { atQuestion, pooled, takeSlot, waitingForSlot } from '../operations/capacity.mjs';
-import { pinnedReviewSettings } from './review-bar.mjs';
+import { pinnedReviewSettings, flowReviewBar, flowKeepsLedger } from './review-bar.mjs';
+import { correctionPath, cycleBudget } from './must-fix-budget.mjs';
+import { computeReviewLedger } from '../workflows/review-ledger.mjs';
+import { PROTECTED_CLASSES } from '../workflows/must-fix.mjs';
+import { recordReviewRowsInTransaction } from '../operations/review-rows.mjs';
 
 export function handshake(store) {
   const p = store.meta('project');
@@ -285,6 +289,7 @@ export const isMaintenanceTask = task => ['schedule', 'job'].includes(task?.appr
 // any instruction or delegation; every other kind, and an audit finding, may also be acted on by
 // the orchestrator on a recorded instruction where the command is in policy.delegatedOperations.
 function findingActor(store, row, { operation, actor, onBehalfOf }) {
+  if (findingAuthority(row) === 'operator' && row?.source === 'review') assert(actor === 'operator', `${operation} on a review operator item is the operator's alone: it is not accepted, declined, resolved or reopened on a recorded instruction or by delegation`);
   if (findingAuthority(row) === 'operator') assert(actor === 'operator', `${operation} on a ${findingKind(row)} candidate is the operator's alone: a governing-context proposal or a rule is not accepted, declined, resolved or reopened on a recorded instruction or by delegation`);
   else operatorAuthority(store, { operation, actor, onBehalfOf });
 }
@@ -910,6 +915,37 @@ export function applyOperationInTransaction(store, { operation, payload: p, acto
       addFlowNote(flow, { step: flow.step, answer: 'note', note: note(p.note), actor, ...(onBehalfOf ? { onBehalfOf } : {}) });
       store.put('flow', flow); store.event('flow.noted', { flowId: flow.id, step: flow.step }); return flow;
     }
+    case 'flow.disposeFinding': {
+      // The operator's disposition of one review ledger entry (review-must-fix design 9.5), so a contested
+      // or disputed finding can be settled before retry or send_back: operator-accepted (it stops
+      // blocking and becomes a follow-up the operator accepted) or operator-required (it must be fixed
+      // and can no longer be deferred). Named by the entry's version, read from the ledger. Protected-
+      // class items, and every operator-accepted, are the operator's alone; a delegated orchestrator may
+      // record operator-required on an outcome item in ordinary work only. A must-fix flow only (test
+      // fixtures until the enabling release).
+      assert(Object.keys(p).every(key => ['flowId', 'findingId', 'disposition', 'note', 'expectedVersion'].includes(key)), 'flow.disposeFinding accepts flowId, findingId (a review ledger id, such as R2.3), disposition (operator-accepted or operator-required), note and expectedVersion');
+      operator();
+      const flow = store.need('flow', p.flowId), text = note(p.note);
+      assert(flowReviewBar(flow) === 'must-fix' && flowKeepsLedger(flow), `flow ${flow.id} has no must-fix review ledger: flow.disposeFinding applies to a must-fix flow only`);
+      assert(['operator-accepted', 'operator-required'].includes(p.disposition), 'disposition must be operator-accepted or operator-required');
+      assert(Number.isSafeInteger(p.expectedVersion), 'flow.disposeFinding needs expectedVersion: the version of the ledger entry you read');
+      assert(!['completed', 'failed'].includes(flow.state) && flow.workflow.nodes[flow.step]?.kind !== 'end', 'flow already finished');
+      assert(!flow.attemptId, `flow ${flow.id} is running a step; dispose of a finding while it waits at a question or is stopped`);
+      const entry = computeReviewLedger(flow).entries.find(row => row.id === p.findingId);
+      assert(entry, `flow ${flow.id} has no review ledger entry ${p.findingId}`);
+      assert(entry.source === 'review', `${entry.id} was added by the factory for unmet purpose; the next review settles it`);
+      assert(!['fixed', 'superseded', 'deferred-claimed'].includes(entry.status), `${entry.id} is ${entry.status}: there is nothing to dispose of`);
+      assert(entry.version === p.expectedVersion, `ledger entry ${entry.id} changed since you read it (version ${entry.version} now, ${p.expectedVersion} named); read it again`);
+      assert(entry.status !== p.disposition, `${entry.id} is already ${p.disposition}`);
+      if (actor !== 'operator') {
+        const protectedClass = entry.operatorOnly || PROTECTED_CLASSES.includes(entry.purposeImpact), ordinary = effectiveRisk(store.need('task', flow.taskId), flow) === 'ordinary';
+        assert(p.disposition === 'operator-required' && !protectedClass && entry.purposeImpact === 'outcome' && ordinary, 'a delegated orchestrator may record only operator-required, and only on an outcome item in ordinary work: operator-accepted and every protected-class item are the operator\'s alone');
+      }
+      flow.operatorFindingDispositions = [...(flow.operatorFindingDispositions ?? []), { id: entry.id, disposition: p.disposition, note: text, version: entry.version, afterRound: (flow.reviewHistory ?? []).length, actor, ...(onBehalfOf ? { onBehalfOf } : {}), at: now() }];
+      flow.reviewLedger = computeReviewLedger(flow); recordReviewRowsInTransaction(store, flow);
+      store.put('flow', flow); store.event('flow.finding-disposed', { flowId: flow.id, findingId: entry.id, disposition: p.disposition, actor, ...(onBehalfOf ? { onBehalfOf } : {}) });
+      return { flowId: flow.id, entry: flow.reviewLedger.entries.find(row => row.id === entry.id) };
+    }
     case 'pause': {
       operator(); note(p.note); assert(typeof p.paused === 'boolean', 'paused must be boolean');
       assert(p.paused || !store.meta('recoveryHold'), 'restore reconciliation still required');
@@ -1002,6 +1038,17 @@ export function applyOperationInTransaction(store, { operation, payload: p, acto
       recordIntegrationDecision(flow, flow.workflow.nodes[flow.step], p, actor, identity, { delegated: delegatedAnswer, onBehalfOf });
       // Any answer may carry a note (for example why a task is blocked); the next question shows it.
       if(p.note!==undefined){flow.answerNotes??=[];flow.answerNotes.push({inboxId:item.id,step:flow.step,answer:p.answer,note:note(p.note),actor,...(onBehalfOf?{onBehalfOf}:{}),at:now()});}
+      // A must-fix flow's send_back (review-must-fix design 9.5): checked first, with today's extension
+      // below applied, so that one more correction cycle fits; strict review nodes are not extended, so
+      // a strict send_back whose cycle still cannot fit is refused (stop, or replan where supported).
+      // It grants exactly one further must-fix send-back, recorded with the answer, and is that send-back.
+      const mustFixSendBack=p.answer==='send_back'&&!clarification&&flowReviewBar(flow)==='must-fix'&&correctionPath(flow.workflow,next)!==null;
+      if(mustFixSendBack){
+        const strictWork=effectiveRisk(store.need('task',flow.taskId),flow)==='strict',extended={...(flow.limitExtensions??{})};
+        for(const [step,definition] of Object.entries(flow.workflow.nodes))if(definition.maxVisits&&(flow.visits[step]??0)>=definition.maxVisits+(extended[step]??0)&&!(['review','delta-review'].includes(step)&&strictWork))extended[step]=(extended[step]??0)+1;
+        const budget=cycleBudget({workflow:flow.workflow,visits:flow.visits,limitExtensions:extended,transitions:flow.transitions,transitionAllowance:(flow.transitionAllowance??0)+12},next);
+        assert(budget.fits,`send_back is refused: one more must-fix correction cycle cannot fit this flow even after send_back extends its exhausted bounds (${budget.reason})${strictWork?'; strict review nodes are not extended by send_back':''}. Stop the flow, or replan with a note (flow.replan) where supported, which starts a new plan cycle with fresh budgets.`);
+      }
       if(['send_back','repair'].includes(p.answer)||['retry','replan'].includes(p.answer)&&p.note) {
         const feedback=note(p.note);flow.operatorFeedback??=[];flow.operatorFeedback.push({inboxId:item.id,step:flow.step,answer:p.answer,note:feedback,actor,identity,at:now()});
         flow.limitExtensions??={};
@@ -1012,6 +1059,7 @@ export function applyOperationInTransaction(store, { operation, payload: p, acto
         flow.mergeAuthorization=null;flow.evidence={};
         store.event('flow.feedback',{flowId:flow.id,inboxId:item.id,answer:p.answer,note:feedback});
       }
+      if(mustFixSendBack){flow.mustFixAllowance=(flow.mustFixAllowance??0)+1;flow.mustFixSendBacks=[...(flow.mustFixSendBacks??[]),{inboxId:item.id,step:flow.step,actor,at:now()}];store.event('flow.must-fix-allowance',{flowId:flow.id,inboxId:item.id,allowance:flow.mustFixAllowance});}
       // A note sent with "proceed" (answers or assumptions) reaches the plan reviewer and the builder.
       if(planQuestion&&p.answer===PLAN_PROCEED&&p.note){const feedback=note(p.note);flow.operatorFeedback??=[];flow.operatorFeedback.push({inboxId:item.id,step:flow.step,answer:p.answer,note:feedback,actor,identity,at:now()});store.event('flow.feedback',{flowId:flow.id,inboxId:item.id,answer:p.answer,note:feedback});}
       // The questions it went ahead without answering are carried to the reviewers, the builder and the merge question (dev.83).

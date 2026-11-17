@@ -90,7 +90,8 @@ export function transitionAllowed(row, to, by) {
 // alone (Q2); every other kind, and an audit finding, may also be acted on by the orchestrator on a
 // recorded instruction where the command is delegated. A kind this release does not know is the
 // operator's.
-export const findingAuthority = row => ['audit', 'docs', 'check', 'learning', 'learning-stale'].includes(findingKind(row)) ? 'delegable' : 'operator';
+// A must-fix review row (operations/review-rows.mjs) that is an operator item is the operator's alone.
+export const findingAuthority = row => row?.source === 'review' && row.reviewKind !== 'follow-up' ? 'operator' : ['audit', 'docs', 'check', 'learning', 'learning-stale'].includes(findingKind(row)) ? 'delegable' : 'operator';
 
 // ---- Writing a row ----
 function move(store, row, to, by, fields, nowMs) {

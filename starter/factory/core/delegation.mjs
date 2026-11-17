@@ -4,7 +4,7 @@ import { assert } from './contracts.mjs';
 // instruction, when the commissioned policy lists them. The instruction is
 // attribution for the audit trail, not proof: the authority comes from the
 // operator commissioning policy.delegatedOperations.
-export const DELEGABLE = Object.freeze(['answer', 'cleanup.apply', 'config.update', 'settings.update', 'models.update', 'doctor.request', 'task.restart', 'attempt.resolve', 'restore.release', 'spending.reconcile', 'task.put', 'task.label', 'task.schedule', 'schedule.pause', 'recurring.run', 'task.approve', 'task.revoke', 'regression.record', 'pause', 'stop', 'resume', 'stop.all', 'queue.put', 'main.health', 'schedule.put', 'schedule.remove', 'obligation.resolve', 'flow.replan', 'flow.note', 'flow.abandon', 'job.enqueue', 'operator.presence', 'finding.accept', 'finding.resolve', 'finding.reopen']);
+export const DELEGABLE = Object.freeze(['answer', 'cleanup.apply', 'config.update', 'settings.update', 'models.update', 'doctor.request', 'task.restart', 'attempt.resolve', 'restore.release', 'spending.reconcile', 'task.put', 'task.label', 'task.schedule', 'schedule.pause', 'recurring.run', 'task.approve', 'task.revoke', 'regression.record', 'pause', 'stop', 'resume', 'stop.all', 'queue.put', 'main.health', 'schedule.put', 'schedule.remove', 'obligation.resolve', 'flow.replan', 'flow.note', 'flow.abandon', 'job.enqueue', 'operator.presence', 'finding.accept', 'finding.resolve', 'finding.reopen', 'flow.disposeFinding']);
 // Operator and orchestrator work as a team: most operator commands are delegable.
 // Strict-review sign-off stays human; deploy and spending approvals (integration
 // decisions) need policy.delegateIntegrationDecisions; both are enforced where
