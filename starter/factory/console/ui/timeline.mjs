@@ -71,14 +71,6 @@ function axis(start, end, zoom = 1) {
   return h('div', { class: 'gantt-row gantt-axis', 'aria-hidden': 'true' }, h('div', { class: 'lane-label' }, startLabel), track);
 }
 const pct = (t, start, end) => Math.max(0, Math.min(100, ((t - start) / (end - start)) * 100));
-// Markers closer than `gap` percent of the track would print over each other: they are drawn as
-// one marker with a count (and listed one by one in its tooltip and in the timeline table).
-// The share of a track (in percent) a marker covers, so markers that would touch are clustered at any
-// screen width: a fixed share was right on a desktop but let markers overprint on a phone. reserved
-// is the page width that is not track (sidebar, lane labels, padding); zoom widens the track.
-export function markerGap(markerPx, { viewport = globalThis.innerWidth || 1440, reserved = viewport <= 780 ? 140 : 460, zoom = 1 } = {}) {
-  return (markerPx / trackWidth({ viewport, reserved, zoom })) * 100;
-}
 // A group of markers too close to tell apart: a disclosure whose summary shows the count, opening a
 // list of every event (with a link when it has one). Keyboard and touch reach it; the tooltip only repeats it.
 // items: [{ text, href? }]. The list opens toward the middle of the track, so it stays on screen.
@@ -283,14 +275,6 @@ export function markerBoxes(units, trackPx, minPx = tapPx()) {
     }
   }
   return boxes.map(box => ({ units: box.members, centre: (box.c / W) * 100, left: (box.a / W) * 100, width: (box.w / W) * 100 }));
-}
-export function clusterMarkers(markers, start, end, gap = 1) {
-  const groups = [];
-  for (const m of [...markers].sort((a, b) => a.at - b.at)) {
-    const at = pct(m.at, start, end), last = groups.at(-1);
-    if (last && at - last.last < gap) { last.markers.push(m); last.last = at; } else groups.push({ pct: at, last: at, markers: [m] });
-  }
-  return groups;
 }
 
 /** Builds lane segments from attempts, waits and events. Returns untimed records separately. */

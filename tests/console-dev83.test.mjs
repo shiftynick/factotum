@@ -203,7 +203,11 @@ test('G15 c: timeline markers are clustered by their width on screen, so they do
   assert.deepEqual(items.map(li => /Merged #1[23]/.test(text(li))), [true, true]);
   assert.ok(byTag(group, 'a').some(a => /flow=flow-a/.test(a.getAttribute('href'))) && byTag(group, 'a').some(a => /flow=flow-b/.test(a.getAttribute('href'))), 'each event links to its flow');
   assert.equal(render(1440).length, 2, 'an hour apart in twelve hours they stay separate on a desktop');
-  assert.ok(timeline.markerGap(40, { viewport: 390 }) > 3 * timeline.markerGap(40, { viewport: 1440 }), 'a marker covers more of a phone track');
+  // The lane is laid out from the boxes as drawn for the track's width (markerBoxes, dev.95): two
+  // markers 3% of the track apart touch on a phone track (250 px) and stay apart on a desktop one (980 px).
+  const pair = [{ key: 'a', at: 40 }, { key: 'b', at: 43 }];
+  assert.equal(timeline.markerBoxes(pair, 250, 44).length, 1, 'a marker covers more of a phone track');
+  assert.equal(timeline.markerBoxes(pair, 980, 22.4).length, 2);
   const edge = pct => timeline.markerGroup([{ text: 'Stopped · 10:00' }, { text: 'Resumed · 10:01' }], { cls: 'marker-cluster', pct }).classList;
   assert.ok(edge(90).includes('opens-left') && edge(50).includes('opens-center') && !edge(10).some(c => c.startsWith('opens-')), 'the list opens toward the middle of the track');
 });

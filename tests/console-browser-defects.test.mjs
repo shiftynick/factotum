@@ -20,7 +20,7 @@ import { startConsole, registerProject } from '../starter/factory/console/consol
 const realFetch = globalThis.fetch;
 installDom();
 const { state, readPath, uiState, prefs } = await import('../starter/factory/console/ui/state.mjs');
-const { flowDetail, clusterMarkers, resumeBlockers } = await import('../starter/factory/console/ui/timeline.mjs');
+const { flowDetail, markerBoxes, resumeBlockers } = await import('../starter/factory/console/ui/timeline.mjs');
 const { inboxView, itemHeading, staleAnswer } = await import('../starter/factory/console/ui/inbox.mjs');
 const { projectOverview } = await import('../starter/factory/console/ui/overview.mjs');
 const { receiptsView } = await import('../starter/factory/console/ui/receipts.mjs');
@@ -294,8 +294,9 @@ test('the idle-capacity notice has a title and keeps showing current reasons bet
 });
 
 test('close timeline markers are drawn as one counted marker', () => {
-  const groups = clusterMarkers([{ at: 1000 }, { at: 1002 }, { at: 1004 }, { at: 5000 }].map(m => ({ ...m, event: { type: 'flow.stopped', at: new Date(m.at).toISOString() } })), 0, 10000, 1);
-  assert.deepEqual(groups.map(g => g.markers.length), [3, 1]);
+  // Laid out from the boxes as drawn (markerBoxes, dev.95): at, in percent of a 1,000 px track.
+  const boxes = markerBoxes([10, 10.2, 10.4, 50].map((at, i) => ({ key: String(i), at })), 1000, 44);
+  assert.deepEqual(boxes.map(box => box.units.length), [3, 1]);
 });
 
 test('Copy link reports success without touching a released event target', async t => {
