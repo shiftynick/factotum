@@ -275,7 +275,7 @@ async function planCleanup(store, flowId) {
     const ignored = git(flow.workspace.path, ['status', '--porcelain=v1', '--ignored', '--untracked-files=all']).split('\n').filter(line => line.startsWith('!! ')).length;
     const plan = {
       flowId, taskId: flow.taskId, ...(flow.state === 'completed' ? { outcome: 'completed', mode: 'archive', unsavedIgnored: unsaved } : {}), ownershipDigest: flow.workspace.ownershipDigest, path: flow.workspace.path, branch: current.branch, head: current.head,
-      dirty: current.dirty, changedOrUntracked: current.status ? current.status.split('\n').length : 0, ignored, files: tree.entries.filter(e => e.type === 'file').length, bytes: tree.bytes, treeDigest: tree.digest,
+      dirty: current.dirty, changedOrUntracked: (current.status ? current.status.split('\n').length : 0) + (current.hiddenByIndexFlags?.length ?? 0), ...(current.hiddenByIndexFlags ? { hiddenByIndexFlags: current.hiddenByIndexFlags } : {}), ignored, files: tree.entries.filter(e => e.type === 'file').length, bytes: tree.bytes, treeDigest: tree.digest,
       excludeIgnored, excludedFiles: tree.excluded.filter(e => e.type === 'file').length, excludedBytes: tree.excludedBytes, excludedDigest: tree.excludedDigest,
       blockers: [...(tree.special.length ? [`unsupported special files: ${tree.special.slice(0, 5).join(', ')}`] : []), ...(tree.bytes > maxBytes ? [`working tree is ${tree.bytes} bytes, above cleanup.maxArchiveBytes ${maxBytes}`] : [])],
       remote: pr ? `PR #${pr} and its remote branch are left untouched` : 'no published PR',

@@ -142,9 +142,10 @@ async function entryFor(store, flowId, fetched) {
   if (flow.state === 'failed') refuse('a failed or abandoned flow\'s archive may be the only copy of its unsaved work; it is never dropped');
   if (flow.state !== 'completed') refuse(`the flow is ${flow.state}, not completed`);
   if (!provenOutcome(flow)) refuse('the flow has no proven merge or recorded satisfied outcome');
-  if (!flow.workspaceReleased || !flow.workspace?.path || existsSync(flow.workspace.path)) refuse('the flow\'s workspace is not released');
+  // A flow released by the normal post-merge cleanup has no archive at all: say so first.
   const row = store.get('cleanup', flowId);
   if (!row?.archive) refuse('no cleanup archive is recorded for this flow');
+  if (!flow.workspaceReleased || !flow.workspace?.path || existsSync(flow.workspace.path)) refuse('the flow\'s workspace is not released');
   if (row.archiveDrop?.status === 'dropped') refuse(`its archive was already dropped (${row.archiveDrop.droppedAt})`);
   const dirs = archiveDirectories(store.stateDir, flow, row);
   // An apply interrupted while removing: finish removing the directories it recorded.

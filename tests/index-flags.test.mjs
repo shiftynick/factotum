@@ -44,6 +44,8 @@ for (const flag of ['--assume-unchanged', '--skip-worktree']) {
     f.store.setMeta('config', { ...f.store.meta('config'), cleanup: { excludeIgnored: ['cache/**'] } });
     const plan = await cleanupPlan(f.stateDir, 'hidden');
     assert.equal(plan.mode, 'archive', 'a hidden change is archived, never released unseen');
+    assert.deepEqual(plan.hiddenByIndexFlags, ['work'], 'the plan names the hidden change');
+    assert.equal(plan.changedOrUntracked, 1, 'and counts it');
     const archived = await cleanupApply(f.stateDir, { flowId: 'hidden', planDigest: plan.planDigest, note: 'archive hidden work' });
     const drop = await archiveDropPlan(f.stateDir, { flowIds: ['hidden'] });
     assert.equal(drop.entries.length, 0);
@@ -52,3 +54,11 @@ for (const flag of ['--assume-unchanged', '--skip-worktree']) {
     assert.ok(existsSync(archived.archiveDir), 'the archive is kept');
   });
 }
+
+test('dev.97 re-test T1: archive-drop on a merged flow released by the post-merge cleanup says no archive is recorded', async t => {
+  const f = sandbox(t);
+  f.store.put('flow', { id: 'merged', taskId: f.task.id, state: 'completed', target: 'main', workspace: { path: join(f.base, 'gone'), branch: 'factotum/merged' }, results: { merge: { merged: true, mergeMethod: 'merge' }, cleanup: { released: true } } });
+  const drop = await archiveDropPlan(f.stateDir, { flowIds: ['merged'] });
+  assert.equal(drop.entries.length, 0);
+  assert.equal(drop.refused[0].reason, 'no cleanup archive is recorded for this flow');
+});
