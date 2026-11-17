@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="factotum-csrf" content="CSRF_TOKEN">
+<meta name="color-scheme" content="light dark">
+<title>Factotum</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="shell">
+  <aside class="sidebar" aria-label="Projects">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">F</span><span class="brand-text"><strong>Factotum</strong><small>Local operator console</small></span><button type="button" id="sidebar-toggle" class="sidebar-toggle" aria-controls="projects-nav" aria-expanded="true" aria-label="Collapse projects panel" title="Collapse projects panel">‹</button></div>
+    <nav id="projects-nav" class="projects-nav" aria-label="Project scope"></nav>
+    <p class="sidebar-foot">Each project validates its own commands. Browser selection never grants authority.</p>
+  </aside>
+  <div class="workspace">
+    <header class="topbar">
+      <div class="topbar-scope">
+        <label class="sr-only" for="project-select">Project scope</label>
+        <select id="project-select" class="mobile-only"></select>
+        <span id="scope-title" class="scope-title desktop-only"></span>
+        <div id="operator-presence"></div>
+      </div>
+      <div class="topbar-status"><span id="observed" class="observed" role="status" aria-live="polite"></span><button id="refresh" type="button" class="btn btn-secondary btn-small" title="Refresh (Alt+R)">Refresh</button><button id="new-inbox-item" type="button" class="btn btn-secondary btn-small" hidden>New inbox item</button><button id="new-task" type="button" class="btn btn-primary btn-small" hidden>New task</button></div>
+    </header>
+    <nav id="tabs" class="tabs" aria-label="Views"></nav>
+    <dialog id="new-task-dialog" class="modal" aria-labelledby="new-task-title"></dialog>
+    <dialog id="new-inbox-dialog" class="modal" aria-labelledby="new-inbox-title"></dialog>
+    <dialog id="detail-dialog" class="modal modal-wide" aria-labelledby="detail-title"></dialog>
+    <div id="banner" class="banner" role="status" aria-live="polite"></div>
+    <main id="main" class="main" tabindex="-1"><p class="skeleton">Loading console…</p></main>
+  </div>
+</div>
+<script type="module" src="/ui.mjs"></script>
+</body>
+</html>

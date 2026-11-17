@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "kind": "observed-provider-protocol-projections",
+  "capturedDate": "2026-10-22",
+  "scenario": "fictional JavaScript task persistence acceptance evaluation",
+  "source": "Actual subscription CLI stdout from completed private disposable-project qualification",
+  "captures": [
+    {
+      "provider": "codex",
+      "cliVersion": "0.163.0",
+      "requestedModel": "gpt-6.1-sol",
+      "observedResolvedModel": "gpt-6.1-sol",
+      "role": "builder",
+      "file": "codex.jsonl",
+      "sha256": "3fefe72062290d0bbf9bdc38939acc0e0d4c640b7652cd547cf6cac7b4523c1d",
+      "events": 3,
+      "controlledFaultContext": "Persistent builder correction after the independently detected seeded defect"
+    },
+    {
+      "provider": "claude",
+      "cliVersion": "2.1.308",
+      "requestedModel": "sonnet",
+      "observedResolvedModel": "claude-sonnet-5-5",
+      "role": "reviewer",
+      "file": "claude.jsonl",
+      "sha256": "a59d861f8325b043b781eed754867b78a22b253421af3455d247cfcc91c106ca",
+      "events": 2,
+      "controlledFaultContext": "Independent review of an explicitly seeded completion-load defect"
+    }
+  ],
+  "projectionPolicy": [
+    "Retain only adapter-consumed session, final assistant/structured result and usage fields.",
+    "Omit all prompts, tool input/output, commands, source excerpts, working directories, account/repository URLs, machine metadata, full stream chronology and raw trace identifiers.",
+    "Replace observed session UUIDs with fixed fictional UUIDs; recursively scrub UUIDs in retained values.",
+    "Preserve the selected observed structured model result and usage values; do not invent protocol fields."
+  ],
+  "replayLimits": [
+    "These projected recordings test receipt decoding and schema validation, not real CLI execution.",
+    "Mock preflight responses in replay do not prove authentication, billing, capability flags or process isolation.",
+    "Recorded findings and token counts are historical observations, not fresh model judgments or new spending.",
+    "Omitted intermediate events mean these projections cannot qualify tool behavior, completion of nested work, cancellation, timing or recovery.",
+    "Live qualification evidence remains in private runtime state; refer to docs/qualification.md for its scope."
+  ]
+}

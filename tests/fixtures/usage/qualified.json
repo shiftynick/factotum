@@ -1,0 +1,7 @@
+{
+  "codexFirst": {"type":"turn.completed","usage":{"input_tokens":1000,"cached_input_tokens":600,"output_tokens":100,"reasoning_output_tokens":60}},
+  "codexResume": {"type":"turn.completed","usage":{"input_tokens":1500,"cached_input_tokens":900,"output_tokens":180,"reasoning_output_tokens":100}},
+  "codexReset": {"type":"turn.completed","usage":{"input_tokens":200,"cached_input_tokens":50,"output_tokens":20}},
+  "claudeFirst": {"type":"result","total_cost_usd":1.25,"usage":{"input_tokens":99999,"output_tokens":99999},"model_usage_since_last_result":{"fictional-model":{"inputTokens":100,"cacheReadInputTokens":500,"cacheCreationInputTokens":200,"outputTokens":80,"costUSD":1.25}}},
+  "claudeResume": {"type":"result","total_cost_usd":2.0,"usage":{"input_tokens":99999,"output_tokens":99999},"model_usage_since_last_result":{"fictional-model":{"inputTokens":50,"cacheReadInputTokens":300,"cacheCreationInputTokens":0,"outputTokens":20,"costUSD":0.75}}}
+}

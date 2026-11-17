@@ -1,0 +1,552 @@
+{
+ "note": "Fictional rehearsal state written by the release before the attempt-intent split (reference commit 93395cf): the rows of its state database, verbatim, except that the host boot identifier in receipts is replaced by a fixed fictional one.",
+ "sourceCommit": "93395cf",
+ "tables": {
+  "meta": [
+   {
+    "key": "schemaVersion",
+    "value": "1"
+   },
+   {
+    "key": "project",
+    "value": "{\"projectId\":\"07c7d98f-eb50-43e9-a0fd-4efa4df06bbe\",\"serviceId\":\"cf8e2221-d7a8-4766-9318-e13d6263911c\",\"name\":\"Fictional release-format project\",\"root\":\"/tmp/factotum-fixture/repo\",\"supervisor\":\"process\",\"createdAt\":\"2026-11-15T05:37:28.648Z\"}"
+   },
+   {
+    "key": "workflow",
+    "value": "{\"version\":1,\"start\":\"work\",\"nodes\":{\"work\":{\"kind\":\"effect\",\"argv\":[\"/usr/bin/node\",\"-e\",\"console.log(\\\"fictional work\\\")\"],\"timeoutMs\":60000,\"next\":\"check\",\"onFailure\":\"failed\"},\"check\":{\"kind\":\"effect\",\"argv\":[\"/usr/bin/node\",\"-e\",\"process.exit(require(\\\"fs\\\").existsSync(\\\"fail.flag\\\") ? 1 : 0)\"],\"timeoutMs\":60000,\"next\":\"decision\",\"onFailure\":\"failed\"},\"decision\":{\"kind\":\"question\",\"question\":\"Continue the fictional rehearsal?\",\"role\":\"operator\",\"answers\":{\"continue\":\"done\",\"stop\":\"stopped\"}},\"stopped\":{\"kind\":\"end\",\"outcome\":\"stopped\"},\"done\":{\"kind\":\"end\",\"outcome\":\"completed\"},\"failed\":{\"kind\":\"end\",\"outcome\":\"failed\"}}}"
+   },
+   {
+    "key": "workflowDigest",
+    "value": "\"f4cc7031eb75bc42e9212140a38c7c67f8c73717f345bc217ff0ba03b8eb10b0\""
+   },
+   {
+    "key": "catalog",
+    "value": "null"
+   },
+   {
+    "key": "config",
+    "value": "{}"
+   },
+   {
+    "key": "configDigest",
+    "value": "\"44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a\""
+   },
+   {
+    "key": "paused",
+    "value": "false"
+   },
+   {
+    "key": "recoveryHold",
+    "value": "false"
+   },
+   {
+    "key": "revision",
+    "value": "58"
+   }
+  ],
+  "records": [
+   {
+    "kind": "task",
+    "id": "task-1",
+    "data": "{\"id\":\"task-1\",\"title\":\"Fictional task-1\",\"acceptance\":[\"Observed fixture behaviour\"],\"revision\":\"16e91326e68f9427220118feb2add26bbafd3e1daa4fad8778255f9d4e6626e2\",\"approvedRevision\":null,\"approvalVersion\":2,\"approvedAt\":\"2026-11-15T05:37:28.652Z\",\"approvedWorkflow\":null,\"status\":\"completed\"}"
+   },
+   {
+    "kind": "flow",
+    "id": "flow-1",
+    "data": "{\"strictDecisionRole\":\"operator\",\"mergeDecisionRole\":\"operator\",\"reviewProtocol\":\"fresh-full\",\"effectiveRisk\":\"strict\",\"riskAssessments\":[],\"candidate\":null,\"completionMode\":\"merge\",\"id\":\"flow-1\",\"taskId\":\"task-1\",\"taskSnapshot\":{\"id\":\"task-1\",\"title\":\"Fictional task-1\",\"acceptance\":[\"Observed fixture behaviour\"],\"revision\":\"16e91326e68f9427220118feb2add26bbafd3e1daa4fad8778255f9d4e6626e2\",\"approvedRevision\":\"16e91326e68f9427220118feb2add26bbafd3e1daa4fad8778255f9d4e6626e2\",\"approvalVersion\":2,\"approvedAt\":\"2026-11-15T05:37:28.652Z\",\"approvedWorkflow\":null},\"taskRevision\":\"16e91326e68f9427220118feb2add26bbafd3e1daa4fad8778255f9d4e6626e2\",\"approvalVersion\":2,\"workflow\":{\"version\":1,\"start\":\"work\",\"nodes\":{\"work\":{\"kind\":\"effect\",\"argv\":[\"/usr/bin/node\",\"-e\",\"console.log(\\\"fictional work\\\")\"],\"timeoutMs\":60000,\"next\":\"check\",\"onFailure\":\"failed\"},\"check\":{\"kind\":\"effect\",\"argv\":[\"/usr/bin/node\",\"-e\",\"process.exit(require(\\\"fs\\\").existsSync(\\\"fail.flag\\\") ? 1 : 0)\"],\"timeoutMs\":60000,\"next\":\"decision\",\"onFailure\":\"failed\"},\"decision\":{\"kind\":\"question\",\"question\":\"Continue the fictional rehearsal?\",\"role\":\"operator\",\"answers\":{\"continue\":\"done\",\"stop\":\"stopped\"}},\"stopped\":{\"kind\":\"end\",\"outcome\":\"stopped\"},\"done\":{\"kind\":\"end\",\"outcome\":\"completed\"},\"failed\":{\"kind\":\"end\",\"outcome\":\"failed\"}}},\"workflowDigest\":\"f4cc7031eb75bc42e9212140a38c7c67f8c73717f345bc217ff0ba03b8eb10b0\",\"configDigest\":\"44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a\",\"mode\":\"rehearsal\",\"kind\":\"rehearsal\",\"executorDigest\":\"e6d1abcaaf9a6555eabb2c109116cc4682c94273053fea171e6f38c0528968b4\",\"step\":\"done\",\"state\":\"completed\",\"stopRequested\":false,\"abortRequested\":false,\"transitions\":3,\"visits\":{\"work\":1,\"check\":1,\"decision\":1,\"done\":1},\"evidence\":{},\"results\":{},\"sessions\":{},\"attemptId\":null,\"createdAt\":\"2026-11-15T05:37:28.655Z\",\"completionDecision\":{\"identity\":{\"head\":\"0d8b0afd92b1ee09d9974aacdb917cd1d2430bb2\",\"treeDigest\":\"e7196ffb92f5d519a938d53ad850e4814c8505196917342517eaeaa927daa243\"},\"taskRevision\":\"16e91326e68f9427220118feb2add26bbafd3e1daa4fad8778255f9d4e6626e2\",\"workflowDigest\":\"f4cc7031eb75bc42e9212140a38c7c67f8c73717f345bc217ff0ba03b8eb10b0\",\"inboxId\":\"c32d7f4b-7d6a-4740-873d-cc1d47aa031a\"},\"finishedAt\":\"2026-11-15T05:37:28.935Z\"}"
+   },
+   {
+    "kind": "attempt",
+    "id": "b140973d-236e-4b2c-89ee-903e16c7f074",
+    "data": "{\"id\":\"b140973d-236e-4b2c-89ee-903e16c7f074\",\"flowId\":\"flow-1\",\"step\":\"work\",\"status\":\"passed\",\"intent\":{\"version\":1,\"attemptId\":\"b140973d-236e-4b2c-89ee-903e16c7f074\",\"projectId\":\"07c7d98f-eb50-43e9-a0fd-4efa4df06bbe\",\"flowId\":\"flow-1\",\"step\":\"work\",\"argv\":[\"/usr/bin/node\",\"-e\",\"console.log(\\\"fictional work\\\")\"],\"cwd\":\"/tmp/factotum-fixture/repo\",\"synthetic\":true,\"projectRoot\":\"/tmp/factotum-fixture/repo\",\"timeoutMs\":60000,\"maxCostMicros\":0,\"executorDigest\":\"e6d1abcaaf9a6555eabb2c109116cc4682c94273053fea171e6f38c0528968b4\",\"inputIdentity\":{\"head\":\"0d8b0afd92b1ee09d9974aacdb917cd1d2430bb2\",\"treeDigest\":\"e7196ffb92f5d519a938d53ad850e4814c8505196917342517eaeaa927daa243\"},\"unit\":\"factotum-07c7d98f-b140973d-236e-4b2c-89ee-903e16c7f074\",\"containment\":\"process\"},\"intentDigest\":\"f903cf7e42a65ade965ba13519d862bd101c2a685bdb34076fb7e232e2f65ce6\",\"reservedMicros\":0,\"createdAt\":\"2026-11-15T05:37:28.662Z\",\"unit\":\"factotum-07c7d98f-b140973d-236e-4b2c-89ee-903e16c7f074\",\"authorityVersion\":2,\"dispatchedAt\":\"2026-11-15T05:37:28.691Z\",\"receipt\":{\"version\":1,\"attemptId\":\"b140973d-236e-4b2c-89ee-903e16c7f074\",\"intentDigest\":\"f903cf7e42a65ade965ba13519d862bd101c2a685bdb34076fb7e232e2f65ce6\",\"owner\":{\"pid\":3234798,\"bootId\":\"00000000-0000-4000-8000-000000000000\",\"startTime\":\"23976025\",\"attemptId\":\"b140973d-236e-4b2c-89ee-903e16c7f074\",\"intentDigest\":\"f903cf7e42a65ade965ba13519d862bd101c2a685bdb34076fb7e232e2f65ce6\"},\"startedAt\":\"2026-11-15T05:37:28.719Z\",\"endedAt\":\"2026-11-15T05:37:28.751Z\",\"exitCode\":0,\"signal\":null,\"reason\":null,\"descendants\":[],\"synthetic\":true,\"costMicros\":0,\"stdoutDigest\":\"e68df3d855fd16bf3be17034230e17f7549d2a9b3c2b3fcaaf6dba897e45c664\",\"stderrDigest\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},\"costMicros\":0,\"settledAt\":\"2026-11-15T05:37:28.761Z\",\"outputIdentity\":{\"head\":\"0d8b0afd92b1ee09d9974aacdb917cd1d2430bb2\",\"treeDigest\":\"e7196ffb92f5d519a938d53ad850e4814c8505196917342517eaeaa927daa243\"}}"
+   },
+   {
+    "kind": "attempt",
+    "id": "40a4cfe3-7a26-47d7-9958-319185cee591",
+    "data": "{\"id\":\"40a4cfe3-7a26-47d7-9958-319185cee591\",\"flowId\":\"flow-1\",\"step\":\"check\",\"status\":\"passed\",\"intent\":{\"version\":1,\"attemptId\":\"40a4cfe3-7a26-47d7-9958-319185cee591\",\"projectId\":\"07c7d98f-eb50-43e9-a0fd-4efa4df06bbe\",\"flowId\":\"flow-1\",\"step\":\"check\",\"argv\":[\"/usr/bin/node\",\"-e\",\"process.exit(require(\\\"fs\\\").existsSync(\\\"fail.flag\\\") ? 1 : 0)\"],\"cwd\":\"/tmp/factotum-fixture/repo\",\"synthetic\":true,\"projectRoot\":\"/tmp/factotum-fixture/repo\",\"timeoutMs\":60000,\"maxCostMicros\":0,\"executorDigest\":\"e6d1abcaaf9a6555eabb2c109116cc4682c94273053fea171e6f38c0528968b4\",\"inputIdentity\":{\"head\":\"0d8b0afd92b1ee09d9974aacdb917cd1d2430bb2\",\"treeDigest\":\"e7196ffb92f5d519a938d53ad850e4814c8505196917342517eaeaa927daa243\"},\"unit\":\"factotum-07c7d98f-40a4cfe3-7a26-47d7-9958-319185cee591\",\"containment\":\"process\"},\"intentDigest\":\"c54b6349c58fa3e4eee966aecf776355068effab837b62692d0b7bdec5b1cea9\",\"reservedMicros\":0,\"createdAt\":\"2026-11-15T05:37:28.791Z\",\"unit\":\"factotum-07c7d98f-40a4cfe3-7a26-47d7-9958-319185cee591\",\"authorityVersion\":2,\"dispatchedAt\":\"2026-11-15T05:37:28.821Z\",\"receipt\":{\"version\":1,\"attemptId\":\"40a4cfe3-7a26-47d7-9958-319185cee591\",\"intentDigest\":\"c54b6349c58fa3e4eee966aecf776355068effab837b62692d0b7bdec5b1cea9\",\"owner\":{\"pid\":3234818,\"bootId\":\"00000000-0000-4000-8000-000000000000\",\"startTime\":\"23976038\",\"attemptId\":\"40a4cfe3-7a26-47d7-9958-319185cee591\",\"intentDigest\":\"c54b6349c58fa3e4eee966aecf776355068effab837b62692d0b7bdec5b1cea9\"},\"startedAt\":\"2026-11-15T05:37:28.852Z\",\"endedAt\":\"2026-11-15T05:37:28.880Z\",\"exitCode\":0,\"signal\":null,\"reason\":null,\"descendants\":[],\"synthetic\":true,\"costMicros\":0,\"stdoutDigest\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\",\"stderrDigest\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},\"costMicros\":0,\"settledAt\":\"2026-11-15T05:37:28.889Z\",\"outputIdentity\":{\"head\":\"0d8b0afd92b1ee09d9974aacdb917cd1d2430bb2\",\"treeDigest\":\"e7196ffb92f5d519a938d53ad850e4814c8505196917342517eaeaa927daa243\"}}"
+   },
+   {
+    "kind": "inbox",
+    "id": "c32d7f4b-7d6a-4740-873d-cc1d47aa031a",
+    "data": "{\"id\":\"c32d7f4b-7d6a-4740-873d-cc1d47aa031a\",\"kind\":\"question\",\"status\":\"answered\",\"flowId\":\"flow-1\",\"version\":2,\"subjectDigest\":\"42e1a5e1d48e7c3401554fb7ccb781f9f3523e7e10e593375b077d60efb7a293\",\"question\":\"Continue the fictional rehearsal?\",\"answers\":[\"continue\",\"stop\"],\"transitions\":{\"continue\":\"done\",\"stop\":\"stopped\"},\"role\":\"operator\",\"createdAt\":\"2026-11-15T05:37:28.921Z\",\"expiresAt\":\"2026-11-16T05:37:28.921Z\",\"answer\":\"continue\",\"answeredBy\":\"operator\",\"answeredAt\":\"2026-11-15T05:37:28.927Z\"}"
+   },
+   {
+    "kind": "wait",
+    "id": "question:c32d7f4b-7d6a-4740-873d-cc1d47aa031a",
+    "data": "{\"id\":\"question:c32d7f4b-7d6a-4740-873d-cc1d47aa031a\",\"flowId\":\"flow-1\",\"inboxId\":\"c32d7f4b-7d6a-4740-873d-cc1d47aa031a\",\"kind\":\"question\",\"startedAt\":\"2026-11-15T05:37:28.921Z\",\"endedAt\":\"2026-11-15T05:37:28.927Z\",\"reason\":\"answered\"}"
+   },
+   {
+    "kind": "inbox",
+    "id": "flow-notice:flow-1:completed:af60356a946d5c9dbd81fd1f8d167e417ab9569b159d68d4663b7e6d7ca8fd14",
+    "data": "{\"id\":\"flow-notice:flow-1:completed:af60356a946d5c9dbd81fd1f8d167e417ab9569b159d68d4663b7e6d7ca8fd14\",\"kind\":\"notice\",\"status\":\"open\",\"flowId\":\"flow-1\",\"version\":1,\"role\":\"orchestrator\",\"title\":\"Fictional task-1: completed\",\"context\":\"The rehearsal finished with outcome completed. Read its retained evidence and retrospective.\",\"outcome\":\"completed\",\"terminalReason\":\"\",\"taskId\":\"task-1\",\"taskRevision\":\"16e91326e68f9427220118feb2add26bbafd3e1daa4fad8778255f9d4e6626e2\",\"retrospectiveId\":\"flow-1\",\"createdAt\":\"2026-11-15T05:37:28.935Z\"}"
+   },
+   {
+    "kind": "retrospective",
+    "id": "flow-1",
+    "data": "{\"id\":\"flow-1\",\"flowId\":\"flow-1\",\"state\":\"completed\",\"kind\":\"rehearsal\",\"attempts\":[{\"id\":\"b140973d-236e-4b2c-89ee-903e16c7f074\",\"step\":\"work\",\"status\":\"passed\",\"elapsedMs\":32},{\"id\":\"40a4cfe3-7a26-47d7-9958-319185cee591\",\"step\":\"check\",\"status\":\"passed\",\"elapsedMs\":28}],\"phases\":{\"work\":{\"count\":1,\"totalMs\":32,\"meanMs\":32},\"check\":{\"count\":1,\"totalMs\":28,\"meanMs\":28}},\"waits\":[{\"id\":\"question:c32d7f4b-7d6a-4740-873d-cc1d47aa031a\",\"flowId\":\"flow-1\",\"inboxId\":\"c32d7f4b-7d6a-4740-873d-cc1d47aa031a\",\"kind\":\"question\",\"startedAt\":\"2026-11-15T05:37:28.921Z\",\"endedAt\":\"2026-11-15T05:37:28.927Z\",\"reason\":\"answered\"}],\"retryRounds\":0,\"findings\":[],\"intervention\":{\"answeredQuestions\":1,\"stops\":0,\"resumes\":0,\"reconciliations\":0},\"cost\":{\"actualMicros\":0,\"unknownAttempts\":0},\"acceptance\":{\"taskRevision\":\"16e91326e68f9427220118feb2add26bbafd3e1daa4fad8778255f9d4e6626e2\",\"briefAvailable\":true,\"criteria\":[\"Observed fixture behaviour\"],\"configuredGatePassed\":false,\"reportedUnverified\":[],\"coverage\":\"Configured checks; individual acceptance coverage is project-defined\",\"unverifiedCriteria\":[\"Observed fixture behaviour\"]},\"regressions\":[],\"events\":[{\"sequence\":22,\"at\":\"2026-11-15T05:37:28.935Z\",\"type\":\"flow.finished\",\"payload\":{\"flowId\":\"flow-1\",\"outcome\":\"completed\",\"synthetic\":true}},{\"sequence\":20,\"at\":\"2026-11-15T05:37:28.928Z\",\"type\":\"inbox.answered\",\"payload\":{\"inboxId\":\"c32d7f4b-7d6a-4740-873d-cc1d47aa031a\",\"flowId\":\"flow-1\",\"answer\":\"continue\"}},{\"sequence\":19,\"at\":\"2026-11-15T05:37:28.927Z\",\"type\":\"flow.moved\",\"payload\":{\"flowId\":\"flow-1\",\"step\":\"done\"}},{\"sequence\":18,\"at\":\"2026-11-15T05:37:28.921Z\",\"type\":\"inbox.opened\",\"payload\":{\"inboxId\":\"c32d7f4b-7d6a-4740-873d-cc1d47aa031a\",\"flowId\":\"flow-1\"}},{\"sequence\":17,\"at\":\"2026-11-15T05:37:28.891Z\",\"type\":\"flow.moved\",\"payload\":{\"flowId\":\"flow-1\",\"step\":\"decision\"}},{\"sequence\":16,\"at\":\"2026-11-15T05:37:28.889Z\",\"type\":\"attempt.settled\",\"payload\":{\"attemptId\":\"40a4cfe3-7a26-47d7-9958-319185cee591\",\"passed\":true,\"costMicros\":0}},{\"sequence\":15,\"at\":\"2026-11-15T05:37:28.863Z\",\"type\":\"attempt.running\",\"payload\":{\"attemptId\":\"40a4cfe3-7a26-47d7-9958-319185cee591\"}},{\"sequence\":14,\"at\":\"2026-11-15T05:37:28.821Z\",\"type\":\"attempt.dispatching\",\"payload\":{\"attemptId\":\"40a4cfe3-7a26-47d7-9958-319185cee591\",\"authorityVersion\":2}},{\"sequence\":13,\"at\":\"2026-11-15T05:37:28.793Z\",\"type\":\"attempt.prepared\",\"payload\":{\"attemptId\":\"40a4cfe3-7a26-47d7-9958-319185cee591\",\"flowId\":\"flow-1\"}},{\"sequence\":12,\"at\":\"2026-11-15T05:37:28.763Z\",\"type\":\"flow.moved\",\"payload\":{\"flowId\":\"flow-1\",\"step\":\"check\"}},{\"sequence\":11,\"at\":\"2026-11-15T05:37:28.761Z\",\"type\":\"attempt.settled\",\"payload\":{\"attemptId\":\"b140973d-236e-4b2c-89ee-903e16c7f074\",\"passed\":true,\"costMicros\":0}},{\"sequence\":10,\"at\":\"2026-11-15T05:37:28.734Z\",\"type\":\"attempt.running\",\"payload\":{\"attemptId\":\"b140973d-236e-4b2c-89ee-903e16c7f074\"}},{\"sequence\":9,\"at\":\"2026-11-15T05:37:28.691Z\",\"type\":\"attempt.dispatching\",\"payload\":{\"attemptId\":\"b140973d-236e-4b2c-89ee-903e16c7f074\",\"authorityVersion\":2}},{\"sequence\":8,\"at\":\"2026-11-15T05:37:28.664Z\",\"type\":\"attempt.prepared\",\"payload\":{\"attemptId\":\"b140973d-236e-4b2c-89ee-903e16c7f074\",\"flowId\":\"flow-1\"}},{\"sequence\":6,\"at\":\"2026-11-15T05:37:28.655Z\",\"type\":\"flow.admitted\",\"payload\":{\"flowId\":\"flow-1\",\"taskId\":\"task-1\"}}],\"pushback\":[],\"limitations\":[\"Event sample is bounded to latest 10000 events; missing events are not evidence of absence.\",\"Phase times include observed waits; they are not a measure of productive time. Per-criterion check adequacy is project-defined.\"],\"contentDigest\":\"2bd126af03d782eb23817abd437bb77bec79901c5bf13282d4e2d0a4f40dfe8d\",\"recordedAt\":\"2026-11-15T05:37:28.936Z\"}"
+   },
+   {
+    "kind": "task",
+    "id": "task-2",
+    "data": "{\"id\":\"task-2\",\"title\":\"Fictional task-2\",\"acceptance\":[\"Observed fixture behaviour\"],\"revision\":\"8bcf07faa2f0876b89304af0a2628aad7e58481fdb36149f064d547ba36ce040\",\"approvedRevision\":\"8bcf07faa2f0876b89304af0a2628aad7e58481fdb36149f064d547ba36ce040\",\"approvalVersion\":2,\"approvedAt\":\"2026-11-15T05:37:28.942Z\",\"approvedWorkflow\":null}"
+   },
+   {
+    "kind": "flow",
+    "id": "flow-2",
+    "data": "{\"strictDecisionRole\":\"operator\",\"mergeDecisionRole\":\"operator\",\"reviewProtocol\":\"fresh-full\",\"effectiveRisk\":\"strict\",\"riskAssessments\":[],\"candidate\":null,\"completionMode\":\"merge\",\"id\":\"flow-2\",\"taskId\":\"task-2\",\"taskSnapshot\":{\"id\":\"task-2\",\"title\":\"Fictional task-2\",\"acceptance\":[\"Observed fixture behaviour\"],\"revision\":\"8bcf07faa2f0876b89304af0a2628aad7e58481fdb36149f064d547ba36ce040\",\"approvedRevision\":\"8bcf07faa2f0876b89304af0a2628aad7e58481fdb36149f064d547ba36ce040\",\"approvalVersion\":2,\"approvedAt\":\"2026-11-15T05:37:28.942Z\",\"approvedWorkflow\":null},\"taskRevision\":\"8bcf07faa2f0876b89304af0a2628aad7e58481fdb36149f064d547ba36ce040\",\"approvalVersion\":2,\"workflow\":{\"version\":1,\"start\":\"work\",\"nodes\":{\"work\":{\"kind\":\"effect\",\"argv\":[\"/usr/bin/node\",\"-e\",\"console.log(\\\"fictional work\\\")\"],\"timeoutMs\":60000,\"next\":\"check\",\"onFailure\":\"failed\"},\"check\":{\"kind\":\"effect\",\"argv\":[\"/usr/bin/node\",\"-e\",\"process.exit(require(\\\"fs\\\").existsSync(\\\"fail.flag\\\") ? 1 : 0)\"],\"timeoutMs\":60000,\"next\":\"decision\",\"onFailure\":\"failed\"},\"decision\":{\"kind\":\"question\",\"question\":\"Continue the fictional rehearsal?\",\"role\":\"operator\",\"answers\":{\"continue\":\"done\",\"stop\":\"stopped\"}},\"stopped\":{\"kind\":\"end\",\"outcome\":\"stopped\"},\"done\":{\"kind\":\"end\",\"outcome\":\"completed\"},\"failed\":{\"kind\":\"end\",\"outcome\":\"failed\"}}},\"workflowDigest\":\"f4cc7031eb75bc42e9212140a38c7c67f8c73717f345bc217ff0ba03b8eb10b0\",\"configDigest\":\"44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a\",\"mode\":\"rehearsal\",\"kind\":\"rehearsal\",\"executorDigest\":\"e6d1abcaaf9a6555eabb2c109116cc4682c94273053fea171e6f38c0528968b4\",\"step\":\"failed\",\"state\":\"failed\",\"stopRequested\":false,\"abortRequested\":false,\"transitions\":2,\"visits\":{\"work\":1,\"check\":1,\"failed\":1},\"evidence\":{},\"results\":{},\"sessions\":{},\"attemptId\":null,\"createdAt\":\"2026-11-15T05:37:28.944Z\",\"finishedAt\":\"2026-11-15T05:37:29.241Z\"}"
+   },
+   {
+    "kind": "attempt",
+    "id": "ecb40992-f527-4c27-9ff7-d1afe52befbe",
+    "data": "{\"id\":\"ecb40992-f527-4c27-9ff7-d1afe52befbe\",\"flowId\":\"flow-2\",\"step\":\"work\",\"status\":\"passed\",\"intent\":{\"version\":1,\"attemptId\":\"ecb40992-f527-4c27-9ff7-d1afe52befbe\",\"projectId\":\"07c7d98f-eb50-43e9-a0fd-4efa4df06bbe\",\"flowId\":\"flow-2\",\"step\":\"work\",\"argv\":[\"/usr/bin/node\",\"-e\",\"console.log(\\\"fictional work\\\")\"],\"cwd\":\"/tmp/factotum-fixture/repo\",\"synthetic\":true,\"projectRoot\":\"/tmp/factotum-fixture/repo\",\"timeoutMs\":60000,\"maxCostMicros\":0,\"executorDigest\":\"e6d1abcaaf9a6555eabb2c109116cc4682c94273053fea171e6f38c0528968b4\",\"inputIdentity\":{\"head\":\"deaeea442b0329852543420b638b5af17d45c33e\",\"treeDigest\":\"6b6b5cfaae9512185f02785e67354d3eb40f67950a6f33fe7d1a468b59616a37\"},\"unit\":\"factotum-07c7d98f-ecb40992-f527-4c27-9ff7-d1afe52befbe\",\"containment\":\"process\"},\"intentDigest\":\"45871b5f7cca6038c78089a0eff1b02c53f3825936cc38e7bc0bed4823c7f0c3\",\"reservedMicros\":0,\"createdAt\":\"2026-11-15T05:37:28.950Z\",\"unit\":\"factotum-07c7d98f-ecb40992-f527-4c27-9ff7-d1afe52befbe\",\"authorityVersion\":2,\"dispatchedAt\":\"2026-11-15T05:37:28.978Z\",\"receipt\":{\"version\":1,\"attemptId\":\"ecb40992-f527-4c27-9ff7-d1afe52befbe\",\"intentDigest\":\"45871b5f7cca6038c78089a0eff1b02c53f3825936cc38e7bc0bed4823c7f0c3\",\"owner\":{\"pid\":3234848,\"bootId\":\"00000000-0000-4000-8000-000000000000\",\"startTime\":\"23976054\",\"attemptId\":\"ecb40992-f527-4c27-9ff7-d1afe52befbe\",\"intentDigest\":\"45871b5f7cca6038c78089a0eff1b02c53f3825936cc38e7bc0bed4823c7f0c3\"},\"startedAt\":\"2026-11-15T05:37:29.009Z\",\"endedAt\":\"2026-11-15T05:37:29.041Z\",\"exitCode\":0,\"signal\":null,\"reason\":null,\"descendants\":[],\"synthetic\":true,\"costMicros\":0,\"stdoutDigest\":\"e68df3d855fd16bf3be17034230e17f7549d2a9b3c2b3fcaaf6dba897e45c664\",\"stderrDigest\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},\"costMicros\":0,\"settledAt\":\"2026-11-15T05:37:29.069Z\",\"outputIdentity\":{\"head\":\"deaeea442b0329852543420b638b5af17d45c33e\",\"treeDigest\":\"6b6b5cfaae9512185f02785e67354d3eb40f67950a6f33fe7d1a468b59616a37\"}}"
+   },
+   {
+    "kind": "attempt",
+    "id": "d5119193-7817-4ea9-b47f-a8b80cd9e7ba",
+    "data": "{\"id\":\"d5119193-7817-4ea9-b47f-a8b80cd9e7ba\",\"flowId\":\"flow-2\",\"step\":\"check\",\"status\":\"failed\",\"intent\":{\"version\":1,\"attemptId\":\"d5119193-7817-4ea9-b47f-a8b80cd9e7ba\",\"projectId\":\"07c7d98f-eb50-43e9-a0fd-4efa4df06bbe\",\"flowId\":\"flow-2\",\"step\":\"check\",\"argv\":[\"/usr/bin/node\",\"-e\",\"process.exit(require(\\\"fs\\\").existsSync(\\\"fail.flag\\\") ? 1 : 0)\"],\"cwd\":\"/tmp/factotum-fixture/repo\",\"synthetic\":true,\"projectRoot\":\"/tmp/factotum-fixture/repo\",\"timeoutMs\":60000,\"maxCostMicros\":0,\"executorDigest\":\"e6d1abcaaf9a6555eabb2c109116cc4682c94273053fea171e6f38c0528968b4\",\"inputIdentity\":{\"head\":\"deaeea442b0329852543420b638b5af17d45c33e\",\"treeDigest\":\"6b6b5cfaae9512185f02785e67354d3eb40f67950a6f33fe7d1a468b59616a37\"},\"unit\":\"factotum-07c7d98f-d5119193-7817-4ea9-b47f-a8b80cd9e7ba\",\"containment\":\"process\"},\"intentDigest\":\"9e286fca814c6226d9501e58ecd847be4d240b223fd862d0e8538e4acd984b9b\",\"reservedMicros\":0,\"createdAt\":\"2026-11-15T05:37:29.096Z\",\"unit\":\"factotum-07c7d98f-d5119193-7817-4ea9-b47f-a8b80cd9e7ba\",\"authorityVersion\":2,\"dispatchedAt\":\"2026-11-15T05:37:29.126Z\",\"receipt\":{\"version\":1,\"attemptId\":\"d5119193-7817-4ea9-b47f-a8b80cd9e7ba\",\"intentDigest\":\"9e286fca814c6226d9501e58ecd847be4d240b223fd862d0e8538e4acd984b9b\",\"owner\":{\"pid\":3234878,\"bootId\":\"00000000-0000-4000-8000-000000000000\",\"startTime\":\"23976069\",\"attemptId\":\"d5119193-7817-4ea9-b47f-a8b80cd9e7ba\",\"intentDigest\":\"9e286fca814c6226d9501e58ecd847be4d240b223fd862d0e8538e4acd984b9b\"},\"startedAt\":\"2026-11-15T05:37:29.159Z\",\"endedAt\":\"2026-11-15T05:37:29.189Z\",\"exitCode\":1,\"signal\":null,\"reason\":null,\"descendants\":[],\"synthetic\":true,\"costMicros\":0,\"stdoutDigest\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\",\"stderrDigest\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},\"costMicros\":0,\"settledAt\":\"2026-11-15T05:37:29.216Z\",\"outputIdentity\":{\"head\":\"deaeea442b0329852543420b638b5af17d45c33e\",\"treeDigest\":\"6b6b5cfaae9512185f02785e67354d3eb40f67950a6f33fe7d1a468b59616a37\"}}"
+   },
+   {
+    "kind": "inbox",
+    "id": "flow-notice:flow-2:failed:ecc03d87928a5a2eede1fa7760792f48597f7ce0804d356fbffb65a8e046808e",
+    "data": "{\"id\":\"flow-notice:flow-2:failed:ecc03d87928a5a2eede1fa7760792f48597f7ce0804d356fbffb65a8e046808e\",\"kind\":\"notice\",\"status\":\"open\",\"flowId\":\"flow-2\",\"version\":1,\"role\":\"orchestrator\",\"title\":\"Fictional task-2: failed\",\"context\":\"The rehearsal finished with outcome failed. Read its retained evidence and retrospective.\",\"outcome\":\"failed\",\"terminalReason\":\"\",\"taskId\":\"task-2\",\"taskRevision\":\"8bcf07faa2f0876b89304af0a2628aad7e58481fdb36149f064d547ba36ce040\",\"retrospectiveId\":\"flow-2\",\"createdAt\":\"2026-11-15T05:37:29.241Z\"}"
+   },
+   {
+    "kind": "retrospective",
+    "id": "flow-2",
+    "data": "{\"id\":\"flow-2\",\"flowId\":\"flow-2\",\"state\":\"failed\",\"kind\":\"rehearsal\",\"attempts\":[{\"id\":\"ecb40992-f527-4c27-9ff7-d1afe52befbe\",\"step\":\"work\",\"status\":\"passed\",\"elapsedMs\":32},{\"id\":\"d5119193-7817-4ea9-b47f-a8b80cd9e7ba\",\"step\":\"check\",\"status\":\"failed\",\"elapsedMs\":30}],\"phases\":{\"work\":{\"count\":1,\"totalMs\":32,\"meanMs\":32},\"check\":{\"count\":1,\"totalMs\":30,\"meanMs\":30}},\"waits\":[],\"retryRounds\":0,\"findings\":[],\"intervention\":{\"answeredQuestions\":0,\"stops\":0,\"resumes\":0,\"reconciliations\":0},\"cost\":{\"actualMicros\":0,\"unknownAttempts\":0},\"acceptance\":{\"taskRevision\":\"8bcf07faa2f0876b89304af0a2628aad7e58481fdb36149f064d547ba36ce040\",\"briefAvailable\":true,\"criteria\":[\"Observed fixture behaviour\"],\"configuredGatePassed\":false,\"reportedUnverified\":[],\"coverage\":\"Configured checks; individual acceptance coverage is project-defined\",\"unverifiedCriteria\":[\"Observed fixture behaviour\"]},\"regressions\":[],\"events\":[{\"sequence\":40,\"at\":\"2026-11-15T05:37:29.241Z\",\"type\":\"flow.finished\",\"payload\":{\"flowId\":\"flow-2\",\"outcome\":\"failed\",\"synthetic\":true}},{\"sequence\":39,\"at\":\"2026-11-15T05:37:29.218Z\",\"type\":\"flow.moved\",\"payload\":{\"flowId\":\"flow-2\",\"step\":\"failed\"}},{\"sequence\":38,\"at\":\"2026-11-15T05:37:29.216Z\",\"type\":\"attempt.settled\",\"payload\":{\"attemptId\":\"d5119193-7817-4ea9-b47f-a8b80cd9e7ba\",\"passed\":false,\"costMicros\":0}},{\"sequence\":37,\"at\":\"2026-11-15T05:37:29.169Z\",\"type\":\"attempt.running\",\"payload\":{\"attemptId\":\"d5119193-7817-4ea9-b47f-a8b80cd9e7ba\"}},{\"sequence\":36,\"at\":\"2026-11-15T05:37:29.127Z\",\"type\":\"attempt.dispatching\",\"payload\":{\"attemptId\":\"d5119193-7817-4ea9-b47f-a8b80cd9e7ba\",\"authorityVersion\":2}},{\"sequence\":35,\"at\":\"2026-11-15T05:37:29.098Z\",\"type\":\"attempt.prepared\",\"payload\":{\"attemptId\":\"d5119193-7817-4ea9-b47f-a8b80cd9e7ba\",\"flowId\":\"flow-2\"}},{\"sequence\":34,\"at\":\"2026-11-15T05:37:29.071Z\",\"type\":\"flow.moved\",\"payload\":{\"flowId\":\"flow-2\",\"step\":\"check\"}},{\"sequence\":33,\"at\":\"2026-11-15T05:37:29.069Z\",\"type\":\"attempt.settled\",\"payload\":{\"attemptId\":\"ecb40992-f527-4c27-9ff7-d1afe52befbe\",\"passed\":true,\"costMicros\":0}},{\"sequence\":32,\"at\":\"2026-11-15T05:37:29.021Z\",\"type\":\"attempt.running\",\"payload\":{\"attemptId\":\"ecb40992-f527-4c27-9ff7-d1afe52befbe\"}},{\"sequence\":31,\"at\":\"2026-11-15T05:37:28.979Z\",\"type\":\"attempt.dispatching\",\"payload\":{\"attemptId\":\"ecb40992-f527-4c27-9ff7-d1afe52befbe\",\"authorityVersion\":2}},{\"sequence\":30,\"at\":\"2026-11-15T05:37:28.951Z\",\"type\":\"attempt.prepared\",\"payload\":{\"attemptId\":\"ecb40992-f527-4c27-9ff7-d1afe52befbe\",\"flowId\":\"flow-2\"}},{\"sequence\":28,\"at\":\"2026-11-15T05:37:28.945Z\",\"type\":\"flow.admitted\",\"payload\":{\"flowId\":\"flow-2\",\"taskId\":\"task-2\"}}],\"pushback\":[],\"limitations\":[\"Event sample is bounded to latest 10000 events; missing events are not evidence of absence.\",\"Phase times include observed waits; they are not a measure of productive time. Per-criterion check adequacy is project-defined.\"],\"contentDigest\":\"bc719445684b52e13e6cd5c62c3c3b2fcfe2d58e9fe87a348de6703f7c6597ad\",\"recordedAt\":\"2026-11-15T05:37:29.242Z\"}"
+   },
+   {
+    "kind": "task",
+    "id": "task-3",
+    "data": "{\"id\":\"task-3\",\"title\":\"Fictional task-3\",\"acceptance\":[\"Observed fixture behaviour\"],\"revision\":\"59c68c8096de2821db7e095cb88c71f8526e8598d3c1a424458ad1fa5b0cf86e\",\"approvedRevision\":\"59c68c8096de2821db7e095cb88c71f8526e8598d3c1a424458ad1fa5b0cf86e\",\"approvalVersion\":2,\"approvedAt\":\"2026-11-15T05:37:29.249Z\",\"approvedWorkflow\":null}"
+   },
+   {
+    "kind": "flow",
+    "id": "flow-3",
+    "data": "{\"strictDecisionRole\":\"operator\",\"mergeDecisionRole\":\"operator\",\"reviewProtocol\":\"fresh-full\",\"effectiveRisk\":\"strict\",\"riskAssessments\":[],\"candidate\":null,\"completionMode\":\"merge\",\"id\":\"flow-3\",\"taskId\":\"task-3\",\"taskSnapshot\":{\"id\":\"task-3\",\"title\":\"Fictional task-3\",\"acceptance\":[\"Observed fixture behaviour\"],\"revision\":\"59c68c8096de2821db7e095cb88c71f8526e8598d3c1a424458ad1fa5b0cf86e\",\"approvedRevision\":\"59c68c8096de2821db7e095cb88c71f8526e8598d3c1a424458ad1fa5b0cf86e\",\"approvalVersion\":2,\"approvedAt\":\"2026-11-15T05:37:29.249Z\",\"approvedWorkflow\":null},\"taskRevision\":\"59c68c8096de2821db7e095cb88c71f8526e8598d3c1a424458ad1fa5b0cf86e\",\"approvalVersion\":2,\"workflow\":{\"version\":1,\"start\":\"work\",\"nodes\":{\"work\":{\"kind\":\"effect\",\"argv\":[\"/usr/bin/node\",\"-e\",\"console.log(\\\"fictional work\\\")\"],\"timeoutMs\":60000,\"next\":\"check\",\"onFailure\":\"failed\"},\"check\":{\"kind\":\"effect\",\"argv\":[\"/usr/bin/node\",\"-e\",\"process.exit(require(\\\"fs\\\").existsSync(\\\"fail.flag\\\") ? 1 : 0)\"],\"timeoutMs\":60000,\"next\":\"decision\",\"onFailure\":\"failed\"},\"decision\":{\"kind\":\"question\",\"question\":\"Continue the fictional rehearsal?\",\"role\":\"operator\",\"answers\":{\"continue\":\"done\",\"stop\":\"stopped\"}},\"stopped\":{\"kind\":\"end\",\"outcome\":\"stopped\"},\"done\":{\"kind\":\"end\",\"outcome\":\"completed\"},\"failed\":{\"kind\":\"end\",\"outcome\":\"failed\"}}},\"workflowDigest\":\"f4cc7031eb75bc42e9212140a38c7c67f8c73717f345bc217ff0ba03b8eb10b0\",\"configDigest\":\"44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a\",\"mode\":\"rehearsal\",\"kind\":\"rehearsal\",\"executorDigest\":\"e6d1abcaaf9a6555eabb2c109116cc4682c94273053fea171e6f38c0528968b4\",\"step\":\"decision\",\"state\":\"waiting\",\"stopRequested\":false,\"abortRequested\":false,\"transitions\":2,\"visits\":{\"work\":1,\"check\":1,\"decision\":1},\"evidence\":{},\"results\":{},\"sessions\":{},\"attemptId\":null,\"createdAt\":\"2026-11-15T05:37:29.250Z\"}"
+   },
+   {
+    "kind": "attempt",
+    "id": "5759e85d-3e2b-468d-99ea-1992a0f154ff",
+    "data": "{\"id\":\"5759e85d-3e2b-468d-99ea-1992a0f154ff\",\"flowId\":\"flow-3\",\"step\":\"work\",\"status\":\"passed\",\"intent\":{\"version\":1,\"attemptId\":\"5759e85d-3e2b-468d-99ea-1992a0f154ff\",\"projectId\":\"07c7d98f-eb50-43e9-a0fd-4efa4df06bbe\",\"flowId\":\"flow-3\",\"step\":\"work\",\"argv\":[\"/usr/bin/node\",\"-e\",\"console.log(\\\"fictional work\\\")\"],\"cwd\":\"/tmp/factotum-fixture/repo\",\"synthetic\":true,\"projectRoot\":\"/tmp/factotum-fixture/repo\",\"timeoutMs\":60000,\"maxCostMicros\":0,\"executorDigest\":\"e6d1abcaaf9a6555eabb2c109116cc4682c94273053fea171e6f38c0528968b4\",\"inputIdentity\":{\"head\":\"cfef49685b98888924825cbf04e4ac3425004f42\",\"treeDigest\":\"e7196ffb92f5d519a938d53ad850e4814c8505196917342517eaeaa927daa243\"},\"unit\":\"factotum-07c7d98f-5759e85d-3e2b-468d-99ea-1992a0f154ff\",\"containment\":\"process\"},\"intentDigest\":\"1bd3508e8b84d2e3d7b1d93bfc82f3d5964f7d2f2e7930a16a6f1c6a4c745e76\",\"reservedMicros\":0,\"createdAt\":\"2026-11-15T05:37:29.256Z\",\"unit\":\"factotum-07c7d98f-5759e85d-3e2b-468d-99ea-1992a0f154ff\",\"authorityVersion\":2,\"dispatchedAt\":\"2026-11-15T05:37:29.284Z\",\"receipt\":{\"version\":1,\"attemptId\":\"5759e85d-3e2b-468d-99ea-1992a0f154ff\",\"intentDigest\":\"1bd3508e8b84d2e3d7b1d93bfc82f3d5964f7d2f2e7930a16a6f1c6a4c745e76\",\"owner\":{\"pid\":3234911,\"bootId\":\"00000000-0000-4000-8000-000000000000\",\"startTime\":\"23976085\",\"attemptId\":\"5759e85d-3e2b-468d-99ea-1992a0f154ff\",\"intentDigest\":\"1bd3508e8b84d2e3d7b1d93bfc82f3d5964f7d2f2e7930a16a6f1c6a4c745e76\"},\"startedAt\":\"2026-11-15T05:37:29.312Z\",\"endedAt\":\"2026-11-15T05:37:29.349Z\",\"exitCode\":0,\"signal\":null,\"reason\":null,\"descendants\":[],\"synthetic\":true,\"costMicros\":0,\"stdoutDigest\":\"e68df3d855fd16bf3be17034230e17f7549d2a9b3c2b3fcaaf6dba897e45c664\",\"stderrDigest\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},\"costMicros\":0,\"settledAt\":\"2026-11-15T05:37:29.372Z\",\"outputIdentity\":{\"head\":\"cfef49685b98888924825cbf04e4ac3425004f42\",\"treeDigest\":\"e7196ffb92f5d519a938d53ad850e4814c8505196917342517eaeaa927daa243\"}}"
+   },
+   {
+    "kind": "attempt",
+    "id": "b9244439-db55-457e-a6ea-856d0112de41",
+    "data": "{\"id\":\"b9244439-db55-457e-a6ea-856d0112de41\",\"flowId\":\"flow-3\",\"step\":\"check\",\"status\":\"passed\",\"intent\":{\"version\":1,\"attemptId\":\"b9244439-db55-457e-a6ea-856d0112de41\",\"projectId\":\"07c7d98f-eb50-43e9-a0fd-4efa4df06bbe\",\"flowId\":\"flow-3\",\"step\":\"check\",\"argv\":[\"/usr/bin/node\",\"-e\",\"process.exit(require(\\\"fs\\\").existsSync(\\\"fail.flag\\\") ? 1 : 0)\"],\"cwd\":\"/tmp/factotum-fixture/repo\",\"synthetic\":true,\"projectRoot\":\"/tmp/factotum-fixture/repo\",\"timeoutMs\":60000,\"maxCostMicros\":0,\"executorDigest\":\"e6d1abcaaf9a6555eabb2c109116cc4682c94273053fea171e6f38c0528968b4\",\"inputIdentity\":{\"head\":\"cfef49685b98888924825cbf04e4ac3425004f42\",\"treeDigest\":\"e7196ffb92f5d519a938d53ad850e4814c8505196917342517eaeaa927daa243\"},\"unit\":\"factotum-07c7d98f-b9244439-db55-457e-a6ea-856d0112de41\",\"containment\":\"process\"},\"intentDigest\":\"ceae3c1545ea6231b5a3227aac18240cde10bc856c6a87fbf707aef100f5b04d\",\"reservedMicros\":0,\"createdAt\":\"2026-11-15T05:37:29.400Z\",\"unit\":\"factotum-07c7d98f-b9244439-db55-457e-a6ea-856d0112de41\",\"authorityVersion\":2,\"dispatchedAt\":\"2026-11-15T05:37:29.428Z\",\"receipt\":{\"version\":1,\"attemptId\":\"b9244439-db55-457e-a6ea-856d0112de41\",\"intentDigest\":\"ceae3c1545ea6231b5a3227aac18240cde10bc856c6a87fbf707aef100f5b04d\",\"owner\":{\"pid\":3234934,\"bootId\":\"00000000-0000-4000-8000-000000000000\",\"startTime\":\"23976099\",\"attemptId\":\"b9244439-db55-457e-a6ea-856d0112de41\",\"intentDigest\":\"ceae3c1545ea6231b5a3227aac18240cde10bc856c6a87fbf707aef100f5b04d\"},\"startedAt\":\"2026-11-15T05:37:29.460Z\",\"endedAt\":\"2026-11-15T05:37:29.491Z\",\"exitCode\":0,\"signal\":null,\"reason\":null,\"descendants\":[],\"synthetic\":true,\"costMicros\":0,\"stdoutDigest\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\",\"stderrDigest\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"},\"costMicros\":0,\"settledAt\":\"2026-11-15T05:37:29.498Z\",\"outputIdentity\":{\"head\":\"cfef49685b98888924825cbf04e4ac3425004f42\",\"treeDigest\":\"e7196ffb92f5d519a938d53ad850e4814c8505196917342517eaeaa927daa243\"}}"
+   },
+   {
+    "kind": "inbox",
+    "id": "c8066000-cfa7-4a8f-a642-2189a76b93d1",
+    "data": "{\"id\":\"c8066000-cfa7-4a8f-a642-2189a76b93d1\",\"kind\":\"question\",\"status\":\"open\",\"flowId\":\"flow-3\",\"version\":1,\"subjectDigest\":\"1ba8ffb53d2a1ca04a44fcc3c439b42ca18fbe2cac5b2cf4e02c336b37a2191c\",\"question\":\"Continue the fictional rehearsal?\",\"answers\":[\"continue\",\"stop\"],\"transitions\":{\"continue\":\"done\",\"stop\":\"stopped\"},\"role\":\"operator\",\"createdAt\":\"2026-11-15T05:37:29.528Z\",\"expiresAt\":\"2026-11-16T05:37:29.528Z\"}"
+   },
+   {
+    "kind": "wait",
+    "id": "question:c8066000-cfa7-4a8f-a642-2189a76b93d1",
+    "data": "{\"id\":\"question:c8066000-cfa7-4a8f-a642-2189a76b93d1\",\"flowId\":\"flow-3\",\"inboxId\":\"c8066000-cfa7-4a8f-a642-2189a76b93d1\",\"kind\":\"question\",\"startedAt\":\"2026-11-15T05:37:29.528Z\",\"endedAt\":null}"
+   }
+  ],
+  "events": [
+   {
+    "sequence": 1,
+    "at": "2026-11-15T05:37:28.649Z",
+    "type": "project.initialized",
+    "payload": "{\"name\":\"Fictional release-format project\",\"synthetic\":true}"
+   },
+   {
+    "sequence": 2,
+    "at": "2026-11-15T05:37:28.651Z",
+    "type": "task.updated",
+    "payload": "{\"taskId\":\"task-1\",\"revision\":\"16e91326e68f9427220118feb2add26bbafd3e1daa4fad8778255f9d4e6626e2\"}"
+   },
+   {
+    "sequence": 3,
+    "at": "2026-11-15T05:37:28.652Z",
+    "type": "command.completed",
+    "payload": "{\"commandId\":\"fixture-0\",\"operation\":\"task.put\",\"actor\":\"operator\"}"
+   },
+   {
+    "sequence": 4,
+    "at": "2026-11-15T05:37:28.652Z",
+    "type": "task.approved",
+    "payload": "{\"taskId\":\"task-1\",\"revision\":\"16e91326e68f9427220118feb2add26bbafd3e1daa4fad8778255f9d4e6626e2\",\"by\":\"operator\"}"
+   },
+   {
+    "sequence": 5,
+    "at": "2026-11-15T05:37:28.652Z",
+    "type": "command.completed",
+    "payload": "{\"commandId\":\"fixture-1\",\"operation\":\"task.approve\",\"actor\":\"operator\"}"
+   },
+   {
+    "sequence": 6,
+    "at": "2026-11-15T05:37:28.655Z",
+    "type": "flow.admitted",
+    "payload": "{\"flowId\":\"flow-1\",\"taskId\":\"task-1\"}"
+   },
+   {
+    "sequence": 7,
+    "at": "2026-11-15T05:37:28.655Z",
+    "type": "command.completed",
+    "payload": "{\"commandId\":\"fixture-2\",\"operation\":\"flow.start\",\"actor\":\"operator\"}"
+   },
+   {
+    "sequence": 8,
+    "at": "2026-11-15T05:37:28.664Z",
+    "type": "attempt.prepared",
+    "payload": "{\"attemptId\":\"b140973d-236e-4b2c-89ee-903e16c7f074\",\"flowId\":\"flow-1\"}"
+   },
+   {
+    "sequence": 9,
+    "at": "2026-11-15T05:37:28.691Z",
+    "type": "attempt.dispatching",
+    "payload": "{\"attemptId\":\"b140973d-236e-4b2c-89ee-903e16c7f074\",\"authorityVersion\":2}"
+   },
+   {
+    "sequence": 10,
+    "at": "2026-11-15T05:37:28.734Z",
+    "type": "attempt.running",
+    "payload": "{\"attemptId\":\"b140973d-236e-4b2c-89ee-903e16c7f074\"}"
+   },
+   {
+    "sequence": 11,
+    "at": "2026-11-15T05:37:28.761Z",
+    "type": "attempt.settled",
+    "payload": "{\"attemptId\":\"b140973d-236e-4b2c-89ee-903e16c7f074\",\"passed\":true,\"costMicros\":0}"
+   },
+   {
+    "sequence": 12,
+    "at": "2026-11-15T05:37:28.763Z",
+    "type": "flow.moved",
+    "payload": "{\"flowId\":\"flow-1\",\"step\":\"check\"}"
+   },
+   {
+    "sequence": 13,
+    "at": "2026-11-15T05:37:28.793Z",
+    "type": "attempt.prepared",
+    "payload": "{\"attemptId\":\"40a4cfe3-7a26-47d7-9958-319185cee591\",\"flowId\":\"flow-1\"}"
+   },
+   {
+    "sequence": 14,
+    "at": "2026-11-15T05:37:28.821Z",
+    "type": "attempt.dispatching",
+    "payload": "{\"attemptId\":\"40a4cfe3-7a26-47d7-9958-319185cee591\",\"authorityVersion\":2}"
+   },
+   {
+    "sequence": 15,
+    "at": "2026-11-15T05:37:28.863Z",
+    "type": "attempt.running",
+    "payload": "{\"attemptId\":\"40a4cfe3-7a26-47d7-9958-319185cee591\"}"
+   },
+   {
+    "sequence": 16,
+    "at": "2026-11-15T05:37:28.889Z",
+    "type": "attempt.settled",
+    "payload": "{\"attemptId\":\"40a4cfe3-7a26-47d7-9958-319185cee591\",\"passed\":true,\"costMicros\":0}"
+   },
+   {
+    "sequence": 17,
+    "at": "2026-11-15T05:37:28.891Z",
+    "type": "flow.moved",
+    "payload": "{\"flowId\":\"flow-1\",\"step\":\"decision\"}"
+   },
+   {
+    "sequence": 18,
+    "at": "2026-11-15T05:37:28.921Z",
+    "type": "inbox.opened",
+    "payload": "{\"inboxId\":\"c32d7f4b-7d6a-4740-873d-cc1d47aa031a\",\"flowId\":\"flow-1\"}"
+   },
+   {
+    "sequence": 19,
+    "at": "2026-11-15T05:37:28.927Z",
+    "type": "flow.moved",
+    "payload": "{\"flowId\":\"flow-1\",\"step\":\"done\"}"
+   },
+   {
+    "sequence": 20,
+    "at": "2026-11-15T05:37:28.928Z",
+    "type": "inbox.answered",
+    "payload": "{\"inboxId\":\"c32d7f4b-7d6a-4740-873d-cc1d47aa031a\",\"flowId\":\"flow-1\",\"answer\":\"continue\"}"
+   },
+   {
+    "sequence": 21,
+    "at": "2026-11-15T05:37:28.928Z",
+    "type": "command.completed",
+    "payload": "{\"commandId\":\"fixture-3\",\"operation\":\"answer\",\"actor\":\"operator\"}"
+   },
+   {
+    "sequence": 22,
+    "at": "2026-11-15T05:37:28.935Z",
+    "type": "flow.finished",
+    "payload": "{\"flowId\":\"flow-1\",\"outcome\":\"completed\",\"synthetic\":true}"
+   },
+   {
+    "sequence": 23,
+    "at": "2026-11-15T05:37:28.936Z",
+    "type": "retrospective.recorded",
+    "payload": "{\"flowId\":\"flow-1\",\"contentDigest\":\"2bd126af03d782eb23817abd437bb77bec79901c5bf13282d4e2d0a4f40dfe8d\"}"
+   },
+   {
+    "sequence": 24,
+    "at": "2026-11-15T05:37:28.942Z",
+    "type": "task.updated",
+    "payload": "{\"taskId\":\"task-2\",\"revision\":\"8bcf07faa2f0876b89304af0a2628aad7e58481fdb36149f064d547ba36ce040\"}"
+   },
+   {
+    "sequence": 25,
+    "at": "2026-11-15T05:37:28.942Z",
+    "type": "command.completed",
+    "payload": "{\"commandId\":\"fixture-4\",\"operation\":\"task.put\",\"actor\":\"operator\"}"
+   },
+   {
+    "sequence": 26,
+    "at": "2026-11-15T05:37:28.942Z",
+    "type": "task.approved",
+    "payload": "{\"taskId\":\"task-2\",\"revision\":\"8bcf07faa2f0876b89304af0a2628aad7e58481fdb36149f064d547ba36ce040\",\"by\":\"operator\"}"
+   },
+   {
+    "sequence": 27,
+    "at": "2026-11-15T05:37:28.942Z",
+    "type": "command.completed",
+    "payload": "{\"commandId\":\"fixture-5\",\"operation\":\"task.approve\",\"actor\":\"operator\"}"
+   },
+   {
+    "sequence": 28,
+    "at": "2026-11-15T05:37:28.945Z",
+    "type": "flow.admitted",
+    "payload": "{\"flowId\":\"flow-2\",\"taskId\":\"task-2\"}"
+   },
+   {
+    "sequence": 29,
+    "at": "2026-11-15T05:37:28.945Z",
+    "type": "command.completed",
+    "payload": "{\"commandId\":\"fixture-6\",\"operation\":\"flow.start\",\"actor\":\"operator\"}"
+   },
+   {
+    "sequence": 30,
+    "at": "2026-11-15T05:37:28.951Z",
+    "type": "attempt.prepared",
+    "payload": "{\"attemptId\":\"ecb40992-f527-4c27-9ff7-d1afe52befbe\",\"flowId\":\"flow-2\"}"
+   },
+   {
+    "sequence": 31,
+    "at": "2026-11-15T05:37:28.979Z",
+    "type": "attempt.dispatching",
+    "payload": "{\"attemptId\":\"ecb40992-f527-4c27-9ff7-d1afe52befbe\",\"authorityVersion\":2}"
+   },
+   {
+    "sequence": 32,
+    "at": "2026-11-15T05:37:29.021Z",
+    "type": "attempt.running",
+    "payload": "{\"attemptId\":\"ecb40992-f527-4c27-9ff7-d1afe52befbe\"}"
+   },
+   {
+    "sequence": 33,
+    "at": "2026-11-15T05:37:29.069Z",
+    "type": "attempt.settled",
+    "payload": "{\"attemptId\":\"ecb40992-f527-4c27-9ff7-d1afe52befbe\",\"passed\":true,\"costMicros\":0}"
+   },
+   {
+    "sequence": 34,
+    "at": "2026-11-15T05:37:29.071Z",
+    "type": "flow.moved",
+    "payload": "{\"flowId\":\"flow-2\",\"step\":\"check\"}"
+   },
+   {
+    "sequence": 35,
+    "at": "2026-11-15T05:37:29.098Z",
+    "type": "attempt.prepared",
+    "payload": "{\"attemptId\":\"d5119193-7817-4ea9-b47f-a8b80cd9e7ba\",\"flowId\":\"flow-2\"}"
+   },
+   {
+    "sequence": 36,
+    "at": "2026-11-15T05:37:29.127Z",
+    "type": "attempt.dispatching",
+    "payload": "{\"attemptId\":\"d5119193-7817-4ea9-b47f-a8b80cd9e7ba\",\"authorityVersion\":2}"
+   },
+   {
+    "sequence": 37,
+    "at": "2026-11-15T05:37:29.169Z",
+    "type": "attempt.running",
+    "payload": "{\"attemptId\":\"d5119193-7817-4ea9-b47f-a8b80cd9e7ba\"}"
+   },
+   {
+    "sequence": 38,
+    "at": "2026-11-15T05:37:29.216Z",
+    "type": "attempt.settled",
+    "payload": "{\"attemptId\":\"d5119193-7817-4ea9-b47f-a8b80cd9e7ba\",\"passed\":false,\"costMicros\":0}"
+   },
+   {
+    "sequence": 39,
+    "at": "2026-11-15T05:37:29.218Z",
+    "type": "flow.moved",
+    "payload": "{\"flowId\":\"flow-2\",\"step\":\"failed\"}"
+   },
+   {
+    "sequence": 40,
+    "at": "2026-11-15T05:37:29.241Z",
+    "type": "flow.finished",
+    "payload": "{\"flowId\":\"flow-2\",\"outcome\":\"failed\",\"synthetic\":true}"
+   },
+   {
+    "sequence": 41,
+    "at": "2026-11-15T05:37:29.242Z",
+    "type": "retrospective.recorded",
+    "payload": "{\"flowId\":\"flow-2\",\"contentDigest\":\"bc719445684b52e13e6cd5c62c3c3b2fcfe2d58e9fe87a348de6703f7c6597ad\"}"
+   },
+   {
+    "sequence": 42,
+    "at": "2026-11-15T05:37:29.248Z",
+    "type": "task.updated",
+    "payload": "{\"taskId\":\"task-3\",\"revision\":\"59c68c8096de2821db7e095cb88c71f8526e8598d3c1a424458ad1fa5b0cf86e\"}"
+   },
+   {
+    "sequence": 43,
+    "at": "2026-11-15T05:37:29.248Z",
+    "type": "command.completed",
+    "payload": "{\"commandId\":\"fixture-7\",\"operation\":\"task.put\",\"actor\":\"operator\"}"
+   },
+   {
+    "sequence": 44,
+    "at": "2026-11-15T05:37:29.249Z",
+    "type": "task.approved",
+    "payload": "{\"taskId\":\"task-3\",\"revision\":\"59c68c8096de2821db7e095cb88c71f8526e8598d3c1a424458ad1fa5b0cf86e\",\"by\":\"operator\"}"
+   },
+   {
+    "sequence": 45,
+    "at": "2026-11-15T05:37:29.249Z",
+    "type": "command.completed",
+    "payload": "{\"commandId\":\"fixture-8\",\"operation\":\"task.approve\",\"actor\":\"operator\"}"
+   },
+   {
+    "sequence": 46,
+    "at": "2026-11-15T05:37:29.251Z",
+    "type": "flow.admitted",
+    "payload": "{\"flowId\":\"flow-3\",\"taskId\":\"task-3\"}"
+   },
+   {
+    "sequence": 47,
+    "at": "2026-11-15T05:37:29.251Z",
+    "type": "command.completed",
+    "payload": "{\"commandId\":\"fixture-9\",\"operation\":\"flow.start\",\"actor\":\"operator\"}"
+   },
+   {
+    "sequence": 48,
+    "at": "2026-11-15T05:37:29.258Z",
+    "type": "attempt.prepared",
+    "payload": "{\"attemptId\":\"5759e85d-3e2b-468d-99ea-1992a0f154ff\",\"flowId\":\"flow-3\"}"
+   },
+   {
+    "sequence": 49,
+    "at": "2026-11-15T05:37:29.284Z",
+    "type": "attempt.dispatching",
+    "payload": "{\"attemptId\":\"5759e85d-3e2b-468d-99ea-1992a0f154ff\",\"authorityVersion\":2}"
+   },
+   {
+    "sequence": 50,
+    "at": "2026-11-15T05:37:29.327Z",
+    "type": "attempt.running",
+    "payload": "{\"attemptId\":\"5759e85d-3e2b-468d-99ea-1992a0f154ff\"}"
+   },
+   {
+    "sequence": 51,
+    "at": "2026-11-15T05:37:29.372Z",
+    "type": "attempt.settled",
+    "payload": "{\"attemptId\":\"5759e85d-3e2b-468d-99ea-1992a0f154ff\",\"passed\":true,\"costMicros\":0}"
+   },
+   {
+    "sequence": 52,
+    "at": "2026-11-15T05:37:29.374Z",
+    "type": "flow.moved",
+    "payload": "{\"flowId\":\"flow-3\",\"step\":\"check\"}"
+   },
+   {
+    "sequence": 53,
+    "at": "2026-11-15T05:37:29.402Z",
+    "type": "attempt.prepared",
+    "payload": "{\"attemptId\":\"b9244439-db55-457e-a6ea-856d0112de41\",\"flowId\":\"flow-3\"}"
+   },
+   {
+    "sequence": 54,
+    "at": "2026-11-15T05:37:29.428Z",
+    "type": "attempt.dispatching",
+    "payload": "{\"attemptId\":\"b9244439-db55-457e-a6ea-856d0112de41\",\"authorityVersion\":2}"
+   },
+   {
+    "sequence": 55,
+    "at": "2026-11-15T05:37:29.473Z",
+    "type": "attempt.running",
+    "payload": "{\"attemptId\":\"b9244439-db55-457e-a6ea-856d0112de41\"}"
+   },
+   {
+    "sequence": 56,
+    "at": "2026-11-15T05:37:29.498Z",
+    "type": "attempt.settled",
+    "payload": "{\"attemptId\":\"b9244439-db55-457e-a6ea-856d0112de41\",\"passed\":true,\"costMicros\":0}"
+   },
+   {
+    "sequence": 57,
+    "at": "2026-11-15T05:37:29.499Z",
+    "type": "flow.moved",
+    "payload": "{\"flowId\":\"flow-3\",\"step\":\"decision\"}"
+   },
+   {
+    "sequence": 58,
+    "at": "2026-11-15T05:37:29.528Z",
+    "type": "inbox.opened",
+    "payload": "{\"inboxId\":\"c8066000-cfa7-4a8f-a642-2189a76b93d1\",\"flowId\":\"flow-3\"}"
+   }
+  ],
+  "commands": [
+   {
+    "id": "fixture-0",
+    "digest": "93e16be15f58aa4b5cb86d65b119d8bf724fd0496168961b5a0f1f61d1b1c4ab",
+    "data": "{\"projectId\":\"07c7d98f-eb50-43e9-a0fd-4efa4df06bbe\",\"commandId\":\"fixture-0\",\"operation\":\"task.put\",\"actor\":\"operator\",\"acceptedAt\":\"2026-11-15T05:37:28.650Z\",\"status\":\"completed\",\"result\":{\"id\":\"task-1\",\"title\":\"Fictional task-1\",\"acceptance\":[\"Observed fixture behaviour\"],\"revision\":\"16e91326e68f9427220118feb2add26bbafd3e1daa4fad8778255f9d4e6626e2\",\"approvedRevision\":null,\"approvalVersion\":1},\"completedAt\":\"2026-11-15T05:37:28.652Z\"}"
+   },
+   {
+    "id": "fixture-1",
+    "digest": "ea21cfea007cc6f9253c6b4f4e863e2b6c714e7cb19497fda6a85ca0cbe3708b",
+    "data": "{\"projectId\":\"07c7d98f-eb50-43e9-a0fd-4efa4df06bbe\",\"commandId\":\"fixture-1\",\"operation\":\"task.approve\",\"actor\":\"operator\",\"acceptedAt\":\"2026-11-15T05:37:28.652Z\",\"status\":\"completed\",\"result\":{\"id\":\"task-1\",\"title\":\"Fictional task-1\",\"acceptance\":[\"Observed fixture behaviour\"],\"revision\":\"16e91326e68f9427220118feb2add26bbafd3e1daa4fad8778255f9d4e6626e2\",\"approvedRevision\":\"16e91326e68f9427220118feb2add26bbafd3e1daa4fad8778255f9d4e6626e2\",\"approvalVersion\":2,\"approvedAt\":\"2026-11-15T05:37:28.652Z\",\"approvedWorkflow\":null},\"completedAt\":\"2026-11-15T05:37:28.652Z\"}"
+   },
+   {
+    "id": "fixture-2",
+    "digest": "b2ec4cfb219adff9a6f365138f45b44f726538a1c5a10513a569cd9fca7ee9cd",
+    "data": "{\"projectId\":\"07c7d98f-eb50-43e9-a0fd-4efa4df06bbe\",\"commandId\":\"fixture-2\",\"operation\":\"flow.start\",\"actor\":\"operator\",\"acceptedAt\":\"2026-11-15T05:37:28.652Z\",\"status\":\"completed\",\"result\":{\"strictDecisionRole\":\"operator\",\"mergeDecisionRole\":\"operator\",\"reviewProtocol\":\"fresh-full\",\"effectiveRisk\":\"strict\",\"riskAssessments\":[],\"candidate\":null,\"completionMode\":\"merge\",\"id\":\"flow-1\",\"taskId\":\"task-1\",\"taskSnapshot\":{\"id\":\"task-1\",\"title\":\"Fictional task-1\",\"acceptance\":[\"Observed fixture behaviour\"],\"revision\":\"16e91326e68f9427220118feb2add26bbafd3e1daa4fad8778255f9d4e6626e2\",\"approvedRevision\":\"16e91326e68f9427220118feb2add26bbafd3e1daa4fad8778255f9d4e6626e2\",\"approvalVersion\":2,\"approvedAt\":\"2026-11-15T05:37:28.652Z\",\"approvedWorkflow\":null},\"taskRevision\":\"16e91326e68f9427220118feb2add26bbafd3e1daa4fad8778255f9d4e6626e2\",\"approvalVersion\":2,\"workflow\":{\"version\":1,\"start\":\"work\",\"nodes\":{\"work\":{\"kind\":\"effect\",\"argv\":[\"/usr/bin/node\",\"-e\",\"console.log(\\\"fictional work\\\")\"],\"timeoutMs\":60000,\"next\":\"check\",\"onFailure\":\"failed\"},\"check\":{\"kind\":\"effect\",\"argv\":[\"/usr/bin/node\",\"-e\",\"process.exit(require(\\\"fs\\\").existsSync(\\\"fail.flag\\\") ? 1 : 0)\"],\"timeoutMs\":60000,\"next\":\"decision\",\"onFailure\":\"failed\"},\"decision\":{\"kind\":\"question\",\"question\":\"Continue the fictional rehearsal?\",\"role\":\"operator\",\"answers\":{\"continue\":\"done\",\"stop\":\"stopped\"}},\"stopped\":{\"kind\":\"end\",\"outcome\":\"stopped\"},\"done\":{\"kind\":\"end\",\"outcome\":\"completed\"},\"failed\":{\"kind\":\"end\",\"outcome\":\"failed\"}}},\"workflowDigest\":\"f4cc7031eb75bc42e9212140a38c7c67f8c73717f345bc217ff0ba03b8eb10b0\",\"configDigest\":\"44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a\",\"mode\":\"rehearsal\",\"kind\":\"rehearsal\",\"executorDigest\":\"e6d1abcaaf9a6555eabb2c109116cc4682c94273053fea171e6f38c0528968b4\",\"step\":\"work\",\"state\":\"ready\",\"stopRequested\":false,\"abortRequested\":false,\"transitions\":0,\"visits\":{\"work\":1},\"evidence\":{},\"results\":{},\"sessions\":{},\"attemptId\":null,\"createdAt\":\"2026-11-15T05:37:28.655Z\"},\"completedAt\":\"2026-11-15T05:37:28.655Z\"}"
+   },
+   {
+    "id": "fixture-3",
+    "digest": "36231344895c237c35996cc080b7c90732a6b64bcf5f679cc897ce14bf148a72",
+    "data": "{\"projectId\":\"07c7d98f-eb50-43e9-a0fd-4efa4df06bbe\",\"commandId\":\"fixture-3\",\"operation\":\"answer\",\"actor\":\"operator\",\"acceptedAt\":\"2026-11-15T05:37:28.921Z\",\"status\":\"completed\",\"result\":{\"id\":\"c32d7f4b-7d6a-4740-873d-cc1d47aa031a\",\"kind\":\"question\",\"status\":\"answered\",\"flowId\":\"flow-1\",\"version\":2,\"subjectDigest\":\"42e1a5e1d48e7c3401554fb7ccb781f9f3523e7e10e593375b077d60efb7a293\",\"question\":\"Continue the fictional rehearsal?\",\"answers\":[\"continue\",\"stop\"],\"transitions\":{\"continue\":\"done\",\"stop\":\"stopped\"},\"role\":\"operator\",\"createdAt\":\"2026-11-15T05:37:28.921Z\",\"expiresAt\":\"2026-11-16T05:37:28.921Z\",\"answer\":\"continue\",\"answeredBy\":\"operator\",\"answeredAt\":\"2026-11-15T05:37:28.927Z\"},\"completedAt\":\"2026-11-15T05:37:28.928Z\"}"
+   },
+   {
+    "id": "fixture-4",
+    "digest": "23db893eacad2f6ef0b74519ab4189e5e8d050c89925feb6c4a76ba316e48470",
+    "data": "{\"projectId\":\"07c7d98f-eb50-43e9-a0fd-4efa4df06bbe\",\"commandId\":\"fixture-4\",\"operation\":\"task.put\",\"actor\":\"operator\",\"acceptedAt\":\"2026-11-15T05:37:28.942Z\",\"status\":\"completed\",\"result\":{\"id\":\"task-2\",\"title\":\"Fictional task-2\",\"acceptance\":[\"Observed fixture behaviour\"],\"revision\":\"8bcf07faa2f0876b89304af0a2628aad7e58481fdb36149f064d547ba36ce040\",\"approvedRevision\":null,\"approvalVersion\":1},\"completedAt\":\"2026-11-15T05:37:28.942Z\"}"
+   },
+   {
+    "id": "fixture-5",
+    "digest": "382c8a0212f3b7e0106c5b081204de45840d7f08a421ae1f11d362aaa2743e94",
+    "data": "{\"projectId\":\"07c7d98f-eb50-43e9-a0fd-4efa4df06bbe\",\"commandId\":\"fixture-5\",\"operation\":\"task.approve\",\"actor\":\"operator\",\"acceptedAt\":\"2026-11-15T05:37:28.942Z\",\"status\":\"completed\",\"result\":{\"id\":\"task-2\",\"title\":\"Fictional task-2\",\"acceptance\":[\"Observed fixture behaviour\"],\"revision\":\"8bcf07faa2f0876b89304af0a2628aad7e58481fdb36149f064d547ba36ce040\",\"approvedRevision\":\"8bcf07faa2f0876b89304af0a2628aad7e58481fdb36149f064d547ba36ce040\",\"approvalVersion\":2,\"approvedAt\":\"2026-11-15T05:37:28.942Z\",\"approvedWorkflow\":null},\"completedAt\":\"2026-11-15T05:37:28.942Z\"}"
+   },
+   {
+    "id": "fixture-6",
+    "digest": "1a7e42c7e459e624b11d15c2b3f21bca8b220d79a71161571af75663d55e29b9",
+    "data": "{\"projectId\":\"07c7d98f-eb50-43e9-a0fd-4efa4df06bbe\",\"commandId\":\"fixture-6\",\"operation\":\"flow.start\",\"actor\":\"operator\",\"acceptedAt\":\"2026-11-15T05:37:28.942Z\",\"status\":\"completed\",\"result\":{\"strictDecisionRole\":\"operator\",\"mergeDecisionRole\":\"operator\",\"reviewProtocol\":\"fresh-full\",\"effectiveRisk\":\"strict\",\"riskAssessments\":[],\"candidate\":null,\"completionMode\":\"merge\",\"id\":\"flow-2\",\"taskId\":\"task-2\",\"taskSnapshot\":{\"id\":\"task-2\",\"title\":\"Fictional task-2\",\"acceptance\":[\"Observed fixture behaviour\"],\"revision\":\"8bcf07faa2f0876b89304af0a2628aad7e58481fdb36149f064d547ba36ce040\",\"approvedRevision\":\"8bcf07faa2f0876b89304af0a2628aad7e58481fdb36149f064d547ba36ce040\",\"approvalVersion\":2,\"approvedAt\":\"2026-11-15T05:37:28.942Z\",\"approvedWorkflow\":null},\"taskRevision\":\"8bcf07faa2f0876b89304af0a2628aad7e58481fdb36149f064d547ba36ce040\",\"approvalVersion\":2,\"workflow\":{\"version\":1,\"start\":\"work\",\"nodes\":{\"work\":{\"kind\":\"effect\",\"argv\":[\"/usr/bin/node\",\"-e\",\"console.log(\\\"fictional work\\\")\"],\"timeoutMs\":60000,\"next\":\"check\",\"onFailure\":\"failed\"},\"check\":{\"kind\":\"effect\",\"argv\":[\"/usr/bin/node\",\"-e\",\"process.exit(require(\\\"fs\\\").existsSync(\\\"fail.flag\\\") ? 1 : 0)\"],\"timeoutMs\":60000,\"next\":\"decision\",\"onFailure\":\"failed\"},\"decision\":{\"kind\":\"question\",\"question\":\"Continue the fictional rehearsal?\",\"role\":\"operator\",\"answers\":{\"continue\":\"done\",\"stop\":\"stopped\"}},\"stopped\":{\"kind\":\"end\",\"outcome\":\"stopped\"},\"done\":{\"kind\":\"end\",\"outcome\":\"completed\"},\"failed\":{\"kind\":\"end\",\"outcome\":\"failed\"}}},\"workflowDigest\":\"f4cc7031eb75bc42e9212140a38c7c67f8c73717f345bc217ff0ba03b8eb10b0\",\"configDigest\":\"44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a\",\"mode\":\"rehearsal\",\"kind\":\"rehearsal\",\"executorDigest\":\"e6d1abcaaf9a6555eabb2c109116cc4682c94273053fea171e6f38c0528968b4\",\"step\":\"work\",\"state\":\"ready\",\"stopRequested\":false,\"abortRequested\":false,\"transitions\":0,\"visits\":{\"work\":1},\"evidence\":{},\"results\":{},\"sessions\":{},\"attemptId\":null,\"createdAt\":\"2026-11-15T05:37:28.944Z\"},\"completedAt\":\"2026-11-15T05:37:28.945Z\"}"
+   },
+   {
+    "id": "fixture-7",
+    "digest": "5675df4107437430703c5dbe1af9c8daa2ad3a60caa0ac4ad7fa4b8bad5f1622",
+    "data": "{\"projectId\":\"07c7d98f-eb50-43e9-a0fd-4efa4df06bbe\",\"commandId\":\"fixture-7\",\"operation\":\"task.put\",\"actor\":\"operator\",\"acceptedAt\":\"2026-11-15T05:37:29.248Z\",\"status\":\"completed\",\"result\":{\"id\":\"task-3\",\"title\":\"Fictional task-3\",\"acceptance\":[\"Observed fixture behaviour\"],\"revision\":\"59c68c8096de2821db7e095cb88c71f8526e8598d3c1a424458ad1fa5b0cf86e\",\"approvedRevision\":null,\"approvalVersion\":1},\"completedAt\":\"2026-11-15T05:37:29.248Z\"}"
+   },
+   {
+    "id": "fixture-8",
+    "digest": "d4b32f06a26240a3eb8ca90ceb4445b632c96f8a7edec4ddb20476123cca8469",
+    "data": "{\"projectId\":\"07c7d98f-eb50-43e9-a0fd-4efa4df06bbe\",\"commandId\":\"fixture-8\",\"operation\":\"task.approve\",\"actor\":\"operator\",\"acceptedAt\":\"2026-11-15T05:37:29.249Z\",\"status\":\"completed\",\"result\":{\"id\":\"task-3\",\"title\":\"Fictional task-3\",\"acceptance\":[\"Observed fixture behaviour\"],\"revision\":\"59c68c8096de2821db7e095cb88c71f8526e8598d3c1a424458ad1fa5b0cf86e\",\"approvedRevision\":\"59c68c8096de2821db7e095cb88c71f8526e8598d3c1a424458ad1fa5b0cf86e\",\"approvalVersion\":2,\"approvedAt\":\"2026-11-15T05:37:29.249Z\",\"approvedWorkflow\":null},\"completedAt\":\"2026-11-15T05:37:29.249Z\"}"
+   },
+   {
+    "id": "fixture-9",
+    "digest": "e34572369096c5738acfb0f2fd6cf70087f59e19bed1b54b4dd31b1aac245b65",
+    "data": "{\"projectId\":\"07c7d98f-eb50-43e9-a0fd-4efa4df06bbe\",\"commandId\":\"fixture-9\",\"operation\":\"flow.start\",\"actor\":\"operator\",\"acceptedAt\":\"2026-11-15T05:37:29.249Z\",\"status\":\"completed\",\"result\":{\"strictDecisionRole\":\"operator\",\"mergeDecisionRole\":\"operator\",\"reviewProtocol\":\"fresh-full\",\"effectiveRisk\":\"strict\",\"riskAssessments\":[],\"candidate\":null,\"completionMode\":\"merge\",\"id\":\"flow-3\",\"taskId\":\"task-3\",\"taskSnapshot\":{\"id\":\"task-3\",\"title\":\"Fictional task-3\",\"acceptance\":[\"Observed fixture behaviour\"],\"revision\":\"59c68c8096de2821db7e095cb88c71f8526e8598d3c1a424458ad1fa5b0cf86e\",\"approvedRevision\":\"59c68c8096de2821db7e095cb88c71f8526e8598d3c1a424458ad1fa5b0cf86e\",\"approvalVersion\":2,\"approvedAt\":\"2026-11-15T05:37:29.249Z\",\"approvedWorkflow\":null},\"taskRevision\":\"59c68c8096de2821db7e095cb88c71f8526e8598d3c1a424458ad1fa5b0cf86e\",\"approvalVersion\":2,\"workflow\":{\"version\":1,\"start\":\"work\",\"nodes\":{\"work\":{\"kind\":\"effect\",\"argv\":[\"/usr/bin/node\",\"-e\",\"console.log(\\\"fictional work\\\")\"],\"timeoutMs\":60000,\"next\":\"check\",\"onFailure\":\"failed\"},\"check\":{\"kind\":\"effect\",\"argv\":[\"/usr/bin/node\",\"-e\",\"process.exit(require(\\\"fs\\\").existsSync(\\\"fail.flag\\\") ? 1 : 0)\"],\"timeoutMs\":60000,\"next\":\"decision\",\"onFailure\":\"failed\"},\"decision\":{\"kind\":\"question\",\"question\":\"Continue the fictional rehearsal?\",\"role\":\"operator\",\"answers\":{\"continue\":\"done\",\"stop\":\"stopped\"}},\"stopped\":{\"kind\":\"end\",\"outcome\":\"stopped\"},\"done\":{\"kind\":\"end\",\"outcome\":\"completed\"},\"failed\":{\"kind\":\"end\",\"outcome\":\"failed\"}}},\"workflowDigest\":\"f4cc7031eb75bc42e9212140a38c7c67f8c73717f345bc217ff0ba03b8eb10b0\",\"configDigest\":\"44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a\",\"mode\":\"rehearsal\",\"kind\":\"rehearsal\",\"executorDigest\":\"e6d1abcaaf9a6555eabb2c109116cc4682c94273053fea171e6f38c0528968b4\",\"step\":\"work\",\"state\":\"ready\",\"stopRequested\":false,\"abortRequested\":false,\"transitions\":0,\"visits\":{\"work\":1},\"evidence\":{},\"results\":{},\"sessions\":{},\"attemptId\":null,\"createdAt\":\"2026-11-15T05:37:29.250Z\"},\"completedAt\":\"2026-11-15T05:37:29.251Z\"}"
+   }
+  ]
+ }
+}

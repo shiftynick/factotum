@@ -1,0 +1,38 @@
+{
+  "id": "cli-completed-filter",
+  "example": "examples/python-cli",
+  "title": "Add a completed-only list option",
+  "acceptance": [
+    "list --completed emits only completed tasks in their stored order.",
+    "Filtering empty or pending-only lists emits an empty JSON list.",
+    "Filtering does not modify the stored data or create a missing file.",
+    "Ordinary list behavior and all existing baseline checks remain unchanged."
+  ],
+  "baseline": {
+    "argv": [
+      "python3",
+      "-B",
+      "-m",
+      "unittest",
+      "discover",
+      "-s",
+      "tests",
+      "-p",
+      "test_baseline.py"
+    ]
+  },
+  "build": {
+    "patch": "cli-completed-filter.patch"
+  },
+  "check": {
+    "argv": [
+      "python3",
+      "-B",
+      "-m",
+      "unittest",
+      "discover",
+      "-s",
+      "tests"
+    ]
+  }
+}

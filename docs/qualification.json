@@ -1,0 +1,577 @@
+{
+  "version": 1,
+  "date": "2026-10-22",
+  "starterVersion": "0.2.0-reference",
+  "executorDigest": "8a96d24b5b9eec5a0589a834c2e0a39ef57197bd7046cb79a0c62bd5601eba1b",
+  "environment": {
+    "date": "2026-10-22",
+    "node": "26.8.2",
+    "python": "3.14.8",
+    "git": "2.56.0",
+    "systemd": "262.1",
+    "githubCli": "2.103.0",
+    "backends": [
+      "process",
+      "systemd-user-transient-unit"
+    ],
+    "scope": "See docs/qualification.md for exercised scenarios and final results; installed versions alone do not imply live provider qualification"
+  },
+  "tests": {
+    "passed": 365,
+    "failed": 0,
+    "skipped": 0
+  },
+  "concurrency": {
+    "initialization": {
+      "runs": 24,
+      "contendersPerRun": 4,
+      "passed": 24
+    },
+    "hostResources": {
+      "runs": 20,
+      "contendersPerRun": 4,
+      "passed": 20
+    }
+  },
+  "adoptionBackends": [
+    "process",
+    "systemd"
+  ],
+  "live": {
+    "javascriptDelivery": "passed",
+    "pythonDelivery": "passed",
+    "controlledDefectDetected": true,
+    "persistentBuilderCorrection": true,
+    "alreadySatisfiedAttemptsPassed": 8,
+    "alreadySatisfiedLiveExecutorDigest": "85d82f21873518330e085694f859a63d8d331700ae99c2c9c6f9439840ac462e",
+    "sourceIssuesClosed": true,
+    "ownedWorkspacesReleased": true,
+    "privateResourcesRetained": true,
+    "automaticMergeQualified": false,
+    "alreadySatisfiedPassed": true,
+    "currentExecutorMatchesAlreadySatisfiedQualification": false,
+    "scope": "Historical qualification from earlier executor copies, retained unchanged; current migration live qualification is under migrationQualification."
+  },
+  "historicalWarnings": [
+    "A successful source closure had a descendant-survival receipt; original evidence retained, subsequent instrumented closure and already-satisfied runs passed."
+  ],
+  "remoteVerifiedAt": "2026-10-22T14:54:32.296Z",
+  "remoteChecks": [
+    {
+      "stack": "web",
+      "merged": true,
+      "sourceClosed": true,
+      "actionsDisabled": true,
+      "private": true
+    },
+    {
+      "stack": "python",
+      "merged": true,
+      "sourceClosed": true,
+      "actionsDisabled": true,
+      "private": true
+    }
+  ],
+  "changesSinceOriginalDeliveries": [
+    "Exclusive initialization claim",
+    "Bounded SQLite busy/locked startup retry; failed connections closed before backoff",
+    "Runtime feedback integration: stable audit findings, persisted factual retrospectives, question/resource waits, rule proposals, numeric machine observations and attributed regression reports",
+    "Bounded queue preplanning with owned cache worktrees, authority invalidation, consumption and preservation obligations",
+    "Managed current-target workspaces, post-merge baseline holds and explicitly configured queue continuation",
+    "Main-verification dispatch health invalidation, unknown infrastructure outcomes, retained logs and narrowly bounded safe retries",
+    "Current-target read-only audits; pinned original task briefs and strictly validated capacity/freshness bounds"
+  ],
+  "integrationEvidence": {
+    "supervisedPreplanningFromNewerTarget": true,
+    "cacheRevocationAndAlternateDisposition": true,
+    "postMergeBaselineAndQueueAdmission": true,
+    "verifierProcessAndSupervisorDeath": true,
+    "currentTargetAuditAndInfrastructureArtifacts": true,
+    "historicalAcceptancePreserved": true,
+    "chromeProjectScopedRuleProposal": true
+  },
+  "uiQualification": {
+    "tests": 195,
+    "failed": 0,
+    "skipped": 0,
+    "scope": "Local UI/read models and conditional canonical edits; no new live model or forge calls",
+    "tabs": [
+      "Overview",
+      "Inbox",
+      "Timeline",
+      "Plan",
+      "History",
+      "Stats",
+      "Operations",
+      "Settings",
+      "Receipts"
+    ],
+    "historyKinds": 17,
+    "desktopAndMobile": true,
+    "lightAndDark": true,
+    "parentChromeCua": true,
+    "concurrentEditRejected": true,
+    "explicitTimelineTargetPreserved": true,
+    "mobileProjectSwitch": true,
+    "supervisorRehearsals": [
+      "process",
+      "systemd"
+    ]
+  },
+  "improvementQualification": {
+    "date": "2026-10-22",
+    "executorDigest": "715c2f9b6f3e546fce7610b1f2fd8128a6ca8fe4c5f2402a8fc0919faeb61a15",
+    "tests": 213,
+    "scope": [
+      "monotonic risk escalation and strict exact-head acknowledgement",
+      "reviewed plan and owned worktree conflict scope with path normalization and bounded scan reuse",
+      "durable queue eligibility and admission timing with idle notices",
+      "process and systemd fictional adoption evaluations",
+      "saved-state and journey extension labs",
+      "Chrome strict review rendering, wrong-head form rejection, queue diagnostics rendering"
+    ],
+    "liveProviderRequalification": false
+  },
+  "preMigrationQualification": {
+    "executorDigest": "715c2f9b6f3e546fce7610b1f2fd8128a6ca8fe4c5f2402a8fc0919faeb61a15",
+    "tests": {
+      "passed": 213,
+      "failed": 0,
+      "skipped": 0
+    },
+    "liveScope": "The existing live section describes earlier exact executor copies; see their retained fingerprints and warnings."
+  },
+  "migrationQualification": {
+    "executorDigest": "b1bac7d1d93e5db233e94342e247bb19a82381e065409490252316b12ceb0aee",
+    "tests": {
+      "passed": 322,
+      "failed": 0,
+      "skipped": 0
+    },
+    "processAdoption": "passed",
+    "systemdAdoption": "passed",
+    "extensionLab": "passed",
+    "weightedSystemdRelease": {
+      "passed": 16,
+      "failed": 0,
+      "canonicalReleaseAttempts": 9
+    },
+    "independentReview": "Three separate capability, authority and implementation reviewers; findings corrected and regression tested.",
+    "browser": [
+      "standalone question creation and answer",
+      "notice acknowledgement",
+      "operator availability",
+      "settings safe projections",
+      "composer survives refresh"
+    ],
+    "paidQualification": "No live paid adapters or metered provider calls; fictional ledger/enforcement contracts only.",
+    "liveAdvancedDelivery": {
+      "javascript": "passed",
+      "python": "passed",
+      "risk": "strict in both actual flows",
+      "reviewPhases": [
+        "full",
+        "delta"
+      ],
+      "controlledDefectDetected": true,
+      "originalBuilderSessionResumed": true,
+      "candidateReportRepublishedWithoutDuplicatePR": true,
+      "manualMerge": true,
+      "automaticMerge": false,
+      "executorDigest": "b1bac7d1d93e5db233e94342e247bb19a82381e065409490252316b12ceb0aee",
+      "remoteChecks": [
+        {
+          "stack": "web",
+          "private": true,
+          "actionsDisabled": true,
+          "merged": true,
+          "sourceClosed": true
+        },
+        {
+          "stack": "python",
+          "private": true,
+          "actionsDisabled": true,
+          "merged": true,
+          "sourceClosed": true
+        }
+      ],
+      "ordinaryBoundedAndFinalAdjudication": "Local contract/supervised fixtures; not additional live model qualification"
+    },
+    "remainingInstallationWork": [
+      "Production release/evaluation and preservation adapters",
+      "Real provider ceiling, receipt and independent observation qualification",
+      "Shared resource authority and command guards",
+      "Qualified remote target-race protection before automatic merge"
+    ],
+    "operatingDifferences": [
+      "Drained upgrades; mixed-executor rolling execution unsupported",
+      "Conservative exact-input check reuse; selective/batched checks require project adapters"
+    ],
+    "alreadySatisfied": {
+      "passed": true,
+      "attemptsPassed": 8,
+      "noPRCreated": true,
+      "sourceClosed": true,
+      "ownedWorkspaceReleased": true,
+      "executorDigest": "b1bac7d1d93e5db233e94342e247bb19a82381e065409490252316b12ceb0aee"
+    }
+  },
+  "preDistributionQualification": {
+    "executorDigest": "b1bac7d1d93e5db233e94342e247bb19a82381e065409490252316b12ceb0aee",
+    "tests": {
+      "passed": 322,
+      "failed": 0,
+      "skipped": 0
+    }
+  },
+  "distributionQualification": {
+    "executorDigest": "222eafc1bc2565a8ea7d5faa6481992c9ba497de5a1a944ada1ecb7e32b8bde5",
+    "distributionTests": 10,
+    "fullSuite": {
+      "passed": 332,
+      "failed": 0,
+      "skipped": 0
+    },
+    "processAdoption": "both copied stacks passed",
+    "realGitInstallAndUpdate": "passed; isolated review worktrees, application and customized project files preserved",
+    "driftAndIntegrity": "managed edits/deletions/modes, unexpected core files, collisions, symlinks, traversal, changed payloads and reused version identities refused",
+    "releaseProvenance": "exact committed bytes/modes; hidden and ignored changes lose commit provenance; development builds explicit",
+    "runtimeBridge": "complete generated release passed immutable stage, activate and launcher verification",
+    "localDevelopmentArtifact": "built and verified outside the checkout; no tag or remote release published",
+    "liveScope": "No additional provider or GitHub qualification for this executor. Earlier migration evidence retains its exact fingerprint.",
+    "explicitGitTarget": "ambient GIT_DIR, GIT_WORK_TREE and GIT_INDEX_FILE routing ignored; foreign repository unchanged"
+  },
+  "ownershipGuidanceQualification": {
+    "focusedTestsPassed": 17,
+    "scope": "Distribution and commissioning checks; required ownership context resolves in starter; documentation links valid",
+    "policy": "Upstream-owned factory files, project-owned integrations, core fixes proposed upstream and consumed through release updates",
+    "developmentArtifact": "0.2.0-dev.20261022.3",
+    "executorChanged": false
+  },
+  "projectSkillQualification": {
+    "skill": "use-factotum",
+    "formatValidation": "passed bundled skill-creator quick validator",
+    "distributionTestsPassed": 10,
+    "scope": "Copyable project-owned example with no scripts or implicit external permissions; docs links verified; packaged skill ownership verified as template",
+    "developmentArtifact": "0.2.0-dev.20261022.4",
+    "executorChanged": false
+  },
+  "downstreamFeedbackQualification": {
+    "template": "project/UPSTREAM_FEEDBACK.template.md",
+    "checks": [
+      "documentation links",
+      "updated skill format",
+      "verified release includes project-owned feedback template"
+    ],
+    "developmentArtifact": "0.2.0-dev.20261022.5",
+    "executorChanged": false
+  },
+  "adopterFixQualification": {
+    "date": "2026-10-22",
+    "developmentArtifact": "0.2.0-dev.20261022.6",
+    "executorDigest": "4bc9c154cf9aa5067693414e65ae3870408e88bf9a43feee595c15d38ce931f7",
+    "tests": {
+      "passed": 348,
+      "failed": 0,
+      "skipped": 0
+    },
+    "addedRegressionTests": 16,
+    "scope": [
+      "Versioned signed inbox resolution notifications, terminal acknowledgments and in-flight acknowledgment races",
+      "Standalone notice titles and CLI help",
+      "Project-scoped version-bound availability in the persistent header",
+      "Bounded GitHub issue discovery, dependency refresh and approval revocation",
+      "Custom read adapter with separate namespace and fresh source verification",
+      "Actual supervised custom source-sync maintenance job and canonical schedule acceptance",
+      "Copied fictional process and systemd adoption rehearsals",
+      "Chrome availability on every tab, source refresh rendering, desktop and 390px mobile layout"
+    ],
+    "liveProviderRequalification": false,
+    "liveGitHubRequalification": false
+  },
+  "maintenanceAttentionQualification": {
+    "developmentArtifact": "0.2.0-dev.20261022.7",
+    "executorDigest": "2cf7a8275fb9751dc6e61a2f1e6d60b1d7664605cd54dcb8c1d482d10f64232c",
+    "tests": {
+      "passed": 353,
+      "failed": 0,
+      "skipped": 0
+    },
+    "addedRegressionTests": 5,
+    "scope": [
+      "Quiet successful routine built-ins and complete no-change source scans",
+      "Attention preserved for source changes, partial scans, failures, stops, red main health, findings and obligations",
+      "Development and custom integration notices unchanged",
+      "Actual scheduled supervised no-op source scan retains job, evidence and retrospective with zero inbox items and delivery rows"
+    ],
+    "liveProviderRequalification": false,
+    "liveGitHubRequalification": false
+  },
+  "stateWakeAndGitHubQualification": {
+    "developmentArtifact": "0.2.0-dev.20261022.8",
+    "executorDigest": "bf8696c8512ae0bc3483376bd548b7f6da403f4e52a5e26c5ac691ed5804f0dd",
+    "tests": {
+      "passed": 364,
+      "failed": 0,
+      "skipped": 0
+    },
+    "addedRegressionTests": 11,
+    "scope": [
+      "Atomic state-event outbox for approval/revocation and development/planning flow lifecycle without inbox noise",
+      "Restart, signed payloads, retry/ack race, replay deduplication, rollback and stale approval rejection",
+      "Explicit approved idle/queued UI states and conditional queue action",
+      "GitHub notifier/pager/prompt suppression for API and credential lookup paths",
+      "API subprocess-group ownership and survivor rejection without relaxing outer containment",
+      "Cross-flow reviewed-plan upsert and exact retry reconciliation",
+      "Chrome fictional delivery queue action visibly retains queued-but-not-started state"
+    ],
+    "realGitHubReadOnly": {
+      "checks": 3,
+      "supervisor": "systemd",
+      "exitCode": 0,
+      "reason": null,
+      "descendants": [],
+      "scope": "Read the same already-published marked comment three times; no remote writes or provider invocations"
+    },
+    "historicalSurvivorCause": "Original receipt identifies gh but not its purpose; update-helper hypothesis is not proven",
+    "liveWriteRequalification": false
+  },
+  "gitIdentityCommissioningQualification": {
+    "developmentArtifact": "0.2.0-dev.20261022.9",
+    "executorDigest": "8a96d24b5b9eec5a0589a834c2e0a39ef57197bd7046cb79a0c62bd5601eba1b",
+    "tests": {
+      "passed": 365,
+      "failed": 0,
+      "skipped": 0
+    },
+    "addedRegressionTests": 1,
+    "scope": "Real temporary Git repositories: doctor rejects global-only identity, ignores ambient author/committer overrides, requires both nonempty fields before provider preflight, and accepts repository-local repair. Setup checklist updated.",
+    "liveProviderRequalification": false,
+    "liveGitHubRequalification": false
+  },
+  "gitMaintenanceSuppressionQualification": {
+    "date": "2026-11-08",
+    "release": "0.2.0-dev.20261022.78",
+    "manifestDigest": "bb9f962918a41efa9a85e949d65a027a33f9582a70448b6f7422772ff82e9876",
+    "payloadDigest": "4439879c0ed48f2bdb50b454cdd318cde0e9dab9d1d086e2961a7628805ff857",
+    "frozenReleaseVerification": { "files": 116, "sourceFilesMatched": 114, "executorMatched": true },
+    "executorDigest": "bad1acbfaab5d0f9d8d5a459b1e6f78d5e22b8bfc1998865ef96e8c37f57f274",
+    "tests": { "passed": 574, "failed": 0, "skipped": 0 },
+    "addedRegressionTests": 2,
+    "syntheticProcessEvaluation": { "passed": true, "projects": 2, "sharedConsole": true },
+    "realGitCommitExercise": { "gitVersion": "2.56.0", "controlInvokesMaintenance": true, "supervisedCommits": 2, "scopedAndUnscoped": true, "maintenanceChildren": 0, "survivingDescendants": 0, "candidateCommitted": true, "repositoryConfigurationUnchanged": true },
+    "scope": "Actual effective Git configuration and real process-supervised workspace.commit actions with Git trace instrumentation; complete local regression/evaluation suite. No live provider, remote forge, browser or adopter runtime changes. Independent project/provider Git invocations remain outside the override.",
+    "containmentRelaxed": false,
+    "liveAdoptionQualified": false
+  },
+  "unchangedReviewCorrectionQualification": {
+    "date": "2026-11-06",
+    "release": "0.2.0-dev.20261022.77",
+    "manifestDigest": "7dd0583f80d12de26e70ca771b0e6b4c974e119c7fa6fb81f82379ef4cc2b243",
+    "payloadDigest": "0aea99941a36603cfc539c666eec4571429c7f6513dc14e7bcccd540c810f018",
+    "frozenReleaseVerification": { "files": 115, "sourceFilesMatched": 113, "executorMatched": true },
+    "executorDigest": "f34e58abbf138e72818c4f3bb878aadd3e788de98b626142964ed5e94079625f",
+    "tests": { "passed": 572, "failed": 0, "skipped": 0 },
+    "addedRegressionTests": 3,
+    "syntheticProcessEvaluation": { "passed": true, "projects": 2, "sharedConsole": true },
+    "scope": "Actual action wrapper with injected provider results, strict pass-with-low-finding routing and builder guidance, engine hold on unchanged reviewed candidate, custom step names, queue/visit/evidence retention and explicit changed-candidate recovery. Negative cases cover output identity claims, initial/accepted/deferred/different-candidate work, blocked/failed outcomes, operator stop and revocation. No live provider, remote forge, browser or downstream runtime changes.",
+    "historicalBudgetsReset": false,
+    "liveAdoptionQualified": false
+  },
+  "replanAndPublicationEvidenceQualification": {
+    "date": "2026-11-02",
+    "release": "0.2.0-dev.20261022.76",
+    "manifestDigest": "b466b611aaa6390fbc5a0b8c10740b11643cb624fdf1a472c2c10e0786ee3b4b",
+    "payloadDigest": "df8fb98cf223cb85276475d93b31a045e39cfc8be75ed3b3499ea52ca7a75bb6",
+    "frozenReleaseVerification": { "files": 115, "sourceFilesMatched": 113, "executorMatched": true },
+    "executorDigest": "9fb9e8af152502bb7b67afdb7b704f31a2a774ebef090d58d254277a1246e10c",
+    "tests": { "passed": 569, "failed": 0, "skipped": 0 },
+    "addedRegressionTests": 5,
+    "syntheticProcessEvaluation": { "passed": true, "projects": 2, "sharedConsole": true },
+    "scope": "Canonical delegated replan through action specification and injected agent prompts; actor attribution, idempotent replay, superseded standard/custom gate slots and immutable prior attempts; real fictional CLI HTTP/timeout/launch failures and redaction bounds; failed PATCH with failed reconciliation; actual process-supervised publication worker through uncertain attempt evidence without retry. No live provider, remote forge, external webhook, browser or adopter runtime changes.",
+    "historicalNotesBackfilled": false,
+    "historicalFailureCauseRecovered": false,
+    "liveAdoptionQualified": false
+  },
+  "failedTargetSyncQualification": {
+    "date": "2026-11-02",
+    "release": "0.2.0-dev.20261022.75",
+    "manifestDigest": "4b362b546d4f3bc63cec69cda56fb95d862ddc5e6216dac8d9abe0399f0a4ee9",
+    "payloadDigest": "b20ba7a948f96a77847a6fbbb2fee12e55fedd5e2d952f524a8d6cc456a9154c",
+    "frozenReleaseVerification": { "files": 114, "sourceFilesMatched": 112, "executorMatched": true },
+    "executorDigest": "ce454bd51411f6841c37c70fd86da6ce6ee7eb1c555cbdb3c394eb069c2ce06c",
+    "tests": { "passed": 564, "failed": 0, "skipped": 0 },
+    "addedRegressionTests": 5,
+    "syntheticProcessEvaluation": { "passed": true, "projects": 2, "sharedConsole": true },
+    "scope": "Supervised fictional sync failure and truthful job/notice settlement; durable pair holds independent of green health, source dispatch fencing and no-op recovery; actual local Git source/destination ancestry evidence; held gate settlement including late sync failure without builder visits or evidence; real reserved-exit subprocess and diagnostics; opt-in configuration validation. No live providers, remote forge, external webhook, browser or downstream runtime changes.",
+    "historicalOutcomesRewritten": false,
+    "liveAdoptionQualified": false
+  },
+  "gateDiagnosticsQualification": {
+    "date": "2026-11-02",
+    "release": "0.2.0-dev.20261022.74",
+    "executorDigest": "b464e8b8e3fe39fb473219bc427a8ec32d5f553cf801cb432e0d18c9dd64f685",
+    "tests": { "passed": 559, "failed": 0, "skipped": 0 },
+    "addedRegressionTests": 4,
+    "syntheticProcessEvaluation": { "passed": true, "projects": 2, "sharedConsole": true },
+    "scope": "Real check subprocesses; injected provider prompt/session inspection; unchanged candidate tree; stdout fallback and designated supplemental diagnostics; bounded reads/shared excerpts; missing files and refusal of symlinks/directories/FIFOs. Existing metadata-only behavior confirmed in frozen dev.5, dev.70 and dev.73. No live model, remote forge, browser or downstream mutation qualification.",
+    "liveBuilderCorrection": "unconfirmed",
+    "adopterReportedLiveObservation": {
+      "date": "2026-11-02",
+      "fullAttestationPassed": true,
+      "activationReady": true,
+      "holdReleased": true,
+      "wrapperDiagnosticsIntegrated": true,
+      "retainedFailureExtraction": { "bytes": 15960, "assertionsPresent": true, "databaseUrlsReportedRedacted": true },
+      "snapshot": {
+        "samples": 10,
+        "reportedSizeKBRange": [159, 163],
+        "reportedTypicalMsRange": [50, 170],
+        "otherReportedMs": [470, 1230, 1890, 5580],
+        "overDeadline": 2,
+        "context": "After resume during plan entry and post-merge verification startup; no paired handshake timing or profiler capture"
+      }
+    },
+    "externalLogExtraction": "project-owned check wrapper integration required when details are absent from stdout/stderr"
+  },
+  "dashboardSnapshotQualification": {
+    "date": "2026-11-02",
+    "release": "0.2.0-dev.20261022.73",
+    "executorDigest": "4edad38817dc274334c7c0909ac96cf29f3979ee2f48de9c445f800ddd288ea8",
+    "tests": { "passed": 555, "failed": 0, "skipped": 0 },
+    "addedRegressionTests": 4,
+    "syntheticProcessEvaluation": { "passed": true, "projects": 2, "sharedConsole": true },
+    "historyFixture": { "legacyBytes": 42510753, "dashboardBytes": 115948, "socketPairMs": [45.2, 33.8, 34.0], "serviceInSeparateProcess": true },
+    "readOnlyAdopterProjection": { "sameDatabaseTransaction": true, "legacyBytes": 2846436, "legacyMs": 799.7, "dashboardBytes": 124762, "dashboardMs": [29.9, 28.6, 27.6], "liveServiceReplaced": false },
+    "consoleFilesIdenticalToRelease": "0.2.0-dev.20261022.71",
+    "responseLimitBytes": 2097152,
+    "requestDeadlineMs": 1500,
+    "livePostAdoptionResponsiveness": "size correction observed; intermittent deadline violation remains",
+    "adopterReportedLiveObservation": {
+      "date": "2026-11-02",
+      "fullAttestationPassed": true,
+      "activationReady": true,
+      "holdReleased": true,
+      "snapshotSamples": 10,
+      "reportedSizeKBRange": [137, 145],
+      "reportedTypicalMsRange": [43, 63],
+      "reportedOutlierMs": [450, 4330],
+      "overDeadline": 1,
+      "context": "Immediately after resume, near post-merge verification startup; blocking operation not profiled"
+    },
+    "scope": "Compact service snapshot, complete active attention and queued order, unchanged canonical history and on-demand details, no Git in polling, real unchanged console transport and schedule compatibility. Exact transient outage not captured; synchronous execution and metadata scans remain separate responsiveness risks. No new live provider, remote forge, or browser qualification."
+  },
+  "targetSyncHealthQualification": {
+    "date": "2026-11-02",
+    "release": "0.2.0-dev.20261022.72",
+    "executorDigest": "f94f11aac07426e86f94abeaeffd292940b4fb25d8d77b315056890c1eb4488a",
+    "tests": { "passed": 551, "failed": 0, "skipped": 0 },
+    "addedRegressionTests": 10,
+    "syntheticProcessEvaluation": { "passed": true, "projects": 2, "sharedConsole": true },
+    "adopterReportedLiveObservation": {
+      "date": "2026-11-02",
+      "release": "0.2.0-dev.20261022.72",
+      "fullAttestationPassed": true,
+      "activationReady": true,
+      "serviceActive": true,
+      "requeuedTasks": 7,
+      "originalQueueOrderPreserved": true,
+      "noFlowOwnsRequeuedTasks": true,
+      "naturalTargetSyncOutcome": "pending observation",
+      "repeatStopNotification": "unconfirmed",
+      "manualQueueWatchRetained": true
+    },
+    "scope": "Seven-task queue retained through sync and fresh destination verification; actual supervised sync-worker crash and verifier settlement; prepared-source fencing; no-op/conflict and failed verification outcomes; late source/verifier observations; operator health changes; retained source-hold queue ownership and explicit resume under current authority. Existing local Git fixtures cover real sync and source head/fetch disagreement. No new live providers, remote forge, external webhook or browser qualification.",
+    "liveProviderRequalification": false,
+    "liveGitHubRequalification": false
+  },
+  "nestedRepositoryIdentityQualification": {
+    "date": "2026-11-01",
+    "release": "0.2.0-dev.20261022.71",
+    "executorDigest": "88ab2baabccbb8b4b63c771984c633cc369cd0e6832d97141f1e995d0eaa42ea",
+    "tests": { "passed": 541, "failed": 0, "skipped": 0 },
+    "addedRegressionTests": 9,
+    "syntheticProcessEvaluation": { "passed": true, "projects": 2, "sharedConsole": true },
+    "scheduledCheckWithNestedWorktree": { "supervisor": "process", "completed": true, "attemptPassed": true },
+    "scope": "Real fictional Git worktrees and embedded repositories, opaque untracked directory identity, legacy file encoding, ignore rules, symlinks, path-specific filesystem failures, unsupported tracked directories/gitlinks and special files, and pre-dispatch parent drift refusal. No new live providers, forge writes, external webhook or browser qualification."
+  },
+  "telemetryAndPublicationRecoveryQualification": {
+    "date": "2026-11-01",
+    "release": "0.2.0-dev.20261022.70",
+    "executorDigest": "aa6677802e507fa33d012fb6ccaeace5758328033a04835a491eb6d6f3311683",
+    "tests": { "passed": 532, "failed": 0, "skipped": 0 },
+    "addedRegressionTests": 5,
+    "syntheticProcessEvaluation": { "passed": true, "projects": 2, "sharedConsole": true },
+    "readOnlyLiveCheck": { "ghVersion": "2.103.2", "supervisor": "systemd", "requests": 3, "exitCodes": [0, 0, 0], "survivors": 0, "ambientTelemetryOptInOverridden": true },
+    "adopterReportedLiveObservation": {
+      "date": "2026-11-01",
+      "release": "0.2.0-dev.20261022.70",
+      "activationReady": true,
+      "handshake": { "samples": 64, "durationSeconds": 75, "maximumMs": 1341, "deadlineMs": 1500, "overDeadline": 0, "errors": 0 },
+      "workload": "Real planning and plan review, concurrent target verification, 14 queued tasks",
+      "naturalRepeatStopDeliveryConfirmed": false,
+      "naturalFirstStopDelivery": { "reportedDate": "2026-11-02", "confirmedByAdopter": true },
+      "limitations": "Operator-reported measurements; narrow remaining latency margin. Waiting change-flow questions still hold flow capacity. Manual queue observation retained."
+    },
+    "scope": "Scoped telemetry opt-out, supervised helper prevention, retained reviewed-plan containment stop, explicit marker-aware recovery with original failure preserved, and negative authority/effect checks. Three live read-only GitHub requests; no new remote writes, provider calls or browser qualification."
+  },
+  "queueResponsivenessAndRecoveryQualification": {
+    "date": "2026-11-01",
+    "release": "0.2.0-dev.20261022.69",
+    "executorDigest": "c530871bcc2051bcb891a593e917964f98b2511302da5af6e73a90c8c0c20b3e",
+    "tests": { "passed": 527, "failed": 0, "skipped": 0 },
+    "addedRegressionTests": 5,
+    "syntheticProcessEvaluation": { "passed": true, "projects": 2, "sharedConsole": true },
+    "socketResponsiveness": { "separateServiceProcess": true, "queuedTasks": 15, "injectedGitDelayMs": 50, "conflictGitCommandsPerScan": 4, "clientDeadlineMs": 1500, "handshake": true, "operatorCommand": true, "tasksCollection": true },
+    "scope": "Fictional Git/SQLite fixtures, bounded bulk conflict observations, fresh/stale target health, signed injected repeat-stop delivery, legacy notice compatibility, cumulative replan accounting and atomic bound refusal. No new live provider, GitHub, external webhook or browser qualification."
+  },
+  "targetWorkflowAdmissionQualification": {
+    "date": "2026-11-01",
+    "release": "0.2.0-dev.20261022.68",
+    "executorDigest": "9ca04df8b8fd3f43c405b56bb444cacd61e18ab137d1ac1cf62fdd541d959d96",
+    "tests": { "passed": 522, "failed": 0, "skipped": 0 },
+    "addedRegressionTests": 8,
+    "syntheticProcessEvaluation": { "passed": true, "projects": 2, "sharedConsole": true },
+    "scope": "Fictional target-aware direct/queue/restart admission through prepared source intent, pre-dispatch identity tamper refusal, target-only reapproval, custom graph, legacy/default identity and carried task workflow compatibility. No new live provider, GitHub or browser qualification."
+  },
+  "stepModelFallbackReviewQualification": {
+    "date": "2026-10-29",
+    "release": "0.2.0-dev.20261022.67",
+    "executorDigest": "af9f7209c02d7e4a2ad2f8d0d21523b7fd511dc7bfe564f8c4c6ac5e43f6a733",
+    "independentReview": {
+      "model": "gpt-6.1-sol",
+      "reviewedRelease": "0.2.0-dev.20261022.66",
+      "confirmedFindings": 1,
+      "finding": "Primary effort edits could invalidate a retained fallback through inheritance",
+      "correctionVerifiedBy": "parent"
+    },
+    "tests": { "passed": 514, "failed": 0, "skipped": 0 },
+    "addedRegressionTests": 3,
+    "syntheticProcessEvaluation": { "passed": true, "projects": 2, "sharedConsole": true },
+    "scope": "Atomic fallback validation and injected successful fallback invocation/resume. No new browser, live provider or GitHub qualification."
+  },
+  "stepModelSelectionQualification": {
+    "date": "2026-10-29",
+    "release": "0.2.0-dev.20261022.66",
+    "executorDigest": "86f610e64c2e1e7ec4e3f917d00c1d2ffe40f60731dfda0a4dcff4e88fe33d2d",
+    "tests": {
+      "passed": 511,
+      "failed": 0,
+      "skipped": 0
+    },
+    "syntheticProcessEvaluation": {
+      "passed": true,
+      "projects": 2,
+      "sharedConsole": true
+    },
+    "browser": {
+      "saveReloadReset": true,
+      "pinnedRunSelection": true,
+      "desktop": true,
+      "phoneViewportWidth": 390,
+      "documentHorizontalOverflow": false,
+      "errors": 0
+    },
+    "scope": "Local fictional fixtures and injected provider dispatch. No new live provider or GitHub qualification; no adopter configuration changed."
+  }
+}

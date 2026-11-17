@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "mode": "delivery",
+  "repository": {
+    "slug": "fictional-owner/fictional-project",
+    "account": "fictional-operator",
+    "target": "main",
+    "remote": "origin",
+    "checkContext": "factotum/gate",
+    "closeTasks": false,
+    "adoptionNotice": true
+  },
+  "providers": {
+    "planner": {
+      "provider": "claude",
+      "model": "claude-opus-5-5",
+      "billingMode": "subscription",
+      "allowedModels": [
+        "claude-opus-5-5",
+        "claude-fable-5-2"
+      ]
+    },
+    "builder": {
+      "provider": "claude",
+      "model": "claude-opus-5-5",
+      "billingMode": "subscription",
+      "allowedModels": [
+        "claude-opus-5-5",
+        "claude-fable-5-2"
+      ]
+    },
+    "reviewer": {
+      "provider": "codex",
+      "model": "gpt-6.1-sol",
+      "billingMode": "subscription",
+      "allowedModels": [
+        "gpt-6.1-sol"
+      ]
+    }
+  },
+  "mainChecks": [
+    {
+      "id": "baseline",
+      "argv": [
+        "node",
+        "-e",
+        "throw new Error('Configure the real project main baseline check')"
+      ],
+      "timeoutMs": 30000,
+      "tier": "merge"
+    }
+  ],
+  "checks": [
+    {
+      "id": "acceptance",
+      "argv": [
+        "node",
+        "-e",
+        "throw new Error('Configure the real project acceptance checks')"
+      ],
+      "timeoutMs": 30000
+    }
+  ],
+  "context": {
+    "files": [
+      {
+        "id": "factotum-core-ownership",
+        "path": "factory/AGENTS.md",
+        "required": true
+      },
+      {
+        "id": "project-governance",
+        "path": "project/GOVERNANCE.md",
+        "required": true
+      }
+    ],
+    "maxChars": 24000
+  },
+  "upkeep": {
+    "mode": "off",
+    "docs": {
+      "include": ["README.md", "docs/**/*.md"],
+      "exclude": ["CHANGELOG.md", "docs/changes/**", "docs/release-notes.md"]
+    }
+  },
+  "policy": {
+    "planning": true,
+    "maxBuildRounds": 4,
+    "maxFlows": 1,
+    "maxParkedFlows": 3,
+    "autoMerge": false,
+    "allowFactoryEdits": false,
+    "mainHealthMaxAgeMs": 3600000,
+    "scheduledHealthMaxAgeMs": 93600000,
+    "autoQueue": false
+  },
+  "resources": {
+    "coordinatorPath": "/absolute/private/factotum/resources.sqlite"
+  },
+  "backupRoot": "/absolute/private/factotum/backups",
+  "workspace": {
+    "setup": []
+  }
+}

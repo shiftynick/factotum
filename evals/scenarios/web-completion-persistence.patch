@@ -1,0 +1,11 @@
+--- a/src/tasks.js
++++ b/src/tasks.js
+@@ -16,7 +16,7 @@
+ }
+ 
+ export async function saveTasks(path, tasks) {
+-  const saved = tasks.map(({ id, title }) => ({ id, title }));
++  const saved = tasks.map(({ id, title, completed }) => ({ id, title, completed: completed === true }));
+   await writeFile(path, `${JSON.stringify(saved, null, 2)}\n`, 'utf8');
+ }
+ 

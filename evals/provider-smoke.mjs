@@ -1,0 +1,13 @@
+import {mkdtemp,writeFile,mkdir} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join,resolve} from 'node:path';
+import {spawnSync} from 'node:child_process';
+import {invoke,REVIEW_SCHEMA} from '../starter/factory/adapters/providers/index.mjs';
+const provider=process.argv[2],model=process.argv[3];
+if(!['codex','claude'].includes(provider)||!model)throw new Error('Usage: node evals/provider-smoke.mjs codex|claude MODEL (subscription login required)');
+const root=await mkdtemp(join(tmpdir(),'factotum-provider-smoke-')),cwd=join(root,'fictional-project');
+await mkdir(cwd);await writeFile(join(cwd,'README.md'),'# Fictional counter\nA violet fox counts seven lanterns.\n');
+const init=spawnSync('git',['init','--quiet'],{cwd});if(init.status!==0)throw new Error('Could not initialize disposable fictional repository');
+const response=await invoke({provider,model,role:'reviewer',cwd,artifactDir:join(root,'private-artifacts'),schema:REVIEW_SCHEMA,prompt:'Read README.md; use a read tool or a read-only cat command if needed. This is a fictional provider qualification. Do not write files. Return verdict pass, a summary quoting the descriptive sentence inside README.md, and an empty findings array.',readOnly:true,timeoutMs:120_000,maxTurns:4});
+if(!response.result.summary.includes('A violet fox counts seven lanterns.'))throw new Error('Provider did not demonstrate fixture content access');
+console.log(JSON.stringify({provider:response.provider,model:response.model,final:response.final,permissions:response.permissions,billing:response.billing,artifacts:resolve(root)},null,2));

@@ -1,0 +1,15 @@
+{
+  "name": "factotum-reference",
+  "version": "0.2.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "test": "node tests/run.mjs",
+    "eval": "node evals/run.mjs",
+    "demo": "node evals/run.mjs --serve"
+  }
+}

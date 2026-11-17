@@ -1,0 +1,13 @@
+{
+  "task": {
+    "id": "feature-1",
+    "title": "Preserve a fictional item's completed state",
+    "acceptance": ["Saving and reloading the item retains its completed value.", "Existing uncompleted items still behave as before."],
+    "originalRequest": {
+      "origin": "operator",
+      "source": "Operator message in the project's planning conversation",
+      "date": "2026-11-10",
+      "text": "When I tick an item off and come back later it's unticked again. Make it stay ticked."
+    }
+  }
+}

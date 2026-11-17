@@ -1,0 +1,3 @@
+{"type":"thread.started","thread_id":"00000000-0000-0000-0000-000000000001"}
+{"type":"item.completed","item":{"type":"agent_message","text":"{\"status\":\"implemented\",\"summary\":\"Restored loadTasks to preserve saved completion state while treating older records as pending. Existing save logic preserves identity, title, order, and boolean completion. Baseline tests, acceptance tests, and git diff --check pass. Only src/tasks.js changed; no commit or push. Ready for independent review.\"}"}}
+{"type":"turn.completed","usage":{"input_tokens":120006,"cached_input_tokens":84736,"cache_write_input_tokens":0,"output_tokens":681,"reasoning_output_tokens":0}}

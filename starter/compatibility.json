@@ -1,0 +1,28 @@
+{
+  "starterVersion": "0.2.0-reference",
+  "schemaVersion": 1,
+  "projectProtocolVersion": 1,
+  "configVersion": 1,
+  "workflowVersion": 1,
+  "recordLayouts": ["inline", "separate-intents"],
+  "target": { "os": "Linux", "node": ">=24.0.0", "python": "3", "git": "required", "deliverySupervisor": "systemd-user-transient-unit" },
+  "tested": {
+    "date": "2026-10-22",
+    "node": "26.8.2",
+    "python": "3.14.8",
+    "git": "2.56.0",
+    "systemd": "262.1",
+    "githubCli": "2.103.0",
+    "backends": ["process", "systemd-user-transient-unit"],
+    "scope": "See docs/qualification.md for exercised scenarios and final results; installed versions alone do not imply live provider qualification"
+  },
+  "providers": [
+    { "id": "codex", "observedCliVersion": "0.163.0", "billingMode": "subscription", "readOnly": "provider-sandbox", "resume": "builder-session-only", "qualification": "required per installed CLI and project" },
+    { "id": "claude", "observedCliVersion": "2.1.308", "billingMode": "subscription", "readOnly": "provider-tool-allowlist", "resume": "builder-session-only", "qualification": "required per installed CLI and project" }
+  ],
+  "forgeAdapters": [
+    { "id": "github", "transport": "gh-cli", "manualMerge": true, "automaticMerge": "disabled unless remote strict checks and target-race behavior are explicitly qualified", "mergeQueue": false }
+  ],
+  "disabled": ["metered-model-routing", "paid-evaluation", "remote-project-transport", "rolling-schema-migration", "automatic-provider-fallback", "t3-owned-durable-execution"],
+  "upgrades": { "requireDrain": true, "automaticSchemaMigration": false, "immutableExecutors": true }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "fictional-task-list",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/baseline.test.js",
+    "test:acceptance": "node --test test/persistence.acceptance.test.js"
+  }
+}

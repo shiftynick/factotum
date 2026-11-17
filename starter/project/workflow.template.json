@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "start": "build",
+  "nodes": {
+    "build": { "kind": "effect", "argv": ["CONFIGURE_TRUSTED_SYNTHETIC_WORKER"], "timeoutMs": 10000, "next": "review", "onFailure": "failed" },
+    "review": { "kind": "effect", "argv": ["CONFIGURE_REVIEW_CONTROL"], "timeoutMs": 10000, "preserveInput": true, "evidence": "rehearsal:review", "next": "gate", "onFailure": "failed" },
+    "gate": { "kind": "effect", "argv": ["CONFIGURE_PROJECT_ACCEPTANCE_CHECK"], "timeoutMs": 10000, "preserveInput": true, "evidence": "rehearsal:gate", "next": "decision", "onFailure": "failed" },
+    "decision": { "kind": "question", "question": "Accept the checked synthetic rehearsal result?", "role": "operator", "requireEvidence": ["rehearsal:review", "rehearsal:gate"], "answers": { "continue": "done", "stop": "stopped" } },
+    "done": { "kind": "end", "outcome": "completed" },
+    "failed": { "kind": "end", "outcome": "failed" },
+    "stopped": { "kind": "end", "outcome": "stopped" }
+  }
+}

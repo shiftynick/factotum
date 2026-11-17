@@ -1,0 +1,22 @@
+--- a/tasklist.py
++++ b/tasklist.py
+@@ -23,7 +23,8 @@
+     add.add_argument("title")
+     complete = commands.add_parser("complete")
+     complete.add_argument("id", type=int)
+-    commands.add_parser("list")
++    listing = commands.add_parser("list")
++    listing.add_argument("--completed", action="store_true")
+     args = parser.parse_args(argv)
+     tasks = load_tasks(args.file)
+ 
+@@ -40,7 +41,8 @@
+         task["completed"] = True
+         save_tasks(args.file, tasks)
+     else:
+-        print(json.dumps(tasks))
++        selected = [task for task in tasks if task["completed"]] if args.completed else tasks
++        print(json.dumps(selected))
+ 
+ 
+ if __name__ == "__main__":

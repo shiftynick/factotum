@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Proposed factory boundaries</title>
+<style>
+*{box-sizing:border-box}body{margin:0;color:var(--foreground,#1c2533);font-family:var(--font-sans,system-ui,sans-serif);font-size:14px;line-height:1.5}main{width:100%;padding:0}p{margin:0 0 12px}button{font:inherit;color:inherit} .eyebrow{color:var(--muted-foreground,#596575);font-size:12px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:12px}.layers{display:grid;grid-template-columns:1fr 1fr;gap:10px}.layer{border:1px solid var(--border,#d5dde6);background:var(--card,#f7f9fc);border-radius:var(--radius,10px);text-align:left;padding:16px;cursor:pointer;min-width:0}.layer strong{display:block;font-size:16px;margin-bottom:5px}.layer span{color:var(--muted-foreground,#596575);font-size:13px}.layer[aria-pressed="true"]{border:2px solid var(--accent,#4169b1);padding:15px;background:var(--accent-surface,#edf3ff)}.layer:focus-visible{outline:3px solid var(--ring,#4169b1);outline-offset:3px}.detail{margin:12px 0 22px;padding:16px;border-radius:var(--radius,10px);background:var(--secondary,#f0f3f7);min-height:110px}.detail strong{display:block;margin-bottom:5px}.detail p{margin:0}.flow-title{font-weight:650;margin:0 0 10px}.flow{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-bottom:18px}.step{border-top:3px solid var(--chart-1,#5b7db2);padding:10px 2px 0;min-width:0}.step b{display:block;margin:2px 0}.step small{color:var(--muted-foreground,#596575)}.num{font-size:11px;color:var(--muted-foreground,#596575);font-family:var(--font-mono,monospace)}.note{border-left:3px solid var(--border,#ccd4df);padding-left:12px;margin:16px 0 0;color:var(--muted-foreground,#596575)}.note strong{color:var(--foreground,#1c2533)}@media(max-width:480px){.layers{grid-template-columns:1fr}.flow{grid-template-columns:1fr}.step{border-top:0;border-left:3px solid var(--chart-1,#5b7db2);padding:6px 0 6px 12px;display:grid;grid-template-columns:25px 1fr;gap:0 8px}.step small{grid-column:2}.num{align-self:center}.step b{margin:0}.detail{min-height:0}}
+</style>
+<style>
+.topology{margin:0 0 22px}.console-node{padding:14px 16px;background:var(--secondary,#f0f3f7);border-radius:var(--radius,10px);text-align:center}.console-node strong{display:block}.console-node span,.project-node span{display:block;color:var(--muted-foreground,#596575);font-size:13px}.connection{text-align:center;color:var(--muted-foreground,#596575);margin:6px 0;font-size:12px}.project-nodes{display:grid;grid-template-columns:1fr 1fr;gap:12px}.project-node{border:1px solid var(--border,#d5dde6);border-radius:var(--radius,10px);padding:12px 16px;min-width:0}.project-node strong{display:block}.scope-note{font-size:12px;color:var(--muted-foreground,#596575);margin:8px 0 0}@media(max-width:400px){.project-nodes{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main>
+<p class="eyebrow">Proposed · Copy and adapt · Linux + GitHub first</p>
+<div class="topology" aria-label="One console connects to independent project services on one machine">
+<div class="console-node"><strong>One shared web console</strong><span>Project overview · Combined inbox · Project-scoped actions</span></div>
+<div class="connection">↓ Registered local project services ↓</div>
+<div class="project-nodes">
+<div class="project-node"><strong>Project A</strong><span>Own runner, state, policy and credentials</span></div>
+<div class="project-node"><strong>Project B</strong><span>Own runner, state, policy and credentials</span></div>
+</div>
+<p class="scope-note">One machine first. Projects keep running without the console. Remote transport comes later.</p>
+</div>
+<div class="layers" aria-label="Factory layers">
+<button class="layer" type="button" data-layer="core" aria-pressed="true" aria-controls="detail"><strong>Durable core</strong><span>State, attempts, evidence, questions and bounds</span></button>
+<button class="layer" type="button" data-layer="policy" aria-pressed="false" aria-controls="detail"><strong>Workflow and policy</strong><span>Approval, planning, review, checks and merge</span></button>
+<button class="layer" type="button" data-layer="project" aria-pressed="false" aria-controls="detail"><strong>Project adapters</strong><span>Setup, acceptance, tests, release and evaluation</span></button>
+<button class="layer" type="button" data-layer="host" aria-pressed="false" aria-controls="detail"><strong>Execution and interaction</strong><span>Provider CLIs, shared console, optional T3</span></button>
+</div>
+<div id="detail" class="detail" role="status" aria-live="polite"><strong>The store owns progress.</strong><p>Record intent before launching work. Reconcile the same attempt after a restart. Unknown outcomes remain unresolved; silence never grants approval.</p></div>
+<p class="flow-title">One authorized change, with evidence at each step</p>
+<div class="flow" aria-label="Change lifecycle">
+<div class="step"><span class="num">01</span><b>Approve</b><small>Outcome and brief</small></div>
+<div class="step"><span class="num">02</span><b>Plan + build</b><small>Owned workspace</small></div>
+<div class="step"><span class="num">03</span><b>Review</b><small>Separate session</small></div>
+<div class="step"><span class="num">04</span><b>Verify</b><small>Final candidate</small></div>
+<div class="step"><span class="num">05</span><b>Merge + learn</b><small>Policy, cleanup, retro</small></div>
+</div>
+<p class="note"><strong>Projects define what success means.</strong> The reference supplies the durable process and a fictional example. Release, product scoring and host integration are optional extensions.</p>
+<p class="note"><strong>Target architecture.</strong> A local synthetic rehearsal is implemented. Real providers, GitHub delivery and optional workflows remain future work.</p>
+</main>
+<script>
+const detail = document.getElementById('detail');
+const descriptions = {
+ core: ['The store owns progress.', 'Record intent before launching work. Reconcile the same attempt after a restart. Unknown outcomes remain unresolved; silence never grants approval.'],
+ policy: ['Authority is explicit and versioned.', 'A plan is not approval, and passing tests do not authorize wider scope. Each change carries the policy and evidence needed for its merge decision.'],
+ project: ['Adopters supply the meaning of success.', 'Provide workspace setup, governing context and real verification checks. Add deployment and product journeys only when their contracts are ready.'],
+ host: ['One console; project-owned decisions.', 'The shared console routes validated commands to each project service. Each runner owns its state and processes. Provider adapters and optional T3 integration remain replaceable.']
+};
+document.querySelectorAll('[data-layer]').forEach(button => button.addEventListener('click', () => {
+ document.querySelectorAll('[data-layer]').forEach(other => other.setAttribute('aria-pressed', String(other === button)));
+ const [title, text] = descriptions[button.dataset.layer];
+ const heading = document.createElement('strong'); heading.textContent = title;
+ const body = document.createElement('p'); body.textContent = text;
+ detail.replaceChildren(heading, body);
+}));
+console.assert(document.querySelectorAll('[data-layer]').length === 4, 'Four boundary controls required');
+console.assert(Object.keys(descriptions).length === 4, 'Every layer needs a description');
+requestAnimationFrame(() => console.log(JSON.stringify({width:innerWidth,contentWidth:document.documentElement.scrollWidth,overflow:document.documentElement.scrollWidth>innerWidth})));
+</script>
+</body>
+</html>

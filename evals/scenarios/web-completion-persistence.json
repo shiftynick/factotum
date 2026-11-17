@@ -1,0 +1,29 @@
+{
+  "id": "web-completion-persistence",
+  "example": "examples/web-app",
+  "title": "Preserve completed state when saving tasks",
+  "acceptance": [
+    "Completed and pending tasks keep their completion state across save and reload.",
+    "Saving twice preserves task identity, title, order, and completion state.",
+    "Older files without completion state still load as pending.",
+    "Existing baseline checks continue to pass."
+  ],
+  "baseline": {
+    "argv": [
+      "node",
+      "--test",
+      "test/baseline.test.js"
+    ]
+  },
+  "build": {
+    "patch": "web-completion-persistence.patch"
+  },
+  "check": {
+    "argv": [
+      "node",
+      "--test",
+      "test/baseline.test.js",
+      "test/persistence.acceptance.test.js"
+    ]
+  }
+}
