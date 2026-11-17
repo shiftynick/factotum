@@ -126,3 +126,34 @@ test('a severity flow\'s state view and stats carry nothing of the must-fix bar'
   assert.equal(view.flow.mustFix, undefined); assert.equal(view.project.reviewRestriction, undefined);
   assert.equal(projectStats(f.store, { window: '7d' }).quality.some(row => row.id.startsWith('mustfix-')), false);
 });
+
+// Review fix (medium): Stats reads the admission cohort, every must-fix flow admitted in the window,
+// with its outcome now: open (waiting on an operator item), parked (at the cap, the budget or a
+// protocol failure), stopped, failed or completed. A flow that has not finished is never left out.
+const cohort = stats => Object.fromEntries(stats.quality.filter(row => row.id.startsWith('mustfix-')).map(row => [row.id, row.headline]));
+test('review fix (medium): an open must-fix flow waiting on an operator item is in the trial statistics, counted as open', async t => {
+  const f = await decisionFlow(t);
+  await f.build();
+  assert.equal((await f.review([changeResult({ verdict: 'revise', findings: [finding('A record split across two reads may be read twice', 'outcome', 'unknown')] })])).route, 'defer');
+  await f.effect(); await f.gate(); await f.question();
+  assert.equal(f.current().state, 'waiting');
+  const shown = cohort(projectStats(f.store, { window: '7d' }));
+  assert.deepEqual([shown['mustfix-admitted'], shown['mustfix-open'], shown['mustfix-parked-now'], shown['mustfix-stopped'], shown['mustfix-completed'], shown['mustfix-failed']], [1, 1, 0, 0, 0, 0]);
+  assert.equal(shown['mustfix-operator-items'], 1, 'its operator item is counted');
+  assert.equal(shown['mustfix-parked'], 0, 'and it is in the parked-rate denominator');
+});
+
+test('review fix (medium): a must-fix flow parked at the cap is counted as parked, and a stopped one as stopped', async t => {
+  const f = await decisionFlow(t, { review: { mustFixRounds: 1 } });
+  const open = changeResult({ verdict: 'revise', findings: [finding('Records are read twice', 'outcome', 'shown', [fileCite()])] });
+  const incomplete = changeResult({ verdict: 'revise', ledger: [{ id: 'R1.1', judgement: 'fix-incomplete', sameScenario: true, coverage: '', relevance: [], evidence: [fileCite()] }] });
+  await f.build(); assert.equal((await f.review([open])).route, 'revise');
+  await f.build(); const parked = await f.review([incomplete]);
+  assert.deepEqual([parked.route, parked.disposition], ['park', 'must-fix-cap']);
+  await f.question();
+  let shown = cohort(projectStats(f.store, { window: '7d' }));
+  assert.deepEqual([shown['mustfix-admitted'], shown['mustfix-open'], shown['mustfix-parked-now'], shown['mustfix-parked']], [1, 0, 1, 100]);
+  assert.equal(f.send('stop', { flowId: 'flow-1', note: 'Fictional stop for the trial count.' }).status, 'completed');
+  shown = cohort(projectStats(f.store, { window: '7d' }));
+  assert.deepEqual([shown['mustfix-parked-now'], shown['mustfix-stopped']], [0, 1]);
+});

@@ -21,7 +21,7 @@ import { recordReviewRowsInTransaction } from '../operations/review-rows.mjs';
 import { flowKeepsLedger, flowReviewBar } from './review-bar.mjs';
 import { effectiveRisk, mergeDecisionRole, strictReviewRequirement, recordRiskAssessment } from './risk.mjs';
 import { repositoryIdentity, repositoryIdentityOffThread, repositoryProbe } from './repository.mjs';
-import { actionSpecification, workingRoot, verifyDecision, verifySatisfiedDecision, followTarget, staleDecisionReason } from '../workflows/actions.mjs';
+import { actionSpecification, workingRoot, verifyDecision, verifySatisfiedDecision, followTarget, staleDecisionReason, decisionDispatchRefusal } from '../workflows/actions.mjs';
 import { REVIEW_RESTRICTION_META, publicGuard, reviewDecisionGuard } from './review-decision.mjs';
 import { adoptableResult, assertEvidence, isObservation, nodeContract, ownsStepSlot, requiredEvidence } from './operations.mjs';
 import { recordRetrospective, auditFindingsInTransaction, recordPushbackInTransaction } from '../operations/index.mjs';
@@ -306,6 +306,20 @@ export class Engine {
           // transaction: waiting for the lock can take seconds, and an identity taken before
           // that wait would let an input edited meanwhile be dispatched. Once per attempt.
           assert(digest(repositoryIdentity(attempt.intent.cwd)) === digest(attempt.intent.inputIdentity), 'prepared input changed before dispatch');
+          // A must-fix flow's merge or satisfied record: its decision against the live guard, strict
+          // requirement and restriction (review-must-fix design 12.5, 13.4). A decision that no longer
+          // matches is refused before the effect: the prepared intent is recorded not dispatched, the
+          // forge is never asked, and the question opens again; an intent whose own snapshot is out of
+          // date is prepared again.
+          const decisionRefusal = decisionDispatchRefusal(s, current, attempt);
+          if (decisionRefusal) {
+            const fenced = s.need('attempt', attempt.id), reason = `decision changed before dispatch: ${decisionRefusal.reason}`;
+            Object.assign(fenced, { status: 'not-dispatched', costMicros: 0, settledAt: now(), reason }); s.put('attempt', fenced);
+            current.attemptId = null;
+            if (!(decisionRefusal.reopen && reopenDecision(s, current, decisionRefusal.reason))) { current.state = 'ready'; s.put('flow', current); }
+            s.event('attempt.not-dispatched', { attemptId: attempt.id, reason });
+            return false;
+          }
           if (attempt.intent.action?.operation === 'source.verify') {
             const target = current.target ?? defaultTarget(s.meta('config', {}));
             // A merge into the target or its verification arrived after preparation: wait, do not stop.

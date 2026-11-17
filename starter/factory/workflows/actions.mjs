@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { assert, digest } from '../core/contracts.mjs';
 import { repositoryIdentity } from '../core/repository.mjs';
 import { effectiveRisk, mergeDecisionRole, riskSummary, strictReviewRequirement, verifyStrictDecision } from '../core/risk.mjs';
-import { REVIEW_RESTRICTION_META, restrictionContext, reviewDecisionGuard, staleDecision, verifyReviewDecision } from '../core/review-decision.mjs';
+import { REVIEW_RESTRICTION_META, restrictionContext, restrictionOf, reviewDecisionGuard, staleDecision, verifyReviewDecision } from '../core/review-decision.mjs';
 import { assembleContext, governingContextChange, governingContextMessage } from '../operations/index.mjs';
 import { BEFORE_WORKSPACE, assertGoverningBoundary, assertGoverningEditsAllowed, assertGoverningEditsApproved, comparisonCommit, governingEditSnapshot, hasGoverningEdits } from '../operations/governance-edit.mjs';
 import { upgradeOwned } from '../core/install-layout.mjs';
@@ -240,4 +240,29 @@ export function staleDecisionReason(store, flow, kind) {
   // ledger changes the guard digest too, so the question still opens again (and says why it cannot be met).
   try { requirement = strictReviewRequirement(task, flow, repositoryIdentity(workingRoot(store, flow)), { restriction }); } catch { requirement = null; }
   return staleDecision(flow, decision, guard, requirement);
+}
+// The final dispatch check of a must-fix flow's merge or satisfied record (review-must-fix design 12.5,
+// 13.4; review of slice 5): a prepared intent carries a snapshot, so a change that arrives after
+// preparation must be caught against the live state in the engine's final dispatch transaction, the
+// only path that launches a prepared intent, after a restart too. Of what verifyDecision reads, the
+// task revision and approval, the configuration digest and the candidate are already rechecked in that
+// transaction (authorized(), the input identity check); a flow's ledger inputs cannot change while it
+// has an attempt (flow.disposeFinding and every review wait for it). The review restriction, in project
+// meta, can: so the decision is checked against the live guard and strict requirement here. Returns
+// null, or { reason, reopen }: reopen when the recorded decision no longer matches (the question opens
+// again); otherwise the intent's own snapshot is out of date and the step is prepared again. Any other
+// failure of verifyDecision is thrown, as at preparation. A severity or shadow flow is never refused here.
+export function decisionDispatchRefusal(store, flow, attempt) {
+  if (flow.mode !== 'delivery' || flowReviewBar(flow) !== 'must-fix') return null;
+  const node = flow.workflow?.nodes?.[attempt.step], contract = nodeContract(attempt.step, node), action = attempt.intent?.action ?? {};
+  const kind = contract.operation === 'outcome.satisfied' ? 'satisfied' : contract.requiresDecision || node?.requireDecision ? 'merge' : null;
+  if (!kind) return null;
+  const stale = staleDecisionReason(store, flow, kind);
+  if (stale) return { reason: stale, reopen: true };
+  if (Object.hasOwn(action, 'reviewRestriction')) {
+    const prepared = restrictionOf(action.reviewRestriction).version, live = restrictionOf(store.meta(REVIEW_RESTRICTION_META, null)).version;
+    if (prepared !== live) return { reason: `the review restriction changed since the step was prepared (version ${prepared} then, ${live} now)`, reopen: false };
+  }
+  if (kind === 'satisfied') verifySatisfiedDecision(store, flow); else verifyDecision(store, flow);
+  return null;
 }
