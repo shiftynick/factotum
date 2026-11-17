@@ -28,7 +28,7 @@ import { repositoryIdentity } from '../core/repository.mjs';
 import {modelCoauthorTrailer} from '../operations/attribution.mjs';
 import {defaultMaxTurns, resolveProviderSpec} from '../adapters/providers/routes.mjs';
 import { invoke, turnLimitText, RISK_PLAN_SCHEMA, DELIVERY_BUILD_SCHEMA, RISK_REVIEW_SCHEMA, CHANGE_REVIEW_SCHEMA, MUST_FIX_PLAN_REVIEW_SCHEMA, MUST_FIX_CHANGE_REVIEW_SCHEMA } from '../adapters/providers/index.mjs';
-import { citedPaths, deriveReview, mustFixGuidance, shadowPlanRouteV1, shadowRecord, shadowRouteV1, SHADOW_ROUTE_VERSION } from './must-fix.mjs';
+import { citedPaths, deriveReview, mustFixGuidance, mustFixRecord, protocolContradictions, protocolCorrectionPrompt, purposeBlock, purposeSummary, shadowRecord, shadowRouteV2, SHADOW_ROUTE_VERSION } from './must-fix.mjs';
 import { createGitHub } from '../adapters/github/index.mjs';
 import { ForgeError, forgeErrorDetails } from '../adapters/github/errors.mjs';
 import * as workspaceAdapter from '../adapters/workspace/index.mjs';
@@ -97,10 +97,28 @@ async function citationContext(a, cwd, result) {
   }
   return { claimHead, files, facts: new Set((a.reviewPolicy?.environment ?? []).map(fact => fact.id)), records: new Map((a.reviewRecords ?? []).map(record => [record.id, record])) };
 }
-// The shadow never changes how a review ends: if deriving it fails, the failure is recorded as its outcome.
-async function shadowOutcome(derive) {
+// The shadow never changes how a review ends: if deriving it fails, or its protocol correction review
+// fails, the failure is recorded as its outcome. An attempt being stopped is not a shadow failure.
+async function shadowOutcome(derive, signal) {
   try { return await derive(); }
-  catch (error) { return { shadowRoute: { version: SHADOW_ROUTE_VERSION, estimate: true, error: String(error?.message ?? error).slice(0, 300) } }; }
+  catch (error) { if (signal?.aborted) throw error; return { shadowRoute: { version: SHADOW_ROUTE_VERSION, estimate: true, error: String(error?.message ?? error).slice(0, 300) } }; }
+}
+// A must-fix flow's derived fields are a record; deriving them never fails the review (in slice 2
+// only the protocol checks act).
+async function mustFixOutcome(derive) {
+  try { return await derive(); }
+  catch (error) { return { mustFix: { error: String(error?.message ?? error).slice(0, 300) } }; }
+}
+// A plan review that is still contradictory after its correction (design 6.4), in a must-fix flow:
+// the attempt fails with classification protocol-failure and the engine stops the flow at plan
+// review without following any edge (core/engine.mjs), the hold a turn limit uses. `results`: the
+// contradictions of each contradictory result, in order, which the notice quotes; `corrected`:
+// whether the single correction review ran.
+function planProtocolFailure(a, results, corrected) {
+  const said = results.map((row, index) => `${results.length > 1 ? (index ? 'Second' : 'First') : corrected ? 'After its correction review' : 'Its only result'}: ${row.join('; ')}.`).join(' ');
+  const how = results.length > 1 ? 'returned a contradictory result twice' : corrected ? 'was still contradictory after its correction review' : 'returned a contradictory result and policy.planReviewProtocolCorrections allows no correction review';
+  const notice = `The plan review ${how}, so the flow stopped at ${a.step} without following any edge: no plan was published and no plan visit was spent. Resume runs a fresh plan review of the same plan; or replan with a note (flow.replan), or stop. ${said}`.slice(0, 2000);
+  return Object.assign(new Error(`plan review protocol failure: ${said}`.slice(0, 2000)), { code: 'PROTOCOL_FAILURE', notice, protocolFailure: { step: a.step, contradictions: results.slice(0, 2).map(row => row.slice(0, 20).map(text => text.slice(0, 300))) } });
 }
 // The strict plan check's own finding, in the must-fix shape for a shadow flow: a check-trust finding (design 6.4).
 const strictPlanShadowFields = () => ({ scenario: 'A strict plan without a concrete threat model and explicit stop conditions gives the builder and later reviews nothing to hold the change to, so a review could pass work whose risks were never stated.', reachable: { status: 'unknown', evidence: [], coverage: '' }, purposeImpact: 'check-trust', silent: true, origin: 'new-code', fixOf: null });
@@ -507,22 +525,49 @@ async function runScopedAction(intent, { signal, providerInvoke=invoke, accounti
       return { ...result, targetBase, contextManifest: contextManifest(a.context), route: result.result.status === 'ready' && !result.result.questions.length && ((a.risk?.level !== 'strict' && result.result.riskAssessment.level !== 'strict') || assessmentComplete(result.result.riskAssessment)) ? 'ready' : 'blocked' };
     }
     case 'provider.planReview': {
-      // A shadow flow asks the must-fix questions with its own schema (workflows/must-fix.mjs).
-      const shadow=a.reviewBar==='shadow',planSchema=shadow?MUST_FIX_PLAN_REVIEW_SCHEMA:RISK_REVIEW_SCHEMA;
-      const prompt=`${brief}\nReview this proposed plan against actual code and acceptance. Do not implement it. Plan: ${JSON.stringify(a.results.plan?.result)}\nA pass verdict REQUIRES findings:[]. Findings contain only concrete defects or omissions that block accepting this plan. Optional observations, suggestions and nonblocking concerns belong in summary, never findings. ${reviewScopeGuidance(a.task, 'plan')}${carriedQuestionsBrief(a.carriedQuestions, 'reviewer', a.carriedOverflow)} Return revise if any blocking finding remains.${shadow?mustFixGuidance({subject:'plan',facts:a.reviewPolicy?.environment??[],records:a.reviewRecords??[]}):''}`;
-      let result=await provider('reviewer',prompt,planSchema,undefined,'provider',shadow?RISK_REVIEW_SCHEMA:undefined);
+      // A shadow flow asks the must-fix questions with its own schema, the purpose block first, and
+      // records what that bar would have done (workflows/must-fix.mjs). A must-fix flow (test fixtures
+      // only until the enabling release) also acts on the protocol checks (design 5.4, 6.4).
+      const shadow=a.reviewBar==='shadow',enforced=a.reviewBar==='must-fix',mustFixBar=shadow||enforced,planSchema=mustFixBar?MUST_FIX_PLAN_REVIEW_SCHEMA:RISK_REVIEW_SCHEMA,legacySchema=shadow?RISK_REVIEW_SCHEMA:undefined;
+      const prompt=`${brief}${mustFixBar?`\n${purposeBlock({task:a.task,subject:'plan'})}`:''}\nReview this proposed plan against actual code and acceptance. Do not implement it. Plan: ${JSON.stringify(a.results.plan?.result)}\nA pass verdict REQUIRES findings:[]. Findings contain only concrete defects or omissions that block accepting this plan. Optional observations, suggestions and nonblocking concerns belong in summary, never findings. ${reviewScopeGuidance(a.task, 'plan')}${carriedQuestionsBrief(a.carriedQuestions, 'reviewer', a.carriedOverflow)} Return revise if any blocking finding remains.${mustFixBar?mustFixGuidance({subject:'plan',enforced,facts:a.reviewPolicy?.environment??[],records:a.reviewRecords??[]}):''}`;
+      let result=await provider('reviewer',prompt,planSchema,undefined,'provider',legacySchema);
       const protocolCorrections=[],bound=config.policy?.planReviewProtocolCorrections??1;assert(Number.isSafeInteger(bound)&&bound>=0&&bound<=1,'invalid plan review protocol correction bound');
-      for(let correction=0;correction<bound&&result.result.verdict==='pass'&&result.result.findings.length;correction++){
+      // In a must-fix flow a result that fails the protocol checks takes plan review's single correction too.
+      const contradictions=row=>enforced?protocolContradictions(row.result,a.task):[];
+      for(let correction=0;correction<bound;correction++){
+        const passWithFindings=result.result.verdict==='pass'&&result.result.findings.length>0,protocol=contradictions(result);
+        if(!passWithFindings&&!protocol.length)break;
         const original=result,artifactName=`provider-protocol-correction-${correction+1}`;
-        protocolCorrections.push({reason:'pass-with-findings',original,originalArtifact:correction===0?'provider':`provider-protocol-correction-${correction}`,correctionArtifact:artifactName});
-        result=await provider('reviewer',`${prompt}\nA previous fresh review returned an internally contradictory pass with findings: ${JSON.stringify(original.result)}. Independently re-examine the same plan and code. Decide whether these are blocking defects or nonblocking observations. Do not assume the plan passes: return revise with concrete blocking findings, or pass with findings:[] and put observations in summary. Preserve any strict risk escalation.`,planSchema,undefined,artifactName,shadow?RISK_REVIEW_SCHEMA:undefined);
+        protocolCorrections.push({reason:passWithFindings?'pass-with-findings':'protocol',...(protocol.length?{contradictions:protocol}:{}),original,originalArtifact:correction===0?'provider':`provider-protocol-correction-${correction}`,correctionArtifact:artifactName});
+        result=await provider('reviewer',`${prompt}${passWithFindings?`\nA previous fresh review returned an internally contradictory pass with findings: ${JSON.stringify(original.result)}. Independently re-examine the same plan and code. Decide whether these are blocking defects or nonblocking observations. Do not assume the plan passes: return revise with concrete blocking findings, or pass with findings:[] and put observations in summary. Preserve any strict risk escalation.`:''}${protocol.length?protocolCorrectionPrompt(protocol,original.result):''}`,planSchema,undefined,artifactName,legacySchema);
       }
+      // A must-fix flow whose plan review is still contradictory stops at plan review (6.4): no edge is
+      // followed, no plan is published and no plan visit is spent. Checked first, before anything else.
+      const remaining=contradictions(result);
+      if(remaining.length)throw planProtocolFailure(a,[...protocolCorrections.filter(row=>row.contradictions).map(row=>row.contradictions),remaining],protocolCorrections.length>0);
       const strict=a.risk?.level==='strict'||result.result.riskAssessment.level==='strict'||protocolCorrections.some(row=>row.original.result.riskAssessment.level==='strict');
-      // In a shadow flow the factory's own finding is a check-trust finding (design 6.4) in the must-fix shape.
-      if(strict&&!assessmentComplete(result.result.riskAssessment)){result.result.verdict='revise';result.result.findings.push({severity:'high',file:'',line:0,message:'Strict plan review requires a concrete threat model and explicit stop conditions.',...(shadow?strictPlanShadowFields():{})});}
+      // In a must-fix or shadow flow the factory's own finding is a check-trust finding (design 6.4) in the must-fix shape.
+      const strictPlanCheck=(row,isStrict)=>{if(isStrict&&!assessmentComplete(row.result.riskAssessment)){row.result.verdict='revise';row.result.findings.push({severity:'high',file:'',line:0,message:'Strict plan review requires a concrete threat model and explicit stop conditions.',...(mustFixBar?strictPlanShadowFields():{})});}};
+      strictPlanCheck(result,strict);
       const planReviewed={...result,protocolCorrections,route:result.result.verdict==='pass'&&result.result.findings.length===0?'pass':'revise'};
-      if(!shadow)return planReviewed;
-      return {...planReviewed,...await shadowOutcome(async()=>{const round=a.reviewRound??1,derivation=deriveReview(result.result.findings,{round,prefix:'P',risk:strict?'strict':'ordinary',strictFollowups:a.reviewPolicy?.strictFollowups===true,...await citationContext(a,cwd,result)});return shadowRecord({schemaFallback:result.schemaFallback??null,derivation,route:shadowPlanRouteV1(derivation.findings),actual:planReviewed,verdict:result.result.verdict,round,prefix:'P'});})};
+      if(!mustFixBar)return planReviewed;
+      const round=a.reviewRound??1,derive=async(row,isStrict)=>deriveReview(row.result.findings,{round,prefix:'P',risk:isStrict?'strict':'ordinary',strictFollowups:a.reviewPolicy?.strictFollowups===true,purpose:row.result.purpose??null,...await citationContext(a,cwd,row)});
+      if(enforced)return {...planReviewed,...await mustFixOutcome(async()=>({mustFix:mustFixRecord({schemaFallback:result.schemaFallback??null,derivation:await derive(result,strict),round,prefix:'P',basis:protocolCorrections.length?'correction':'original',protocol:{contradictions:protocolCorrections[0]?.contradictions??[],correction:protocolCorrections.length?{contradictions:[]}:null,failure:false},purpose:purposeSummary(result.result,a.task)})}))};
+      // Shadow v2. The must-fix bar runs the same single correction plan review runs today, and also
+      // runs it for a result that fails the protocol checks; such a correction runs here only for the
+      // estimate, and its result never reaches the route (6.4: in shadow the actual route is today's).
+      return {...planReviewed,...await shadowOutcome(async()=>{
+        const first=protocolCorrections[0]?.original??result,checks=protocolContradictions(first.result,a.task);
+        let basis=result,isStrict=strict,correction=null;
+        if(protocolCorrections.length)correction={contradictions:protocolContradictions(result.result,a.task)};
+        else if(checks.length&&bound>0){
+          basis=await provider('reviewer',`${prompt}${protocolCorrectionPrompt(checks,first.result)}`,planSchema,undefined,'provider-shadow-protocol-correction',legacySchema);
+          basis={...basis,result:structuredClone(basis.result)};isStrict=strict||basis.result.riskAssessment.level==='strict';strictPlanCheck(basis,isStrict);
+          correction={contradictions:protocolContradictions(basis.result,a.task),result:basis.result,...(basis.schemaFallback?{schemaFallback:basis.schemaFallback}:{})};
+        }
+        const failure=correction?correction.contradictions.length>0:checks.length>0,derivation=await derive(basis,isStrict);
+        return shadowRecord({schemaFallback:basis.schemaFallback??null,derivation,route:shadowRouteV2(derivation.findings,{plan:true},{failure}),actual:planReviewed,verdict:basis.result.verdict,round,prefix:'P',basis:basis===first?'original':'correction',protocol:{contradictions:checks,correction,failure},purpose:purposeSummary(basis.result,a.task)});
+      },signal)};
     }
     case 'workspace.prepare': {
       // The worktree usually exists already (source verification creates it); fill in any
@@ -656,18 +701,44 @@ async function runScopedAction(intent, { signal, providerInvoke=invoke, accounti
       // Declared task paths against the whole change (not only a delta), so scope is judged every round.
       const scopePaths=declaredPaths(a.task),changeBase=a.results.integrate?.base??a.results.source?.head??workspace?.base??baseHead;
       let outside=[];if(scopePaths.length){try{outside=outOfScope((await exec('git',['diff','--name-only','-z','--no-renames',`${changeBase}...HEAD`,'--'],{cwd,timeout:10000,maxBuffer:4*1024*1024})).stdout.split('\0').filter(Boolean),scopePaths);}catch{outside=null;}}
-      // A shadow flow asks the must-fix questions (workflows/must-fix.mjs); earlier reviews reach the reviewer without the factory's derived fields.
-      const shadow=a.reviewBar==='shadow';
-      const result=await provider('reviewer',`${brief}\nIndependently review exact candidate ${repositoryIdentity(cwd).head}. Review phase: ${phase}. Full/ordinary reviews inspect the entire change; delta/final reviews inspect commits since ${baseHead}, resolve each previous finding, and inspect affected surrounding code. This is a fresh session. Do not edit files or run code. For strict work document the threat model and stop conditions and attest strictReview. fullDiffInspected means the entire assigned review scope was inspected (the full diff for full review, every delta commit for delta/final); name that scope in scopeSummary. For an already satisfied task inspect current implementation against acceptance even when the diff is empty. Report priorFindingsDisposition for every finding in the immediately previous review; finding must exactly equal its previous message, with concrete evidence for the disposition. Prior reviews: ${JSON.stringify(shadow?(a.reviewHistory??[]).map(({mustFix,shadowRoute,...row})=>row):a.reviewHistory??[])}. Trusted diff:\n${diff}\nBuilder report: ${JSON.stringify(a.results.build?.result??null)}. Report substantive defects and unmet acceptance, duplicated helpers, misplaced/unused code and oversized files; do not invent hardening outside the threat model. ${reviewScopeGuidance(a.task, 'change')}${carriedQuestionsBrief(a.carriedQuestions, 'reviewer', a.carriedOverflow)}${fastCheckReviewGuidance(config, a.results['fast-check'], repositoryIdentity(cwd))}${scopeReviewGuidance(scopePaths,outside,reviewedPlanScope(a.results))}\nReturn pass only when no substantive findings remain.${shadow?mustFixGuidance({subject:'change',facts:a.reviewPolicy?.environment??[],records:a.reviewRecords??[]}):''}`,shadow?MUST_FIX_CHANGE_REVIEW_SCHEMA:CHANGE_REVIEW_SCHEMA,undefined,'provider',shadow?CHANGE_REVIEW_SCHEMA:undefined);
-      const classified={...result,phase,baseHead,...(scopePaths.length?{scope:{paths:scopePaths,outside:outside?.slice(0,200)??null,outsideCount:outside?.length??null}}:{}),...reviewDisposition((a.binding??a.step)==='satisfied-review'?{...config,policy:{...config.policy,reviewProtocol:'fresh-full'}}:reviewConfig,a.task,{...a,effectiveRisk:a.risk.level},result,phase)};
-      if((a.binding??a.step)==='satisfied-review'&&!['pass'].includes(classified.route))classified.route='revise';
-      // Shadow v1: what the must-fix bar would have done, recorded beside the route taken; never acted on.
+      // A shadow flow asks the must-fix questions, the purpose block first (workflows/must-fix.mjs); earlier
+      // reviews reach the reviewer without the factory's derived fields. A must-fix flow (test fixtures
+      // only until the enabling release) also acts on the protocol checks (design 5.4).
+      const shadow=a.reviewBar==='shadow',enforced=a.reviewBar==='must-fix',mustFixBar=shadow||enforced,satisfied=(a.binding??a.step)==='satisfied-review';
+      const reviewSchema=mustFixBar?MUST_FIX_CHANGE_REVIEW_SCHEMA:CHANGE_REVIEW_SCHEMA,legacySchema=shadow?CHANGE_REVIEW_SCHEMA:undefined;
+      const prompt=`${brief}${mustFixBar?`\n${purposeBlock({task:a.task,plan:a.results.plan?.result??null,subject:'change'})}`:''}\nIndependently review exact candidate ${repositoryIdentity(cwd).head}. Review phase: ${phase}. Full/ordinary reviews inspect the entire change; delta/final reviews inspect commits since ${baseHead}, resolve each previous finding, and inspect affected surrounding code. This is a fresh session. Do not edit files or run code. For strict work document the threat model and stop conditions and attest strictReview. fullDiffInspected means the entire assigned review scope was inspected (the full diff for full review, every delta commit for delta/final); name that scope in scopeSummary. For an already satisfied task inspect current implementation against acceptance even when the diff is empty. Report priorFindingsDisposition for every finding in the immediately previous review; finding must exactly equal its previous message, with concrete evidence for the disposition. Prior reviews: ${JSON.stringify(mustFixBar?(a.reviewHistory??[]).map(({mustFix,shadowRoute,...row})=>row):a.reviewHistory??[])}. Trusted diff:\n${diff}\nBuilder report: ${JSON.stringify(a.results.build?.result??null)}. Report substantive defects and unmet acceptance, duplicated helpers, misplaced/unused code and oversized files; do not invent hardening outside the threat model. ${reviewScopeGuidance(a.task, 'change')}${carriedQuestionsBrief(a.carriedQuestions, 'reviewer', a.carriedOverflow)}${fastCheckReviewGuidance(config, a.results['fast-check'], repositoryIdentity(cwd))}${scopeReviewGuidance(scopePaths,outside,reviewedPlanScope(a.results))}\nReturn pass only when no substantive findings remain.${mustFixBar?mustFixGuidance({subject:'change',enforced,facts:a.reviewPolicy?.environment??[],records:a.reviewRecords??[]}):''}`;
+      const first=await provider('reviewer',prompt,reviewSchema,undefined,'provider',legacySchema);
+      // The protocol checks, in a must-fix flow: a contradictory result gets one fresh correction review
+      // with the contradiction stated; the correction's result is the review's.
+      let result=first,protocol=null;
+      if(enforced){
+        const checks=protocolContradictions(first.result,a.task);protocol={contradictions:checks,correction:null,failure:false};
+        if(checks.length){result=await provider('reviewer',`${prompt}${protocolCorrectionPrompt(checks,first.result)}`,reviewSchema,undefined,'provider-protocol-correction-1');protocol.correction={contradictions:protocolContradictions(result.result,a.task)};protocol.failure=protocol.correction.contradictions.length>0;}
+      }
+      const classified={...result,phase,baseHead,...(scopePaths.length?{scope:{paths:scopePaths,outside:outside?.slice(0,200)??null,outsideCount:outside?.length??null}}:{}),...reviewDisposition(satisfied?{...config,policy:{...config.policy,reviewProtocol:'fresh-full'}}:reviewConfig,a.task,{...a,effectiveRisk:a.risk.level},result,phase),...(protocol?.correction?{protocolCorrections:[{reason:'protocol',contradictions:protocol.contradictions,original:first,originalArtifact:'provider',correctionArtifact:'provider-protocol-correction-1'}]}:{})};
+      if(satisfied&&!['pass'].includes(classified.route))classified.route='revise';
+      // A second contradictory result routes park with disposition protocol-failure, whatever it
+      // reports, before the legacy fallback, the strict checks and every other route; it mints no
+      // review evidence. The satisfied review, which has no park edge, revises, ending that flow (5.4, 6.5).
+      if(protocol?.failure)Object.assign(classified,{route:satisfied?'revise':'park',disposition:'protocol-failure'});
+      const round=(a.reviewHistory?.length??0)+1;
+      const derived=async(row,extra={})=>{
+        const strict=effectiveRisk(a.task,{...a,effectiveRisk:a.risk.level,results:{...(a.results??{}),review:row}})==='strict';
+        const incomplete=!assessmentComplete(row.result.riskAssessment)||!['fullDiffInspected','threatModelReviewed','stopConditionsReviewed'].every(key=>row.result.strictReview?.[key]===true);
+        const derivation=deriveReview(row.result.findings,{round,risk:strict?'strict':'ordinary',strictFollowups:a.reviewPolicy?.strictFollowups===true,purpose:row.result.purpose??null,...await citationContext(a,cwd,row)});
+        return {derivation,review:{strict:strict||derivation.escalated,incomplete:strict&&incomplete,bounded:!satisfied&&boundedReview(reviewConfig),phase,satisfied},...extra};
+      };
+      if(enforced)Object.assign(classified,await mustFixOutcome(async()=>{const {derivation}=await derived(result);return {mustFix:mustFixRecord({schemaFallback:result.schemaFallback??null,derivation,round,basis:result===first?'original':'correction',protocol,purpose:purposeSummary(result.result,a.task)})};}));
+      // Shadow v2: what the must-fix bar would have done, recorded beside the route taken; never acted
+      // on. A contradictory result gets the correction review the must-fix bar would run, for the
+      // estimate only: its result never reaches the route, which stays today's (5.4).
       if(shadow)Object.assign(classified,await shadowOutcome(async()=>{
-        const satisfied=(a.binding??a.step)==='satisfied-review',round=(a.reviewHistory?.length??0)+1,strict=effectiveRisk(a.task,{...a,effectiveRisk:a.risk.level,results:{...(a.results??{}),review:result}})==='strict';
-        const incomplete=!assessmentComplete(result.result.riskAssessment)||!['fullDiffInspected','threatModelReviewed','stopConditionsReviewed'].every(key=>result.result.strictReview?.[key]===true);
-        const derivation=deriveReview(result.result.findings,{round,risk:strict?'strict':'ordinary',strictFollowups:a.reviewPolicy?.strictFollowups===true,...await citationContext(a,cwd,result)});
-        return shadowRecord({schemaFallback:result.schemaFallback??null,derivation,route:shadowRouteV1(derivation.findings,{strict:strict||derivation.escalated,incomplete:strict&&incomplete,bounded:!satisfied&&boundedReview(reviewConfig),phase,satisfied}),actual:classified,verdict:result.result.verdict,round});
-      }));
+        const checks=protocolContradictions(first.result,a.task);
+        let basis=first,correction=null;
+        if(checks.length){basis=await provider('reviewer',`${prompt}${protocolCorrectionPrompt(checks,first.result)}`,reviewSchema,undefined,'provider-shadow-protocol-correction',legacySchema);correction={contradictions:protocolContradictions(basis.result,a.task),result:basis.result,...(basis.schemaFallback?{schemaFallback:basis.schemaFallback}:{})};}
+        const failure=correction?correction.contradictions.length>0:false,{derivation,review}=await derived(basis);
+        return shadowRecord({schemaFallback:basis.schemaFallback??null,derivation,route:shadowRouteV2(derivation.findings,review,{failure}),actual:classified,verdict:basis.result.verdict,round,basis:basis===first?'original':'correction',protocol:{contradictions:checks,correction,failure},purpose:purposeSummary(basis.result,a.task)});
+      },signal));
       // Same-family review is allowed. Record the pairing so it stays visible in evidence.
       const builder=a.results.build;
       return {...classified,independence:builder?(builder.family&&result.family&&builder.family===result.family?'same-family':'different-family'):'external-author-unknown-manual-decision-required',...(builder?{pairing:{builder:{provider:builder.provider??null,model:builder.model??null,family:builder.family??null},reviewer:{provider:result.provider??null,model:result.model??null,family:result.family??null}}}:{})};
@@ -834,6 +905,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       const details = { ...(typeof error.notice === 'string' ? { notice: error.notice.slice(0, 2000) } : {}), ...(error.managedFiles ? { managedFiles: error.managedFiles } : {}), ...(error instanceof ForgeError ? { errorDetails: forgeErrorDetails(error) } : {}), ...(error.providerInvocations?.length || Array.isArray(error.providerInvocations) && spec.action?.operation === 'knowledge.upkeep' ? { providerInvocations: error.providerInvocations } : {}), ...(error.code === 'USAGE_LIMIT' ? { limitExhausted: true } : {}) };
       // A provider that stopped at its turn limit ended in a known way: a failure, not an uncertain outcome (dev.84, H9).
       if (error.turnLimit) details.turnLimit = error.turnLimit;
+      // A must-fix flow's plan review that was contradictory twice (review-must-fix design 6.4): a failure the kernel holds at the step.
+      if (error.protocolFailure) details.protocolFailure = error.protocolFailure;
       // A knowledge-upkeep follow-up's step refused because the target moved under it (stale, base-moved).
       if (['stale', 'base-moved'].includes(error.upkeepEnding)) details.upkeepEnding = error.upkeepEnding;
       if ((error.ambiguous || error.started) && error.code !== 'MAX_TURNS') atomicJSON(join(spec.action.artifactDir, 'action-result.json'), { version: 1, attemptId: spec.attemptId, intentDigest: spec.intentDigest, uncertain: true, reason: error.message, ...details });

@@ -28,7 +28,7 @@ export const DELIVERY_BUILD_SCHEMA = object({ ...BUILD_SCHEMA.properties, ...wor
 export const RISK_PLAN_SCHEMA = object({ ...PLAN_SCHEMA.properties, ...workerReport, questions:reportStrings, assumptions, riskAssessment:RISK_SCHEMA, learningsApplied });
 export const RISK_REVIEW_SCHEMA = object({ ...REVIEW_SCHEMA.properties, riskAssessment:RISK_SCHEMA });
 export const CHANGE_REVIEW_SCHEMA = object({ ...RISK_REVIEW_SCHEMA.properties, strictReview:object({ fullDiffInspected:{type:'boolean'}, threatModelReviewed:{type:'boolean'}, stopConditionsReviewed:{type:'boolean'} }), scopeSummary:reportText, priorFindingsDisposition:{type:'array',items:object({finding:reportText,disposition:{enum:['fixed','remaining','outside-scope']},evidence:reportText})}, learningsChecked });
-// Must-fix review (docs/designs/review-must-fix.md 5.1), schema version must-fix-1 (core/review-bar.mjs).
+// Must-fix review (docs/designs/review-must-fix.md 5.1, 5.2), schema version must-fix-2 (core/review-bar.mjs).
 // A shadow flow's reviewer returns these finding fields beside today's; the factory, not the model,
 // derives whether a finding is must-fix (workflows/must-fix.mjs). Optional values are null, since the
 // helper requires every property. Every citation says what part of the scenario it covers.
@@ -38,8 +38,12 @@ export const CITATION_SCHEMA = object({ kind:{ enum:['file','environment','recor
 const citations = { type:'array', maxItems:4, items:CITATION_SCHEMA };
 export const MUST_FIX_FINDING_SCHEMA = object({ ...REVIEW_SCHEMA.properties.findings.items.properties, scenario:bounded(1,1200), reachable:object({ status:{ enum:['shown','unknown','not-here'] }, evidence:citations, coverage:bounded(0,1200) }), purposeImpact:{ enum:['outcome','security','data-loss','spending','check-trust','none'] }, silent:{ type:'boolean' }, origin:{ enum:['new-code','in-fix','missed'] }, fixOf:nullable(40) });
 const mustFixFindings = { type:'array', items:MUST_FIX_FINDING_SCHEMA };
-export const MUST_FIX_PLAN_REVIEW_SCHEMA = object({ ...RISK_REVIEW_SCHEMA.properties, findings:mustFixFindings });
-export const MUST_FIX_CHANGE_REVIEW_SCHEMA = object({ ...CHANGE_REVIEW_SCHEMA.properties, findings:mustFixFindings });
+// The purpose assessment (5.2), schema version must-fix-2: is the outcome met, is each acceptance
+// criterion met (one entry per acceptance line, by its exact text; the factory checks the list, 5.4),
+// and can the change give a wrong answer silently. `settle` says what would settle an `unknown`.
+export const PURPOSE_SCHEMA = object({ outcome:{ enum:['met','partly','not-met','unverified'] }, acceptance:{ type:'array', items:object({ criterion:reportText, status:{ enum:['met','not-met','unverified'] }, evidence:citations }) }, silentWrongAnswer:object({ answer:{ enum:['no','yes','unknown'] }, how:bounded(0,1200), settle:bounded(0,600), evidence:citations }) });
+export const MUST_FIX_PLAN_REVIEW_SCHEMA = object({ ...RISK_REVIEW_SCHEMA.properties, findings:mustFixFindings, purpose:PURPOSE_SCHEMA });
+export const MUST_FIX_CHANGE_REVIEW_SCHEMA = object({ ...CHANGE_REVIEW_SCHEMA.properties, findings:mustFixFindings, purpose:PURPOSE_SCHEMA });
 // The upkeep role (knowledge upkeep's assessment) always passes its own schema; it is read-only like a reviewer.
 const schemas = { planner:PLAN_SCHEMA, builder:BUILD_SCHEMA, reviewer:REVIEW_SCHEMA, auditor:REVIEW_SCHEMA, reader:REVIEW_SCHEMA, scoreboardOwner:REVIEW_SCHEMA, upkeep:REVIEW_SCHEMA };
 const family = provider => provider === 'codex' ? 'openai' : 'anthropic';

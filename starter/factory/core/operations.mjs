@@ -16,7 +16,8 @@ export const OPERATIONS = Object.freeze({
   'workspace.prepare': contract(['workspace', 'satisfied-workspace'], { privileged: ['workspace'] }),
   // turnLimit: the step's provider stopped at its turn limit (dev.84, H9); the kernel holds the flow at the step.
   'provider.plan': contract(['plan'], { preserveInput: true, role: 'planner', privileged: ['turnLimit'] }),
-  'provider.planReview': contract(['plan-review'], { preserveInput: true, role: 'reviewer', privileged: ['turnLimit'] }),
+  // protocolFailure: a must-fix flow's plan review was contradictory twice (review-must-fix design 6.4); the kernel holds the flow at the step.
+  'provider.planReview': contract(['plan-review'], { preserveInput: true, role: 'reviewer', privileged: ['turnLimit', 'protocolFailure'] }),
   'forge.publishPlan': contract(['publish-plan'], { preserveInput: true }),
   'provider.build': contract(['build'], { role: 'builder', privileged: ['turnLimit'] }),
   'workspace.commit': contract(['commit']),

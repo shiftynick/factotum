@@ -1,21 +1,22 @@
 // Must-fix review, slice 1 (docs/designs/review-must-fix.md 15): schemas, factory ids, citation
-// validation, the derivation of 4.3, legacy handling, policy.reviewBar with shadow v1, pinning, and
-// the severity identity golden.
+// validation, the derivation of 4.3, legacy handling, policy.reviewBar with the shadow, pinning, and
+// the severity identity golden. Slice 2 (purpose first, protocol checks, shadow v2) changed what a
+// shadow review asks and records; its own tests are in review-must-fix-protocol.test.mjs.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { sandbox } from './helpers.mjs';
-import { captureReviewScenarios, goldenView, SCENARIOS } from './review-bar-scenarios.mjs';
+import { captureReviewScenarios, goldenView, purposeOf, SCENARIOS, SCENARIO_ACCEPTANCE } from './review-bar-scenarios.mjs';
 import { digest } from '../starter/factory/core/contracts.mjs';
 import { repositoryIdentity } from '../starter/factory/core/repository.mjs';
 import { runAction } from '../starter/factory/workflows/dispatch.mjs';
 import { validateConfig, configDigest, changeWorkflow, documentWorkflow } from '../starter/factory/core/configuration.mjs';
 import { authorityPolicy } from '../starter/factory/core/authority-policy.mjs';
 import { pinnedReviewSettings, flowReviewBar, validateReviewPolicy } from '../starter/factory/core/review-bar.mjs';
-import { validateSchema, validateSchemaDefinition, REVIEW_SCHEMA, RISK_REVIEW_SCHEMA, CHANGE_REVIEW_SCHEMA, CITATION_SCHEMA, MUST_FIX_FINDING_SCHEMA, MUST_FIX_PLAN_REVIEW_SCHEMA, MUST_FIX_CHANGE_REVIEW_SCHEMA } from '../starter/factory/adapters/providers/index.mjs';
-import { citationStatus, citableRecords, deriveFinding, deriveReview, exclusionSupport, findingId, mustFixShaped, reviewFindingIds, shadowPlanRouteV1, shadowRouteV1, SHADOW_V1_OMITS } from '../starter/factory/workflows/must-fix.mjs';
+import { validateSchema, validateSchemaDefinition, REVIEW_SCHEMA, RISK_REVIEW_SCHEMA, CHANGE_REVIEW_SCHEMA, CITATION_SCHEMA, MUST_FIX_FINDING_SCHEMA, MUST_FIX_PLAN_REVIEW_SCHEMA, MUST_FIX_CHANGE_REVIEW_SCHEMA, PURPOSE_SCHEMA } from '../starter/factory/adapters/providers/index.mjs';
+import { citationStatus, citableRecords, deriveFinding, deriveReview, exclusionSupport, findingId, mustFixShaped, reviewFindingIds, shadowPlanRouteV1, shadowRouteV1, SHADOW_V2_OMITS } from '../starter/factory/workflows/must-fix.mjs';
 
 const golden = JSON.parse(readFileSync(new URL('./fixtures/review-severity-golden.json', import.meta.url), 'utf8'));
 const HEAD = 'a'.repeat(40), OTHER = 'b'.repeat(40);
@@ -28,17 +29,20 @@ const derive = (row, extra = {}) => deriveFinding(row, { ...context, risk: 'ordi
 const kindOf = (row, extra) => { const d = derive(row, extra); return [d.kind, d.reason]; };
 
 test('the must-fix schemas keep every current field, pass validateSchemaDefinition and accept a full finding', () => {
-  for (const schema of [CITATION_SCHEMA, MUST_FIX_FINDING_SCHEMA, MUST_FIX_PLAN_REVIEW_SCHEMA, MUST_FIX_CHANGE_REVIEW_SCHEMA]) assert.equal(validateSchemaDefinition(schema), schema);
-  assert.deepEqual(Object.keys(MUST_FIX_PLAN_REVIEW_SCHEMA.properties), Object.keys(RISK_REVIEW_SCHEMA.properties));
-  assert.deepEqual(Object.keys(MUST_FIX_CHANGE_REVIEW_SCHEMA.properties), Object.keys(CHANGE_REVIEW_SCHEMA.properties));
+  for (const schema of [CITATION_SCHEMA, MUST_FIX_FINDING_SCHEMA, PURPOSE_SCHEMA, MUST_FIX_PLAN_REVIEW_SCHEMA, MUST_FIX_CHANGE_REVIEW_SCHEMA]) assert.equal(validateSchemaDefinition(schema), schema);
+  // Schema version must-fix-2 adds the purpose assessment (slice 2) beside every current field.
+  assert.deepEqual(Object.keys(MUST_FIX_PLAN_REVIEW_SCHEMA.properties), [...Object.keys(RISK_REVIEW_SCHEMA.properties), 'purpose']);
+  assert.deepEqual(Object.keys(MUST_FIX_CHANGE_REVIEW_SCHEMA.properties), [...Object.keys(CHANGE_REVIEW_SCHEMA.properties), 'purpose']);
   const base = REVIEW_SCHEMA.properties.findings.items;
   for (const [key, value] of Object.entries(base.properties)) assert.deepEqual(MUST_FIX_FINDING_SCHEMA.properties[key], value);
   assert.deepEqual(MUST_FIX_FINDING_SCHEMA.required, Object.keys(MUST_FIX_FINDING_SCHEMA.properties));
   assert.equal(MUST_FIX_FINDING_SCHEMA.additionalProperties, false);
   const full = finding('check-trust', 'shown', [fileCite(), cite('environment', { ref: 'single-host' }), recordCite(), cite('reasoning')], { fixOf: 'R1.2', origin: 'in-fix' });
   assert.equal(validateSchema(full, MUST_FIX_FINDING_SCHEMA), full);
-  const review = { verdict: 'revise', summary: 'Fictional', findings: [full], riskAssessment: { level: 'ordinary', rationale: 'Fictional', threatModel: [], stopConditions: [] }, strictReview: { fullDiffInspected: true, threatModelReviewed: false, stopConditionsReviewed: false }, scopeSummary: 'All', priorFindingsDisposition: [], learningsChecked: [] };
+  const review = { verdict: 'revise', summary: 'Fictional', findings: [full], riskAssessment: { level: 'ordinary', rationale: 'Fictional', threatModel: [], stopConditions: [] }, strictReview: { fullDiffInspected: true, threatModelReviewed: false, stopConditionsReviewed: false }, scopeSummary: 'All', priorFindingsDisposition: [], learningsChecked: [], purpose: purposeOf(['Correct']) };
   assert.equal(validateSchema(review, MUST_FIX_CHANGE_REVIEW_SCHEMA), review);
+  const { purpose, ...withoutPurpose } = review;
+  assert.throws(() => validateSchema(withoutPurpose, MUST_FIX_CHANGE_REVIEW_SCHEMA), /purpose: required/);
   // The bounds of 5.1: at most four citations, a scenario of 1 to 1200 characters, a closed purpose impact.
   assert.throws(() => validateSchema({ ...full, reachable: { ...full.reachable, evidence: Array(5).fill(fileCite()) } }, MUST_FIX_FINDING_SCHEMA), /array length/);
   assert.throws(() => validateSchema({ ...full, scenario: '' }, MUST_FIX_FINDING_SCHEMA), /invalid length/);
@@ -268,7 +272,7 @@ test('every behaviour-affecting review setting is pinned on each flow', () => {
   assert.deepEqual(pinnedReviewSettings({ policy: { reviewBar: 'severity', review: { mustFixRounds: 2 } } }), { reviewBar: 'severity' }, 'a severity flow reads no must-fix setting');
   const facts = [{ id: 'single-host', fact: 'Each account runs the factory on one host.' }];
   const pinned = pinnedReviewSettings({ policy: { reviewBar: 'shadow', review: { inFixEvidenceFrom: 4, strictFollowups: true, environment: facts } } });
-  assert.deepEqual(pinned, { reviewBar: 'shadow', reviewPolicy: { mustFixRounds: 3, inFixEvidenceFrom: 4, maxFollowupsPerFlow: 20, strictFollowups: true, environment: facts, schemas: { planReview: 'must-fix-1', review: 'must-fix-1', build: 'delivery-build' } } });
+  assert.deepEqual(pinned, { reviewBar: 'shadow', reviewPolicy: { mustFixRounds: 3, inFixEvidenceFrom: 4, maxFollowupsPerFlow: 20, strictFollowups: true, environment: facts, schemas: { planReview: 'must-fix-2', review: 'must-fix-2', build: 'delivery-build' } } });
   assert.notEqual(pinned.reviewPolicy.environment, facts, 'the facts are copied');
   assert.equal(flowReviewBar({}), 'severity', 'a flow from before the bar is a severity flow');
 });
@@ -287,10 +291,12 @@ async function reviewFlow(t, policy) {
   writeFileSync(join(f.root, 'input.txt'), 'records are read once\n'); execFileSync('git', ['commit', '-qam', 'Fictional candidate'], { cwd: f.root });
   return f;
 }
-const reviewReply = findings => async () => ({ provider: 'claude', model: 'fictional', family: 'anthropic', sessionId: 'fresh-review', result: { verdict: 'pass', summary: 'Fictional', findings, riskAssessment: { level: 'ordinary', rationale: 'Fictional', threatModel: [], stopConditions: [] }, strictReview: { fullDiffInspected: true, threatModelReviewed: false, stopConditionsReviewed: false }, scopeSummary: 'All', priorFindingsDisposition: [], learningsChecked: [] } });
+// `purpose`: the purpose assessment a must-fix-shaped result carries; none for today's shape.
+const reviewReply = (findings, purpose = null) => async () => ({ provider: 'claude', model: 'fictional', family: 'anthropic', sessionId: 'fresh-review', result: { verdict: 'pass', summary: 'Fictional', findings, riskAssessment: { level: 'ordinary', rationale: 'Fictional', threatModel: [], stopConditions: [] }, strictReview: { fullDiffInspected: true, threatModelReviewed: false, stopConditionsReviewed: false }, scopeSummary: 'All', priorFindingsDisposition: [], learningsChecked: [], ...(purpose ? { purpose } : {}) } });
+const fixturePurpose = purposeOf(['Observed fixture behavior']);
 const receipt = actionResult => ({ exitCode: 0, reason: null, costMicros: 0, actionResult });
 
-test('a shadow flow pins its settings, asks the must-fix questions, records shadowRoute v1 and routes as severity would', async t => {
+test('a shadow flow pins its settings, asks the must-fix questions, records shadowRoute v2 and routes as severity would', async t => {
   const facts = [{ id: 'single-host', fact: 'Each account runs the factory on one host.' }];
   const f = await reviewFlow(t, { reviewBar: 'shadow', review: { environment: facts } });
   const pinned = f.store.need('flow', 'flow-1');
@@ -306,11 +312,11 @@ test('a shadow flow pins its settings, asks the must-fix questions, records shad
     finding('none', 'unknown', [], { severity: 'low' }),
   ];
   let spec;
-  const review = await runAction(attempt.intent, { providerInvoke: async s => { spec = s; return reviewReply(structuredClone(findings))(); } });
+  const review = await runAction(attempt.intent, { providerInvoke: async s => { spec = s; return reviewReply(structuredClone(findings), fixturePurpose)(); } });
   assert.equal(spec.schema, MUST_FIX_CHANGE_REVIEW_SCHEMA); assert.match(spec.prompt, /Must-fix fields \(a shadow trial/); assert.match(spec.prompt, /"single-host"/);
   // Severity routing: an ordinary pass with only low findings defers. Must-fix: a shown outcome finding sends it back.
   assert.equal(review.route, 'defer'); assert.equal(review.disposition, 'followup-required');
-  assert.deepEqual(review.shadowRoute, { version: 'v1', estimate: true, omits: [...SHADOW_V1_OMITS], route: 'revise', disposition: 'correct', actualRoute: 'defer', actualDisposition: 'followup-required', differs: true, verdictOverridden: true });
+  assert.deepEqual(review.shadowRoute, { version: 'v2', estimate: true, omits: [...SHADOW_V2_OMITS], route: 'revise', disposition: 'correct', actualRoute: 'defer', actualDisposition: 'followup-required', differs: true, verdictOverridden: true });
   assert.deepEqual(review.mustFix.findings.map(row => [row.id, row.kind, row.reason, row.citations.join()]), [['R1.1', 'must-fix', 'outcome-shown', 'validated'], ['R1.2', 'operator-item', 'unconfirmed-exclusion', 'validated'], ['R1.3', 'operator-item', 'unresolved-scenario', 'not-found'], ['R1.4', 'follow-up', 'purpose-none', '']]);
   assert.equal(review.mustFix.findings[2].downgraded, 'contradicted');
   assert.deepEqual(review.result.findings, findings, 'the reviewer\'s output is kept as returned');
@@ -327,7 +333,7 @@ test('a shadow flow pins its settings, asks the must-fix questions, records shad
   assert.equal(second.intent.action.reviewBar, 'shadow');
   assert.deepEqual(second.intent.action.reviewRecords, [{ id: attempt.id, step: 'inspect', head, checks: { route: 'defer' } }]);
   let prompt;
-  const next = await runAction(second.intent, { providerInvoke: async s => { prompt = s.prompt; return reviewReply([finding('outcome', 'shown', [recordCite({ ref: attempt.id, head, check: 'route', result: 'defer' })])])(); } });
+  const next = await runAction(second.intent, { providerInvoke: async s => { prompt = s.prompt; return reviewReply([finding('outcome', 'shown', [recordCite({ ref: attempt.id, head, check: 'route', result: 'defer' })])], fixturePurpose)(); } });
   assert.doesNotMatch(prompt.split('Trusted diff:')[0], /shadowRoute|"mustFix"/, 'earlier reviews reach the reviewer without the derived fields');
   assert.deepEqual(next.mustFix.findings.map(row => [row.id, row.kind, row.citations.join()]), [['R2.1', 'must-fix', 'validated']]);
   assert.equal(next.route, 'revise'); assert.equal(next.shadowRoute.route, 'revise');
@@ -357,24 +363,38 @@ test('severity identity: prompts, schemas, routes, results, review history and d
   }
 });
 
-test('shadow identity: the actual route always equals the severity route; the shadow only adds questions and records', async () => {
+// A shadow prompt with the purpose block and the must-fix questions taken out: today's prompt.
+const severityPart = prompt => prompt.replace(/\nPurpose first\.[\s\S]*?(?=\n(Independently review|Review this proposed plan))/u, '').replace(/\nMust-fix fields \([\s\S]*$/u, '');
+test('shadow identity: the actual route always equals the severity route; the shadow only adds the purpose block, questions, its correction review and records', async () => {
   const pinned = pinnedReviewSettings({ policy: { reviewBar: 'shadow' } });
   const action = () => ({ reviewBar: 'shadow', reviewPolicy: pinned.reviewPolicy, reviewRecords: [], reviewRound: 1 });
-  // Each scripted finding also in the must-fix shape: high shown with a validated quote, medium unknown, low purpose none.
-  const shaped = (scenario, index, step) => (step.results ?? []).map(result => ({ ...result, findings: result.findings.map(row => ({ ...row, ...finding(row.severity === 'high' ? 'outcome' : row.severity === 'medium' ? 'outcome' : 'none', row.severity === 'high' ? 'shown' : 'unknown', row.severity === 'high' ? [fileCite('fictional baseline', 'records.txt')] : []), severity: row.severity, file: row.file, line: row.line, message: row.message })) }));
-  const severity = await captureReviewScenarios();
-  for (const results of [null, shaped]) {
+  // Each scripted finding also in the must-fix shape: high shown with a validated quote, medium unknown, low purpose none; and a complete purpose assessment.
+  const shaped = (scenario, index, step) => (step.results ?? []).map(result => ({ ...result, purpose: purposeOf(SCENARIO_ACCEPTANCE), findings: result.findings.map(row => ({ ...row, ...finding(row.severity === 'high' ? 'outcome' : row.severity === 'medium' ? 'outcome' : 'none', row.severity === 'high' ? 'shown' : 'unknown', row.severity === 'high' ? [fileCite('fictional baseline', 'records.txt')] : []), severity: row.severity, file: row.file, line: row.line, message: row.message })) }));
+  // Today's shape has no purpose assessment, so every shadow review is contradictory and gets the
+  // must-fix bar's correction review; the scripted reviewer answers it with each result again.
+  const twice = (scenario, index, step) => (step.results ?? []).flatMap(result => [result, structuredClone(result)]);
+  for (const results of [twice, shaped]) {
     const shadow = await captureReviewScenarios({ policy: { reviewBar: 'shadow' }, action, results });
-    const baseline = results ? await captureReviewScenarios({ results }) : severity;
+    const baseline = await captureReviewScenarios({ results });
     for (const scenario of SCENARIOS) {
       const ran = shadow[scenario.name].steps, base = baseline[scenario.name].steps;
       assert.equal(ran.length, base.length);
       for (const [index, step] of ran.entries()) {
         assert.deepEqual([step.result.route, step.result.disposition ?? null], [base[index].result.route, base[index].result.disposition ?? null], `${scenario.name} step ${index}`);
-        assert.ok(step.calls[0].prompt.startsWith(base[index].calls[0].prompt), `${scenario.name} step ${index}: the shadow prompt is today's prompt with the must-fix questions after it`);
+        // The strict plan check's own finding carries the must-fix fields in a shadow flow; nothing else differs.
+        const todayShape = row => row && { ...row, findings: row.findings?.map(({ severity, file, line, message }) => ({ severity, file, line, message })) };
+        assert.deepEqual(todayShape(step.result.result), todayShape(base[index].result.result), `${scenario.name} step ${index}: the reviewed result is the one severity routes`);
         if (step.op === 'build') { assert.equal(step.calls[0].prompt, base[index].calls[0].prompt, 'the builder brief is unchanged'); continue; }
-        assert.equal(step.result.shadowRoute.version, 'v1'); assert.equal(step.result.shadowRoute.actualRoute, step.result.route);
+        assert.equal(severityPart(step.calls[0].prompt), base[index].calls[0].prompt, `${scenario.name} step ${index}: the shadow prompt is today's prompt with the purpose block before the material under review and the must-fix questions after it`);
+        const purposeAt = step.calls[0].prompt.indexOf('\nPurpose first.');
+        assert.ok(purposeAt > 0 && purposeAt < step.calls[0].prompt.indexOf(step.op === 'plan' ? 'Plan: ' : 'Trusted diff:'), 'the purpose block comes first');
+        assert.equal(step.result.shadowRoute.version, 'v2'); assert.equal(step.result.shadowRoute.actualRoute, step.result.route);
         assert.equal(JSON.parse(step.calls[0].schema).properties.findings.items.properties.scenario.maxLength, 1200);
+        assert.ok(JSON.parse(step.calls[0].schema).properties.purpose, 'the schema asks for the purpose assessment');
+        // Today's plan review runs its own correction for a pass with findings; the shadow's correction review runs only for a contradictory result, and only for the estimate.
+        const extra = step.calls.length - base[index].calls.length;
+        assert.equal(extra, results === twice && !(step.op === 'plan' && base[index].calls.length > 1) ? 1 : 0, `${scenario.name} step ${index}: correction reviews`);
+        if (results === twice) assert.deepEqual([step.result.shadowRoute.route, step.result.shadowRoute.disposition], [step.op === 'plan' ? 'stop' : scenario.satisfied ? 'revise' : 'park', 'protocol-failure'], `${scenario.name} step ${index}: a second contradiction`);
       }
     }
     // The plan review's own strict finding is a check-trust finding in a shadow flow.
@@ -389,13 +409,17 @@ test('shadow identity: the actual route always equals the severity route; the sh
 
 test('a shadow derivation that fails is recorded as the shadow outcome and never fails the review', async () => {
   const broken = () => ({ reviewBar: 'shadow', reviewPolicy: { environment: 5 }, reviewRecords: [], reviewRound: 1 });
-  const results = (scenario, index, step) => (step.results ?? []).map(result => ({ ...result, findings: result.findings.map(row => ({ ...row, ...finding('outcome', 'not-here', [cite('environment', { ref: 'single-host' })]), severity: row.severity, message: row.message })) }));
+  const results = (scenario, index, step) => (step.results ?? []).map(result => ({ ...result, purpose: purposeOf(SCENARIO_ACCEPTANCE), findings: result.findings.map(row => ({ ...row, ...finding('outcome', 'not-here', [cite('environment', { ref: 'single-host' })]), severity: row.severity, message: row.message })) }));
   const shadow = await captureReviewScenarios({ policy: { reviewBar: 'shadow' }, action: broken, results }), severity = await captureReviewScenarios({ results });
   const steps = shadow['fresh-full-ordinary'].steps, base = severity['fresh-full-ordinary'].steps;
   assert.deepEqual(steps.map(step => step.result.route), base.map(step => step.result.route));
   assert.match(steps[0].result.shadowRoute.error, /not a function|is not iterable/);
   assert.equal(steps[0].result.mustFix, undefined);
   assert.deepEqual(shadow['fresh-full-ordinary'].reviewHistory[0].shadowRoute, steps[0].result.shadowRoute, 'the history row keeps the failed estimate');
+  // A correction review that fails (here the scripted reviewer has no answer for it) is a failed estimate too.
+  const unanswered = await captureReviewScenarios({ policy: { reviewBar: 'shadow' }, action: () => ({ ...broken(), reviewPolicy: pinnedReviewSettings({ policy: { reviewBar: 'shadow' } }).reviewPolicy }) });
+  assert.deepEqual(unanswered['fresh-full-ordinary'].steps.map(step => step.result.route), (await captureReviewScenarios())['fresh-full-ordinary'].steps.map(step => step.result.route));
+  assert.match(unanswered['fresh-full-ordinary'].steps[0].result.shadowRoute.error, /Cannot read properties of undefined/);
 });
 
 // Review findings on slice 1: a shadow review of a fixed one-commit repository, run through the dispatcher.
@@ -426,12 +450,15 @@ test('review fix 1: a shadow review accepts a severity-only result through the r
   const f = shadowCandidate(t), asked = [];
   const adapter = scriptedClaude(structuredClone(severityOnly), asked);
   const review = await runAction(f.intent, { providerInvoke: adapter.invoke });
-  assert.deepEqual(asked, [MUST_FIX_CHANGE_REVIEW_SCHEMA], 'the model is still asked for the full must-fix schema');
+  // Slice 2: a result in today's shape has no purpose assessment, so the shadow runs the must-fix
+  // bar's correction review, asked for the full schema again; the same answer is a second contradiction.
+  assert.deepEqual(asked, [MUST_FIX_CHANGE_REVIEW_SCHEMA, MUST_FIX_CHANGE_REVIEW_SCHEMA], 'the model is still asked for the full must-fix schema');
   assert.equal(review.schemaFallback, 'legacy');
   assert.equal(review.route, 'revise', 'the severity route');
   assert.deepEqual(review.mustFix.findings.map(row => [row.id, row.bar, row.kind, row.reason]), [['R1.1', 'legacy', 'must-fix', 'legacy-severity']]);
   assert.equal(review.mustFix.schemaFallback, 'legacy');
-  assert.equal(review.shadowRoute.route, 'revise');
+  assert.deepEqual(review.mustFix.protocol.contradictions, ['the purpose assessment is missing']);
+  assert.deepEqual([review.shadowRoute.route, review.shadowRoute.disposition], ['park', 'protocol-failure'], 'protocol failure comes before the legacy fallback, which alone would revise');
   // A result valid against neither schema is still refused, as any malformed result is.
   const mixed = { ...severityOnly, findings: [...severityOnly.findings, finding('outcome', 'unknown')] };
   await assert.rejects(runAction(f.intent, { providerInvoke: scriptedClaude(mixed, []).invoke }), error => error.code === 'INVALID_RESULT');

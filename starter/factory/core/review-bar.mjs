@@ -8,15 +8,18 @@
 //   (workflows/must-fix.mjs). It changes no route.
 // - `must-fix` is refused by configuration validation until the release that ships the ledger, the
 //   strict changes, the decision guard and the console evidence together (design 15, slice 6).
+//   Until then a flow pinned to it exists only in test fixtures, which exercise the enforcement
+//   code as it is built (design 15): from slice 2, the fail-closed protocol checks of 5.4 and 6.4.
 //
 // None of these is a live setting: they change through config.update, which waits for running
 // flows to drain (13.2), and each flow reads only the values it pinned (13.3).
 import { assert } from './contracts.mjs';
 
 export const REVIEW_BARS = Object.freeze(['severity', 'shadow']);
-// The schema version a must-fix or shadow review uses (design 13.3). Version 1 is the finding
-// fields of section 5.1; the purpose assessment and the ledger come with their own versions.
-export const MUST_FIX_SCHEMA_VERSION = 'must-fix-1';
+// The schema version a must-fix or shadow review uses (design 13.3). Version 1 (dev.98) was the
+// finding fields of section 5.1; version 2 adds the purpose assessment of 5.2. The ledger comes with
+// its own version.
+export const MUST_FIX_SCHEMA_VERSION = 'must-fix-2';
 export const REVIEW_SETTING_DEFAULTS = Object.freeze({ mustFixRounds: 3, inFixEvidenceFrom: 3, maxFollowupsPerFlow: 20, strictFollowups: false });
 const REVIEW_KEYS = Object.freeze([...Object.keys(REVIEW_SETTING_DEFAULTS), 'environment']);
 export const ENVIRONMENT_FACT_LIMIT = 40, ENVIRONMENT_FACT_LENGTH = 300;
