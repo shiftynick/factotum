@@ -10,7 +10,7 @@ Commands are recorded with their actor in the command history and events. Use `-
 
 ## Who is acting
 
-Every command-executing CLI call (`command`, `config update`, `maintenance enqueue`, `cleanup apply`, `upgrade apply`, `import-task`) requires `--actor operator` or `--actor orchestrator`. There is no default identity. `import-task` is recorded as a `task.put` by that actor, with `--instruction`/`--reference` and the same authority rules. Every subcommand prints its usage and options with `--help` (for example `node factory/cli.mjs config update --help`) without running anything; `command --operation <name> --help` describes one operation's payload.
+Every command-executing CLI call (`command`, `config update`, `maintenance enqueue`, `cleanup apply`, `cleanup archive-drop apply`, `cleanup archive-slim apply`, `upgrade apply`, `import-task`) requires `--actor operator` or `--actor orchestrator`. There is no default identity. `import-task` is recorded as a `task.put` by that actor, with `--instruction`/`--reference` and the same authority rules. Every subcommand prints its usage and options with `--help` (for example `node factory/cli.mjs config update --help`) without running anything; `command --operation <name> --help` describes one operation's payload.
 
 ## Acting on an operator instruction
 
@@ -31,6 +31,8 @@ Two checks are kept by the operator's decision:
 - **Deploy and spending approvals** (integration decisions) stay with the operator unless `policy.delegateIntegrationDecisions` is `true`.
 
 A third holds by design: **an adopted pull request's merge question is the operator's alone.** Its original builder is unknown, so adoption always needs manual adjudication. The orchestrator's answer is refused (`an adopted pull request's merge question is answered by the operator only…`) with or without a recorded instruction, whatever `policy.delegatedOperations`, `policy.mergeDecisionRole` or `policy.strictDecisionRole` say; the refusal leaves the question open and unchanged. The merge step rechecks that the authorization came from the operator.
+
+A fourth is an operator decision too: **`cleanup archive-drop apply` and `cleanup archive-slim apply` are operator only.** They delete or rewrite archives, so they are not in the delegable list and `policy.delegatedOperations` cannot name them; the orchestrator's attempt is refused with or without an instruction. See [workspace cleanup](workspace-cleanup.md#slimming-existing-archives).
 
 ## Reference
 
@@ -81,4 +83,4 @@ A third holds by design: **an adopted pull request's merge question is the opera
 
 `doctor.request` asks the operations loop to run doctor for the current configuration, when it hasn't passed yet. The outcome is recorded in `meta('doctorRequest')` and shown in Settings. Doctor still needs drained work.
 
-Not available in the console, and CLI only: `config.update`, `attempt.resolve`, `restore.release`, `spending.reconcile`, `cleanup apply` and `main.health`. All of them can be delegated.
+Not available in the console, and CLI only: `config.update`, `attempt.resolve`, `restore.release`, `spending.reconcile`, `cleanup apply` and `main.health`. All of them can be delegated. `cleanup archive-drop` and `cleanup archive-slim` are also CLI only, and are never delegated.

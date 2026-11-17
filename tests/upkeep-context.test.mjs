@@ -484,7 +484,7 @@ test('acceptance 8: no code path other than a flow\'s builder writes a governing
   // Static: the modules acceptance, the lifecycle and the candidate check run import nothing that
   // writes a file, and run no Git command that writes a tree, an index or a ref.
   const factory = new URL('../starter/factory/', import.meta.url), read = file => readFileSync(new URL(file, factory), 'utf8');
-  for (const file of ['operations/upkeep-context.mjs', 'operations/upkeep-tasks.mjs', 'operations/upkeep-candidates.mjs', 'operations/governance-edit.mjs', 'workflows/upkeep-enforcement.mjs', 'core/upkeep-namespace.mjs', 'core/upkeep-config.mjs', 'core/tree-paths.mjs']) {
+  for (const file of ['operations/upkeep-context.mjs', 'operations/upkeep-tasks.mjs', 'operations/upkeep-candidates.mjs', 'operations/governance-edit.mjs', 'workflows/upkeep-enforcement.mjs', 'core/upkeep-namespace.mjs', 'core/upkeep-config.mjs', 'core/tree-paths.mjs', 'core/globs.mjs']) {
     const source = read(file);
     assert.doesNotMatch(source, /writeFile|appendFile|renameSync|unlinkSync|rmSync|copyFile|symlinkSync|mkdirSync|createWriteStream|from 'node:fs'/, `${file} writes no file`);
     for (const match of source.matchAll(/spawnSync\('git', \[([^\]]*)\]/g)) assert.doesNotMatch(match[1], /'(commit|checkout|apply|merge|reset|write-tree|update-ref|update-index|stash|restore|switch|am|cherry-pick|rebase)'/, `${file}: ${match[1]}`);
