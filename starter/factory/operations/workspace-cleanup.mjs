@@ -103,11 +103,13 @@ function deletedIgnoredSummary(path, patterns) {
   return { count: kept.length, paths: kept.slice(0, IGNORED_LIST_LIMIT), ...(kept.length > IGNORED_LIST_LIMIT ? { truncated: true } : {}) };
 }
 // Delivery-mode Git runs with the configured account's scoped credentials, as in an attempt.
-const repositoryScope = (config, fn) => config.mode === 'delivery' ? withGitHubGitScope(config.repository, fn) : fn();
+export const repositoryScope = (config, fn) => config.mode === 'delivery' ? withGitHubGitScope(config.repository, fn) : fn();
 const releaseFlow = (root, stateDir, config, flow, guard) => repositoryScope(config, () => releaseDeliveredWorkspace({ root, stateDir, config, workspace: flow.workspace, target: flow.target, results: flow.results, mergeAuthorization: flow.mergeAuthorization, guard }));
-const provenOutcome = flow => flow.results?.merge?.merged === true || flow.results?.['satisfied-record']?.proven === true;
+export const provenOutcome = flow => flow.results?.merge?.merged === true || flow.results?.['satisfied-record']?.proven === true;
 const unsettled = (store, flowId) => store.by('attempt', 'flowId', flowId).some(a => !a.settledAt && !['passed', 'failed', 'not-dispatched', 'aborted'].includes(a.status));
 export const cleanupObligationId = flowId => `${flowId}:cleanup`;
+// A cleanup archive's directory name under archives/failed-workspaces/ or archives/completed-workspaces/.
+export const cleanupArchiveName = (flowId, ownershipDigest) => digest({ flowId, ownership: ownershipDigest }).slice(0, 32);
 const cleanupNoticeId = flowId => `cleanup-notice:${flowId}`;
 // How an operator finishes a completed flow's cleanup by hand.
 // cli: the project's CLI command (cliCommand(project.root)), which names its install prefix.
@@ -249,7 +251,7 @@ async function planCleanup(store, flowId) {
   }
 }
 
-async function exclusive(projectId, flowId) {
+export async function exclusive(projectId, flowId) {
   const lock = createServer();
   await new Promise((done, reject) => { lock.once('error', () => reject(new Error('another cleanup of this flow is running'))); lock.listen(`\0factotum-cleanup-${projectId}-${flowId}`, done); });
   return () => new Promise(done => lock.close(done));
@@ -276,7 +278,7 @@ export async function cleanupApply(stateDir, { flowId, planDigest, note: reason,
         settleCleanupPending(store, flowId, { actor, how: 'cleanup apply' }); return row;
       });
     }
-    const flow = store.need('flow', flowId), dir = join(stateDir, 'archives', flow.state === 'completed' ? 'completed-workspaces' : 'failed-workspaces', digest({ flowId, ownership: plan.ownershipDigest }).slice(0, 32));
+    const flow = store.need('flow', flowId), dir = join(stateDir, 'archives', flow.state === 'completed' ? 'completed-workspaces' : 'failed-workspaces', cleanupArchiveName(flowId, plan.ownershipDigest));
     store.tx(() => { store.put('cleanup', { id: flowId, status: 'archiving', planDigest, actor, ...(onBehalfOf ? { onBehalfOf } : {}), note: reason, archiveDir: dir, startedAt: now() }); store.event('cleanup.started', { flowId, planDigest, actor, ...(onBehalfOf ? { onBehalfOf } : {}) }); });
     const archive = archiveWorkspace(flow.workspace.path, dir, plan);
     store.tx(() => { store.put('cleanup', { ...store.need('cleanup', flowId), status: 'archived', archive }); store.event('cleanup.archived', { flowId, archiveDir: dir }); });
@@ -366,5 +368,9 @@ export function restoreArchive(dir, target, manifest = JSON.parse(readFileSync(j
 }
 export function restoreFlowArchive(stateDir, flowId, target) {
   const store = new Store(stateDir);
-  try { const row = store.need('cleanup', flowId); assert(row.archive, 'no archive recorded for this flow'); return restoreArchive(row.archiveDir, target); } finally { store.close(); }
+  try {
+    const row = store.need('cleanup', flowId); assert(row.archive, 'no archive recorded for this flow');
+    assert(!row.archiveDrop, `this flow's archive was dropped by ${row.archiveDrop?.actor} (cleanup archive-drop, ${row.archiveDrop?.status}); nothing is left to restore`);
+    return restoreArchive(row.archiveDir, target);
+  } finally { store.close(); }
 }

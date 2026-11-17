@@ -95,4 +95,30 @@ node factory/cli.mjs cleanup restore --state <state> --id <flowId> --out <new di
 
 This creates a standalone repository at the archived head, with the exact working tree and index. Nothing is restored into the project checkout.
 
-Archives live in private project state and are included in backups. They are not deleted automatically. Automatic cleanup of failed flows is not offered; each cleanup is an operator decision. Only a completed flow's own failed cleanup step is retried automatically.
+Archives live in private project state and are included in backups. They are not deleted automatically; the operator can drop those of merged flows, as described next. Automatic cleanup of failed flows is not offered; each cleanup is an operator decision. Only a completed flow's own failed cleanup step is retried automatically.
+
+## Dropping the archives of merged flows
+
+Once a flow's change is merged, its cleanup archive is usually no longer needed. The operator can remove such archives to reclaim space, again as a plan and an apply:
+
+```sh
+node factory/cli.mjs cleanup archive-drop plan --state <state> --id <flowId> [--id <flowId> ...]
+node factory/cli.mjs cleanup archive-drop plan --state <state> --completed
+node factory/cli.mjs cleanup archive-drop apply --state <state> (--id <flowId> ... | --completed) --actor operator --digest <planDigest> --note "<why>"
+```
+
+`--completed` selects every completed flow that has a cleanup archive; repeated `--id` names flows. One plan and one digest cover every eligible archive in the selection. A flow's archive is eligible only when all of these hold:
+
+- the flow is `completed` with a merged PR (`results.merge.merged`) or a proven satisfied record;
+- its workspace is already released, so no live workspace is touched;
+- its archived head is kept elsewhere:
+  - for merge method `merge`, the head is reachable from the target, fetched by the plan (the plan shows the target ref and its current tip);
+  - for squash and rebase, a verified bundle of the head is kept under `archives/workspace-commits/`. A flow released by `cleanup apply` in `archive` mode has no such bundle, because its archive holds its only copy of the branch commits, so it is refused;
+  - a satisfied flow's commits were never merged, and its proven record is the evidence;
+- each archive directory verifies: `manifest.json` matches its own digest and the digest the cleanup recorded, belongs to this flow and head, and the bundle, tree, index and object pack match it.
+
+The archive of a `failed` or abandoned flow is never dropped, even when its change was later merged by other means: it may be the only copy of unsaved work. With `--completed` the plan counts them as `keptFailedFlowArchives`. `archives/workspace-commits/` is never touched.
+
+The plan lists, for each eligible flow, the archive directory or directories (the flow's directory under `failed-workspaces/` or `completed-workspaces/`), every file with its size and SHA-256, the total bytes and the manifest digest. Flows that are not eligible are listed under `refused` with the reason. Read what each archive holds before dropping it: a completed flow is archived only when its workspace had changed, untracked or ignored files, and those files exist nowhere else.
+
+Apply is operator only and cannot be delegated. It takes a lock, plans again from scratch (fetching and verifying every archive again), and refuses if the digest differs. It then removes exactly the listed directories, one flow at a time. Each flow's `cleanup` record gets `archiveDrop` (status, actor, note, directories, bytes freed), and the event `cleanup.archive-dropped` records what was deleted, the bytes freed, the actor and the note; `cleanup.archives-dropped` summarises the run. `cleanup restore` then says the archive was dropped. If apply is interrupted while removing, the next plan lists that flow with `resume: true` and apply finishes it.
