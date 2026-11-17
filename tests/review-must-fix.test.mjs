@@ -15,8 +15,8 @@ import { runAction } from '../starter/factory/workflows/dispatch.mjs';
 import { validateConfig, configDigest, changeWorkflow, documentWorkflow } from '../starter/factory/core/configuration.mjs';
 import { authorityPolicy } from '../starter/factory/core/authority-policy.mjs';
 import { pinnedReviewSettings, flowReviewBar, validateReviewPolicy } from '../starter/factory/core/review-bar.mjs';
-import { validateSchema, validateSchemaDefinition, REVIEW_SCHEMA, RISK_REVIEW_SCHEMA, CHANGE_REVIEW_SCHEMA, CITATION_SCHEMA, MUST_FIX_FINDING_SCHEMA, MUST_FIX_PLAN_REVIEW_SCHEMA, MUST_FIX_CHANGE_REVIEW_SCHEMA, PURPOSE_SCHEMA } from '../starter/factory/adapters/providers/index.mjs';
-import { citationStatus, citableRecords, deriveFinding, deriveReview, exclusionSupport, findingId, mustFixShaped, reviewFindingIds, shadowPlanRouteV1, shadowRouteV1, SHADOW_V2_OMITS } from '../starter/factory/workflows/must-fix.mjs';
+import { validateSchema, validateSchemaDefinition, REVIEW_SCHEMA, RISK_REVIEW_SCHEMA, CHANGE_REVIEW_SCHEMA, CITATION_SCHEMA, MUST_FIX_FINDING_SCHEMA, MUST_FIX_PLAN_REVIEW_SCHEMA, MUST_FIX_CHANGE_REVIEW_SCHEMA, SHADOW_LEDGER_CHANGE_REVIEW_SCHEMA, PURPOSE_SCHEMA } from '../starter/factory/adapters/providers/index.mjs';
+import { citationStatus, citableRecords, deriveFinding, deriveReview, exclusionSupport, findingId, mustFixShaped, reviewFindingIds, shadowPlanRouteV1, shadowRouteV1, SHADOW_V3_OMITS } from '../starter/factory/workflows/must-fix.mjs';
 
 const golden = JSON.parse(readFileSync(new URL('./fixtures/review-severity-golden.json', import.meta.url), 'utf8'));
 const HEAD = 'a'.repeat(40), OTHER = 'b'.repeat(40);
@@ -272,7 +272,7 @@ test('every behaviour-affecting review setting is pinned on each flow', () => {
   assert.deepEqual(pinnedReviewSettings({ policy: { reviewBar: 'severity', review: { mustFixRounds: 2 } } }), { reviewBar: 'severity' }, 'a severity flow reads no must-fix setting');
   const facts = [{ id: 'single-host', fact: 'Each account runs the factory on one host.' }];
   const pinned = pinnedReviewSettings({ policy: { reviewBar: 'shadow', review: { inFixEvidenceFrom: 4, strictFollowups: true, environment: facts } } });
-  assert.deepEqual(pinned, { reviewBar: 'shadow', reviewPolicy: { mustFixRounds: 3, inFixEvidenceFrom: 4, maxFollowupsPerFlow: 20, strictFollowups: true, environment: facts, schemas: { planReview: 'must-fix-2', review: 'must-fix-2', build: 'delivery-build' } } });
+  assert.deepEqual(pinned, { reviewBar: 'shadow', reviewPolicy: { mustFixRounds: 3, inFixEvidenceFrom: 4, maxFollowupsPerFlow: 20, strictFollowups: true, environment: facts, schemas: { planReview: 'must-fix-2', review: 'must-fix-3', build: 'delivery-build' } } });
   assert.notEqual(pinned.reviewPolicy.environment, facts, 'the facts are copied');
   assert.equal(flowReviewBar({}), 'severity', 'a flow from before the bar is a severity flow');
 });
@@ -296,7 +296,7 @@ const reviewReply = (findings, purpose = null) => async () => ({ provider: 'clau
 const fixturePurpose = purposeOf(['Observed fixture behavior']);
 const receipt = actionResult => ({ exitCode: 0, reason: null, costMicros: 0, actionResult });
 
-test('a shadow flow pins its settings, asks the must-fix questions, records shadowRoute v2 and routes as severity would', async t => {
+test('a shadow flow pins its settings, asks the must-fix questions, records shadowRoute v3 and routes as severity would', async t => {
   const facts = [{ id: 'single-host', fact: 'Each account runs the factory on one host.' }];
   const f = await reviewFlow(t, { reviewBar: 'shadow', review: { environment: facts } });
   const pinned = f.store.need('flow', 'flow-1');
@@ -313,10 +313,10 @@ test('a shadow flow pins its settings, asks the must-fix questions, records shad
   ];
   let spec;
   const review = await runAction(attempt.intent, { providerInvoke: async s => { spec = s; return reviewReply(structuredClone(findings), fixturePurpose)(); } });
-  assert.equal(spec.schema, MUST_FIX_CHANGE_REVIEW_SCHEMA); assert.match(spec.prompt, /Must-fix fields \(a shadow trial/); assert.match(spec.prompt, /"single-host"/);
+  assert.equal(spec.schema, SHADOW_LEDGER_CHANGE_REVIEW_SCHEMA); assert.match(spec.prompt, /Must-fix fields \(a shadow trial/); assert.match(spec.prompt, /"single-host"/);
   // Severity routing: an ordinary pass with only low findings defers. Must-fix: a shown outcome finding sends it back.
   assert.equal(review.route, 'defer'); assert.equal(review.disposition, 'followup-required');
-  assert.deepEqual(review.shadowRoute, { version: 'v2', estimate: true, omits: [...SHADOW_V2_OMITS], route: 'revise', disposition: 'correct', actualRoute: 'defer', actualDisposition: 'followup-required', differs: true, verdictOverridden: true });
+  assert.deepEqual(review.shadowRoute, { version: 'v3', estimate: true, omits: [...SHADOW_V3_OMITS], route: 'revise', disposition: 'correct', actualRoute: 'defer', actualDisposition: 'followup-required', differs: true, verdictOverridden: true });
   assert.deepEqual(review.mustFix.findings.map(row => [row.id, row.kind, row.reason, row.citations.join()]), [['R1.1', 'must-fix', 'outcome-shown', 'validated'], ['R1.2', 'operator-item', 'unconfirmed-exclusion', 'validated'], ['R1.3', 'operator-item', 'unresolved-scenario', 'not-found'], ['R1.4', 'follow-up', 'purpose-none', '']]);
   assert.equal(review.mustFix.findings[2].downgraded, 'contradicted');
   assert.deepEqual(review.result.findings, findings, 'the reviewer\'s output is kept as returned');
@@ -363,6 +363,18 @@ test('severity identity: prompts, schemas, routes, results, review history and d
   }
 });
 
+// A scripted reviewer that judges every claimed fix the ledger block shows as holding (slice 3), so a
+// must-fix-shaped result is complete; today's shape stays as it is.
+// The severity baseline is given the same judgements, so the two flows' review histories match.
+const judged = new Map();
+const judgeLedger = (result, spec, at) => {
+  const shown = /\nLedger entries awaiting your judgement: (\[.*\])\n/u.exec(spec.prompt);
+  if (!result?.purpose || !shown) return result;
+  const ledger = JSON.parse(shown[1]).map(entry => ({ id: entry.id, judgement: 'fix-holds', sameScenario: false, coverage: '', relevance: [], evidence: [] }));
+  judged.set(`${at.scenario}:${at.step}`, ledger);
+  return { ...result, ledger };
+};
+const sameJudgements = (result, spec, at) => judged.has(`${at.scenario}:${at.step}`) && result?.purpose ? { ...result, ledger: judged.get(`${at.scenario}:${at.step}`) } : result;
 // A shadow prompt with the purpose block and the must-fix questions taken out: today's prompt.
 const severityPart = prompt => prompt.replace(/\nPurpose first\.[\s\S]*?(?=\n(Independently review|Review this proposed plan))/u, '').replace(/\nMust-fix fields \([\s\S]*$/u, '');
 test('shadow identity: the actual route always equals the severity route; the shadow only adds the purpose block, questions, its correction review and records', async () => {
@@ -374,8 +386,8 @@ test('shadow identity: the actual route always equals the severity route; the sh
   // must-fix bar's correction review; the scripted reviewer answers it with each result again.
   const twice = (scenario, index, step) => (step.results ?? []).flatMap(result => [result, structuredClone(result)]);
   for (const results of [twice, shaped]) {
-    const shadow = await captureReviewScenarios({ policy: { reviewBar: 'shadow' }, action, results });
-    const baseline = await captureReviewScenarios({ results });
+    const shadow = await captureReviewScenarios({ policy: { reviewBar: 'shadow' }, action, results, answer: judgeLedger });
+    const baseline = await captureReviewScenarios({ results, answer: sameJudgements });
     for (const scenario of SCENARIOS) {
       const ran = shadow[scenario.name].steps, base = baseline[scenario.name].steps;
       assert.equal(ran.length, base.length);
@@ -388,7 +400,7 @@ test('shadow identity: the actual route always equals the severity route; the sh
         assert.equal(severityPart(step.calls[0].prompt), base[index].calls[0].prompt, `${scenario.name} step ${index}: the shadow prompt is today's prompt with the purpose block before the material under review and the must-fix questions after it`);
         const purposeAt = step.calls[0].prompt.indexOf('\nPurpose first.');
         assert.ok(purposeAt > 0 && purposeAt < step.calls[0].prompt.indexOf(step.op === 'plan' ? 'Plan: ' : 'Trusted diff:'), 'the purpose block comes first');
-        assert.equal(step.result.shadowRoute.version, 'v2'); assert.equal(step.result.shadowRoute.actualRoute, step.result.route);
+        assert.equal(step.result.shadowRoute.version, 'v3'); assert.equal(step.result.shadowRoute.actualRoute, step.result.route);
         assert.equal(JSON.parse(step.calls[0].schema).properties.findings.items.properties.scenario.maxLength, 1200);
         assert.ok(JSON.parse(step.calls[0].schema).properties.purpose, 'the schema asks for the purpose assessment');
         // Today's plan review runs its own correction for a pass with findings; the shadow's correction review runs only for a contradictory result, and only for the estimate.
@@ -402,7 +414,7 @@ test('shadow identity: the actual route always equals the severity route; the sh
     assert.deepEqual(strictPlan.mustFix.findings.map(row => [row.id, row.kind, row.reason, row.purposeImpact]), [['P1.1', 'must-fix', 'protected-class', 'check-trust']]);
   }
   // With must-fix-shaped results the shadow disagrees with severity where the design says it would.
-  const shadow = await captureReviewScenarios({ policy: { reviewBar: 'shadow' }, action, results: shaped });
+  const shadow = await captureReviewScenarios({ policy: { reviewBar: 'shadow' }, action, results: shaped, answer: judgeLedger });
   assert.deepEqual(shadow['fresh-full-ordinary'].steps.map(step => step.result.shadowRoute?.route ?? null), ['revise', null, 'defer', 'defer', 'pass']);
   assert.deepEqual(shadow['fresh-full-ordinary'].steps.map(step => step.result.route), ['revise', 'implemented', 'defer', 'revise', 'pass']);
 });
@@ -452,7 +464,7 @@ test('review fix 1: a shadow review accepts a severity-only result through the r
   const review = await runAction(f.intent, { providerInvoke: adapter.invoke });
   // Slice 2: a result in today's shape has no purpose assessment, so the shadow runs the must-fix
   // bar's correction review, asked for the full schema again; the same answer is a second contradiction.
-  assert.deepEqual(asked, [MUST_FIX_CHANGE_REVIEW_SCHEMA, MUST_FIX_CHANGE_REVIEW_SCHEMA], 'the model is still asked for the full must-fix schema');
+  assert.deepEqual(asked, [SHADOW_LEDGER_CHANGE_REVIEW_SCHEMA, SHADOW_LEDGER_CHANGE_REVIEW_SCHEMA], 'the model is still asked for the full must-fix schema');
   assert.equal(review.schemaFallback, 'legacy');
   assert.equal(review.route, 'revise', 'the severity route');
   assert.deepEqual(review.mustFix.findings.map(row => [row.id, row.bar, row.kind, row.reason]), [['R1.1', 'legacy', 'must-fix', 'legacy-severity']]);

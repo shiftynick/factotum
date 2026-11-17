@@ -78,11 +78,13 @@ export const SCENARIOS = [
 // Run every scenario. `policy` is merged into each scenario's policy; `action(scenario)` returns
 // fields added to every action input (what workflows/actions.mjs adds for a flow); `results`
 // may replace a step's scripted results.
-export async function captureReviewScenarios({ policy = {}, action = () => ({}), results = null } = {}) {
+// `answer(result, spec, { scenario, step })`, when given, may complete each reviewer's scripted result
+// from the prompt it was asked.
+export async function captureReviewScenarios({ policy = {}, action = () => ({}), results = null, answer = null } = {}) {
   const base = mkdtempSync(join(tmpdir(), 'fct-bar-'));
   try {
     const out = {};
-    for (const scenario of SCENARIOS) out[scenario.name] = await runScenario(join(base, scenario.name), scenario, { policy, action, results });
+    for (const scenario of SCENARIOS) out[scenario.name] = await runScenario(join(base, scenario.name), scenario, { policy, action, results, answer });
     return JSON.parse(JSON.stringify(out).replaceAll(base, '<base>'));
   } finally { rmSync(base, { recursive: true, force: true }); }
 }
@@ -100,7 +102,7 @@ async function runScenario(dir, scenario, options) {
   for (const [index, step] of scenario.steps.entries()) {
     if (step.edit) commit(root, 'records.txt', `fictional baseline\n${step.edit} candidate\n`, `${step.edit} candidate`);
     const replies = structuredClone(options.results?.(scenario, index, step) ?? step.results ?? []), calls = [];
-    const providerInvoke = async spec => { calls.push({ role: spec.role, prompt: spec.prompt, schema: JSON.stringify(spec.schema), sessionId: spec.sessionId ?? null }); if (spec.role === 'builder') return { provider: 'codex', model: 'fictional-builder', family: 'openai', sessionId: 'builder-session', result: { status: 'implemented', summary: 'Fictional correction', questions: [], assumptions: [], departures: [], unverified: [], pushback: [], learningsApplied: [] } }; return { provider: 'claude', model: 'fictional-reviewer', family: 'anthropic', sessionId: `review-session-${index}-${calls.length}`, result: replies.shift() }; };
+    const providerInvoke = async spec => { calls.push({ role: spec.role, prompt: spec.prompt, schema: JSON.stringify(spec.schema), sessionId: spec.sessionId ?? null }); if (spec.role === 'builder') return { provider: 'codex', model: 'fictional-builder', family: 'openai', sessionId: 'builder-session', result: { status: 'implemented', summary: 'Fictional correction', questions: [], assumptions: [], departures: [], unverified: [], pushback: [], learningsApplied: [] } }; return { provider: 'claude', model: 'fictional-reviewer', family: 'anthropic', sessionId: `review-session-${index}-${calls.length}`, result: options.answer ? options.answer(replies.shift(), spec, { scenario: scenario.name, step: index }) : replies.shift() }; };
     const operation = { review: 'provider.review', build: 'provider.build', plan: 'provider.planReview' }[step.op];
     const binding = step.op === 'review' ? (scenario.satisfied ? 'satisfied-review' : flow.reviewHistory.length ? 'delta-review' : 'review') : step.op === 'plan' ? 'plan-review' : 'build';
     const intent = { cwd: root, timeoutMs: 600000, attemptId: `attempt-${index}`, action: { operation, step: binding, binding, task, config, risk: riskSummary(task, flow), riskAssessments: flow.riskAssessments, reviewHistory: flow.reviewHistory, reviewProtocol: scenario.protocol, completionMode: flow.completionMode, results: flow.results, sessions: {}, context: { files: [], digest: 'fictional-context' }, operatorFeedback: [], carriedQuestions: [], carriedOverflow: null, artifactDir: join(dir, `artifacts-${index}`), projectId: 'project-1', flowId: 'flow-1', workspace: null, ...options.action(scenario, step) } };

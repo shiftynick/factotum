@@ -17,9 +17,12 @@ import { assert } from './contracts.mjs';
 
 export const REVIEW_BARS = Object.freeze(['severity', 'shadow']);
 // The schema version a must-fix or shadow review uses (design 13.3). Version 1 (dev.98) was the
-// finding fields of section 5.1; version 2 adds the purpose assessment of 5.2. The ledger comes with
-// its own version.
+// finding fields of section 5.1; version 2 (dev.99) adds the purpose assessment of 5.2, and is still
+// the plan review's version. Version 3 (dev.100) adds the change review's ledger judgements (5.2,
+// 8.2). A flow keeps the versions it pinned: one pinned to an earlier change review version (a shadow
+// flow carried over an upgrade) keeps that version's schema, prompt and shadow route, with no ledger.
 export const MUST_FIX_SCHEMA_VERSION = 'must-fix-2';
+export const MUST_FIX_LEDGER_SCHEMA_VERSION = 'must-fix-3';
 export const REVIEW_SETTING_DEFAULTS = Object.freeze({ mustFixRounds: 3, inFixEvidenceFrom: 3, maxFollowupsPerFlow: 20, strictFollowups: false });
 const REVIEW_KEYS = Object.freeze([...Object.keys(REVIEW_SETTING_DEFAULTS), 'environment']);
 export const ENVIRONMENT_FACT_LIMIT = 40, ENVIRONMENT_FACT_LENGTH = 300;
@@ -74,11 +77,15 @@ export function pinnedReviewSettings(config) {
     maxFollowupsPerFlow: review.maxFollowupsPerFlow ?? REVIEW_SETTING_DEFAULTS.maxFollowupsPerFlow,
     strictFollowups: review.strictFollowups === true,
     environment: (review.environment ?? []).map(({ id, fact }) => ({ id, fact })),
-    schemas: { planReview: MUST_FIX_SCHEMA_VERSION, review: MUST_FIX_SCHEMA_VERSION, build: 'delivery-build' },
+    schemas: { planReview: MUST_FIX_SCHEMA_VERSION, review: MUST_FIX_LEDGER_SCHEMA_VERSION, build: 'delivery-build' },
   } };
 }
 // A flow without a pinned bar started before the bar existed: it is a severity flow.
 export const flowReviewBar = flow => flow?.reviewBar ?? 'severity';
+// Whether a flow's change reviews keep a ledger (design 8): only a shadow or must-fix flow that pinned
+// change review schema version 3 (must-fix-3).
+export const ledgerPinned = reviewPolicy => reviewPolicy?.schemas?.review === MUST_FIX_LEDGER_SCHEMA_VERSION;
+export const flowKeepsLedger = flow => flowReviewBar(flow) !== 'severity' && ledgerPinned(flow?.reviewPolicy);
 // The authority-bearing review settings (design 13.1): operator-only on a migrated project.
 export function reviewAuthority(config) {
   const policy = config?.policy ?? {};

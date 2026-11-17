@@ -27,8 +27,10 @@ import { atomicJSON, assert, digest, now } from '../core/contracts.mjs';
 import { repositoryIdentity } from '../core/repository.mjs';
 import {modelCoauthorTrailer} from '../operations/attribution.mjs';
 import {defaultMaxTurns, resolveProviderSpec} from '../adapters/providers/routes.mjs';
-import { invoke, turnLimitText, RISK_PLAN_SCHEMA, DELIVERY_BUILD_SCHEMA, RISK_REVIEW_SCHEMA, CHANGE_REVIEW_SCHEMA, MUST_FIX_PLAN_REVIEW_SCHEMA, MUST_FIX_CHANGE_REVIEW_SCHEMA } from '../adapters/providers/index.mjs';
-import { citedPaths, deriveReview, mustFixGuidance, mustFixRecord, protocolContradictions, protocolCorrectionPrompt, purposeBlock, purposeSummary, shadowRecord, shadowRouteV2, SHADOW_ROUTE_VERSION } from './must-fix.mjs';
+import { invoke, turnLimitText, providerFamily, RISK_PLAN_SCHEMA, DELIVERY_BUILD_SCHEMA, RISK_REVIEW_SCHEMA, CHANGE_REVIEW_SCHEMA, MUST_FIX_PLAN_REVIEW_SCHEMA, MUST_FIX_CHANGE_REVIEW_SCHEMA, SHADOW_LEDGER_CHANGE_REVIEW_SCHEMA, MUST_FIX_LEDGER_CHANGE_REVIEW_SCHEMA } from '../adapters/providers/index.mjs';
+import { citationPaths, citationStatus, citedPaths, deriveReview, mustFixGuidance, mustFixRecord, protocolContradictions, protocolCorrectionPrompt, purposeBlock, purposeSummary, shadowRecord, shadowRouteV2, SHADOW_ROUTE_VERSION, SHADOW_LEDGER_ROUTE_VERSION } from './must-fix.mjs';
+import { awaitingEntries, ledgerBlock, ledgerContradictions, ledgerDigest, mirroredDispositions, replay, replayLedger, shadowRouteV3 } from './review-ledger.mjs';
+import { ledgerPinned, MUST_FIX_LEDGER_SCHEMA_VERSION, MUST_FIX_SCHEMA_VERSION } from '../core/review-bar.mjs';
 import { createGitHub } from '../adapters/github/index.mjs';
 import { ForgeError, forgeErrorDetails } from '../adapters/github/errors.mjs';
 import * as workspaceAdapter from '../adapters/workspace/index.mjs';
@@ -86,7 +88,8 @@ const CITED_FILE_BYTES = 4 * 1024 * 1024;
 async function citationContext(a, cwd, result) {
   const claimHead = result.identity?.head ?? repositoryIdentity(cwd).head, files = new Map(), objects = new VerifiedObjects(cwd);
   let root = null; try { root = objects.commit(claimHead).tree; } catch { /* no file citation is checkable */ }
-  for (const path of root ? citedPaths(result.result.findings).slice(0, 40) : []) {
+  const judged = (Array.isArray(result.result.ledger) ? result.result.ledger : []).flatMap(judgement => Array.isArray(judgement?.evidence) ? judgement.evidence : []);
+  for (const path of root ? [...new Set([...citedPaths(result.result.findings), ...citationPaths(judged)])].slice(0, 40) : []) {
     try {
       const names = path.split('/'); let tree = root, entry = null;
       for (const [index, name] of names.entries()) { entry = objects.tree(tree).find(row => row.name === name) ?? null; if (!entry || index === names.length - 1) break; if (entry.mode !== '40000') { entry = null; break; } tree = entry.id; }
@@ -97,11 +100,42 @@ async function citationContext(a, cwd, result) {
   }
   return { claimHead, files, facts: new Set((a.reviewPolicy?.environment ?? []).map(fact => fact.id)), records: new Map((a.reviewRecords ?? []).map(record => [record.id, record])) };
 }
+// A ledger flow's change review (workflows/review-ledger.mjs): the ledger before it, the model family
+// the reviewer is expected on (from its route; the adapter records the family that actually answered),
+// the entries awaiting this review's judgement, and the ledger block that shows them, with the paths
+// each claimed fix changed since its entry was raised or last judged.
+//
+// Ledger preparation never costs the review its time. Replaying the ledger reads only the recorded
+// history; the changed paths need Git, so they are read only while at least `reserveMs` of the
+// attempt would remain after `maxMs` more, all at once, and only for at most `maxMs`. Otherwise, or
+// when a read fails, the block says the paths are not known (null), and `preparation` records why:
+// `skipped: 'deadline'` or `'failed'`. The reviewer's own deadline is never touched.
+export const LEDGER_PREPARATION_LIMITS = Object.freeze({ maxMs: 2000, reserveMs: 120000 });
+async function reviewLedgerView(a, cwd, config, round, { deadlineAt, limits = LEDGER_PREPARATION_LIMITS }) {
+  const head = repositoryIdentity(cwd).head, { ledger, findings } = replay(a.reviewHistory ?? [], a.reviewPolicy);
+  let family = null; try { family = providerFamily(resolveProviderSpec(config, 'reviewer', a).provider); } catch { /* unknown: no exclusion is shown as awaiting confirmation */ }
+  const presented = awaitingEntries(ledger, { head, family, round }), changed = new Map(), since = [...new Set(presented.filter(row => row.awaits.includes('fix')).map(row => row.entry.touchedHead))];
+  let preparation = { paths: since.length };
+  if (since.length) {
+    const budget = Math.min(limits.maxMs, deadlineAt - limits.reserveMs - Date.now());
+    if (budget <= 0) preparation.skipped = 'deadline';
+    else {
+      let timer;
+      const reads = Promise.all(since.map(async from => [from, (await exec('git', [...NO_PLANTED_COMMANDS, 'diff', '--name-only', '-z', '--no-renames', from, 'HEAD', '--'], { cwd, timeout: budget, enforceTimeout: true, maxBuffer: 1024 * 1024 })).stdout.split('\0').filter(Boolean).slice(0, 100)]));
+      reads.catch(() => {});
+      const expired = new Promise(resolve => { timer = setTimeout(() => resolve('deadline'), budget); });
+      try { const done = await Promise.race([reads, expired]); if (done === 'deadline') preparation.skipped = 'deadline'; else for (const [from, paths] of done) changed.set(from, paths); }
+      catch (error) { preparation = { ...preparation, skipped: 'failed', error: String(error?.message ?? error).slice(0, 300) }; }
+      finally { clearTimeout(timer); }
+    }
+  }
+  return { ledger, family, presented, preparation, block: ledgerBlock({ ledger, findings, presented, changed }) };
+}
 // The shadow never changes how a review ends: if deriving it fails, or its protocol correction review
 // fails, the failure is recorded as its outcome. An attempt being stopped is not a shadow failure.
-async function shadowOutcome(derive, signal) {
+async function shadowOutcome(derive, signal, version = SHADOW_ROUTE_VERSION) {
   try { return await derive(); }
-  catch (error) { if (signal?.aborted) throw error; return { shadowRoute: { version: SHADOW_ROUTE_VERSION, estimate: true, error: String(error?.message ?? error).slice(0, 300) } }; }
+  catch (error) { if (signal?.aborted) throw error; return { shadowRoute: { version, estimate: true, error: String(error?.message ?? error).slice(0, 300) } }; }
 }
 // A shadow review's correction review (design 5.4) is for the estimate only, so it must never cost
 // the review its own result. It starts only when at least `minMs` remain before `marginMs` ahead of
@@ -125,7 +159,7 @@ async function shadowCorrection(run, { deadlineAt, signal, limits = SHADOW_CORRE
 const strictOf = rows => rows.some(row => row?.result?.riskAssessment?.level === 'strict');
 // A shadow estimate whose correction review was skipped: the original result's derived fields, and
 // no shadow route, since the must-fix bar's outcome is not known.
-const skippedEstimate = (record, corrected, actual) => ({ mustFix: record, shadowRoute: { version: SHADOW_ROUTE_VERSION, estimate: true, skipped: corrected.skipped, ...(corrected.error ? { error: corrected.error } : {}), actualRoute: actual.route ?? null, actualDisposition: actual.disposition ?? null } });
+const skippedEstimate = (record, corrected, actual, version = SHADOW_ROUTE_VERSION) => ({ mustFix: record, shadowRoute: { version, estimate: true, skipped: corrected.skipped, ...(corrected.error ? { error: corrected.error } : {}), actualRoute: actual.route ?? null, actualDisposition: actual.disposition ?? null } });
 // A must-fix flow's derived fields are a record; deriving them never fails the review (in slice 2
 // only the protocol checks act).
 async function mustFixOutcome(derive) {
@@ -399,7 +433,7 @@ async function withOriginalPRObservation(intent, result) {
 // The role whose wording a step of an approved governance-edit task gets (operations/governance-edit.mjs).
 const GOVERNANCE_ROLES = Object.freeze({ 'provider.plan': 'planner', 'provider.build': 'builder' });
 export const UPKEEP_CHECKED_OPERATIONS = Object.freeze(['workspace.commit', 'workspace.integrate', 'forge.publish', 'forge.merge']);
-async function runScopedAction(intent, { signal, providerInvoke=invoke, accountingResults=[], deadlineAt=Date.now()+intent.timeoutMs, shadowCorrectionLimits=SHADOW_CORRECTION_LIMITS } = {}) {
+async function runScopedAction(intent, { signal, providerInvoke=invoke, accountingResults=[], deadlineAt=Date.now()+intent.timeoutMs, shadowCorrectionLimits=SHADOW_CORRECTION_LIMITS, ledgerPreparationLimits=LEDGER_PREPARATION_LIMITS } = {}) {
   const a = intent.action, config = a.config, cwd = intent.cwd;
   if(a.operation==='integration.run')return (await import('./integrations.mjs')).runIntegrationAction(intent,{signal});
   if (['main.verify','target.sync','maintenance.backup','audit','retrospective','machine.sample','retention.archive','knowledge.upkeep','learnings.check'].includes(a.operation)) return (await import('./maintenance.mjs')).runMaintenanceAction(intent,{signal,deadlineAt,providerInvoke});
@@ -580,6 +614,9 @@ async function runScopedAction(intent, { signal, providerInvoke=invoke, accounti
       if(!mustFixBar)return planReviewed;
       const round=a.reviewRound??1,derive=async(row,isStrict)=>deriveReview(row.result.findings,{round,prefix:'P',risk:isStrict?'strict':'ordinary',strictFollowups:a.reviewPolicy?.strictFollowups===true,purpose:row.result.purpose??null,...await citationContext(a,cwd,row)});
       if(enforced)return {...planReviewed,...await mustFixOutcome(async()=>({mustFix:mustFixRecord({schemaFallback:result.schemaFallback??null,derivation:await derive(result,strict),round,prefix:'P',basis:protocolCorrections.length?'correction':'original',protocol:{contradictions:protocolCorrections[0]?.contradictions??[],correction:protocolCorrections.length?{contradictions:[]}:null,failure:false},purpose:purposeSummary(result.result,a.task)})}))};
+      // A plan review has no ledger (5.2): in a flow whose change reviews keep one its estimate is labelled
+      // v3, the version the flow's estimates are read as, and is computed as in v2.
+      const planShadowVersion=ledgerPinned(a.reviewPolicy)?SHADOW_LEDGER_ROUTE_VERSION:SHADOW_ROUTE_VERSION;
       // Shadow v2. The must-fix bar runs the same single correction plan review runs today, and also
       // runs it for a result that fails the protocol checks; such a correction runs here only for the
       // estimate, and its result never reaches the route (6.4: in shadow the actual route is today's).
@@ -589,13 +626,13 @@ async function runScopedAction(intent, { signal, providerInvoke=invoke, accounti
         if(protocolCorrections.length)correction={contradictions:protocolContradictions(result.result,a.task)};
         else if(checks.length&&bound>0){
           const corrected=await shadowCorrection(call=>provider('reviewer',`${prompt}${protocolCorrectionPrompt(checks,first.result)}`,planSchema,undefined,'provider-shadow-protocol-correction',legacySchema,{...call,label:SHADOW_REVIEW_CALL}),{deadlineAt,signal,limits:shadowCorrectionLimits});
-          if(corrected.skipped)return skippedEstimate(mustFixRecord({schemaFallback:result.schemaFallback??null,derivation:await derive(result,strict),round,prefix:'P',protocol:{contradictions:checks,correction:{skipped:corrected.skipped,...(corrected.error?{error:corrected.error}:{})},failure:null},purpose:purposeSummary(result.result,a.task)}),corrected,planReviewed);
+          if(corrected.skipped)return skippedEstimate(mustFixRecord({schemaFallback:result.schemaFallback??null,derivation:await derive(result,strict),round,prefix:'P',protocol:{contradictions:checks,correction:{skipped:corrected.skipped,...(corrected.error?{error:corrected.error}:{})},failure:null},purpose:purposeSummary(result.result,a.task)}),corrected,planReviewed,planShadowVersion);
           basis={...corrected.result,result:structuredClone(corrected.result.result)};isStrict=strict||basis.result.riskAssessment.level==='strict';strictPlanCheck(basis,isStrict);
           correction={contradictions:protocolContradictions(basis.result,a.task),result:basis.result,...(basis.schemaFallback?{schemaFallback:basis.schemaFallback}:{})};
         }
         const failure=correction?correction.contradictions.length>0:checks.length>0,derivation=await derive(basis,isStrict);
-        return shadowRecord({schemaFallback:basis.schemaFallback??null,derivation,route:shadowRouteV2(derivation.findings,{plan:true},{failure}),actual:planReviewed,verdict:basis.result.verdict,round,prefix:'P',basis:basis===first?'original':'correction',protocol:{contradictions:checks,correction,failure},purpose:purposeSummary(basis.result,a.task)});
-      },signal)};
+        return shadowRecord({version:planShadowVersion,schemaFallback:basis.schemaFallback??null,derivation,route:shadowRouteV2(derivation.findings,{plan:true},{failure}),actual:planReviewed,verdict:basis.result.verdict,round,prefix:'P',basis:basis===first?'original':'correction',protocol:{contradictions:checks,correction,failure},purpose:purposeSummary(basis.result,a.task)});
+      },signal,planShadowVersion)};
     }
     case 'workspace.prepare': {
       // The worktree usually exists already (source verification creates it); fill in any
@@ -732,16 +769,31 @@ async function runScopedAction(intent, { signal, providerInvoke=invoke, accounti
       // A shadow flow asks the must-fix questions, the purpose block first (workflows/must-fix.mjs); earlier
       // reviews reach the reviewer without the factory's derived fields. A must-fix flow (test fixtures
       // only until the enabling release) also acts on the protocol checks (design 5.4).
+      // A flow that pinned schema must-fix-3 also keeps the ledger (workflows/review-ledger.mjs): the
+      // entries awaiting judgement follow the purpose block, every judgement is checked with the protocol
+      // checks, and the estimate is shadow route v3. A shadow review keeps today's priorFindingsDisposition,
+      // which today's routing reads; only a must-fix review has it written from the ledger (5.2).
       const shadow=a.reviewBar==='shadow',enforced=a.reviewBar==='must-fix',mustFixBar=shadow||enforced,satisfied=(a.binding??a.step)==='satisfied-review';
-      const reviewSchema=mustFixBar?MUST_FIX_CHANGE_REVIEW_SCHEMA:CHANGE_REVIEW_SCHEMA,legacySchema=shadow?CHANGE_REVIEW_SCHEMA:undefined;
-      const prompt=`${brief}${mustFixBar?`\n${purposeBlock({task:a.task,plan:a.results.plan?.result??null,subject:'change'})}`:''}\nIndependently review exact candidate ${repositoryIdentity(cwd).head}. Review phase: ${phase}. Full/ordinary reviews inspect the entire change; delta/final reviews inspect commits since ${baseHead}, resolve each previous finding, and inspect affected surrounding code. This is a fresh session. Do not edit files or run code. For strict work document the threat model and stop conditions and attest strictReview. fullDiffInspected means the entire assigned review scope was inspected (the full diff for full review, every delta commit for delta/final); name that scope in scopeSummary. For an already satisfied task inspect current implementation against acceptance even when the diff is empty. Report priorFindingsDisposition for every finding in the immediately previous review; finding must exactly equal its previous message, with concrete evidence for the disposition. Prior reviews: ${JSON.stringify(mustFixBar?(a.reviewHistory??[]).map(({mustFix,shadowRoute,...row})=>row):a.reviewHistory??[])}. Trusted diff:\n${diff}\nBuilder report: ${JSON.stringify(a.results.build?.result??null)}. Report substantive defects and unmet acceptance, duplicated helpers, misplaced/unused code and oversized files; do not invent hardening outside the threat model. ${reviewScopeGuidance(a.task, 'change')}${carriedQuestionsBrief(a.carriedQuestions, 'reviewer', a.carriedOverflow)}${fastCheckReviewGuidance(config, a.results['fast-check'], repositoryIdentity(cwd))}${scopeReviewGuidance(scopePaths,outside,reviewedPlanScope(a.results))}\nReturn pass only when no substantive findings remain.${mustFixBar?mustFixGuidance({subject:'change',enforced,facts:a.reviewPolicy?.environment??[],records:a.reviewRecords??[]}):''}`;
+      const ledgerOn=mustFixBar&&ledgerPinned(a.reviewPolicy),round=(a.reviewHistory?.length??0)+1;
+      const reviewSchema=mustFixBar?(ledgerOn?(enforced?MUST_FIX_LEDGER_CHANGE_REVIEW_SCHEMA:SHADOW_LEDGER_CHANGE_REVIEW_SCHEMA):MUST_FIX_CHANGE_REVIEW_SCHEMA):CHANGE_REVIEW_SCHEMA,legacySchema=shadow?CHANGE_REVIEW_SCHEMA:undefined;
+      // In shadow, a ledger that cannot be built never costs the review its result: the review runs
+      // without the ledger block and the estimate records the failure (shadowOutcome).
+      let ledger=null;
+      if(ledgerOn){try{ledger=await reviewLedgerView(a,cwd,config,round,{deadlineAt,limits:ledgerPreparationLimits});}catch(error){if(enforced||signal?.aborted)throw error;ledger={ledger:{entries:[]},family:null,presented:[],preparation:null,block:'',error:String(error?.message??error).slice(0,300)};}}
+      const priorAsk=enforced&&ledgerOn?'Judge earlier findings in ledger, by id; the factory writes priorFindingsDisposition from those judgements.':'Report priorFindingsDisposition for every finding in the immediately previous review; finding must exactly equal its previous message, with concrete evidence for the disposition.';
+      const prompt=`${brief}${mustFixBar?`\n${purposeBlock({task:a.task,plan:a.results.plan?.result??null,subject:'change'})}${ledger?.block??''}`:''}\nIndependently review exact candidate ${repositoryIdentity(cwd).head}. Review phase: ${phase}. Full/ordinary reviews inspect the entire change; delta/final reviews inspect commits since ${baseHead}, resolve each previous finding, and inspect affected surrounding code. This is a fresh session. Do not edit files or run code. For strict work document the threat model and stop conditions and attest strictReview. fullDiffInspected means the entire assigned review scope was inspected (the full diff for full review, every delta commit for delta/final); name that scope in scopeSummary. For an already satisfied task inspect current implementation against acceptance even when the diff is empty. ${priorAsk} Prior reviews: ${JSON.stringify(mustFixBar?(a.reviewHistory??[]).map(({mustFix,shadowRoute,...row})=>row):a.reviewHistory??[])}. Trusted diff:\n${diff}\nBuilder report: ${JSON.stringify(a.results.build?.result??null)}. Report substantive defects and unmet acceptance, duplicated helpers, misplaced/unused code and oversized files; do not invent hardening outside the threat model. ${reviewScopeGuidance(a.task, 'change')}${carriedQuestionsBrief(a.carriedQuestions, 'reviewer', a.carriedOverflow)}${fastCheckReviewGuidance(config, a.results['fast-check'], repositoryIdentity(cwd))}${scopeReviewGuidance(scopePaths,outside,reviewedPlanScope(a.results))}\nReturn pass only when no substantive findings remain.${mustFixBar?mustFixGuidance({subject:'change',enforced,facts:a.reviewPolicy?.environment??[],records:a.reviewRecords??[],ledger:ledgerOn?{round,inFixEvidenceFrom:a.reviewPolicy?.inFixEvidenceFrom??3}:null}):''}`;
+      // The protocol checks (5.4): the purpose assessment, and in a ledger flow the ledger judgements.
+      const contradictionsOf=row=>[...protocolContradictions(row.result,a.task),...(ledger?ledgerContradictions(row,ledger):[])];
+      const correctionPrompt=(checks,original)=>`${prompt}${protocolCorrectionPrompt(checks,original,{ledger:ledgerOn})}`;
       const first=await provider('reviewer',prompt,reviewSchema,undefined,'provider',legacySchema);
       // The protocol checks, in a must-fix flow: a contradictory result gets one fresh correction review
       // with the contradiction stated; the correction's result is the review's.
       let result=first,protocol=null;
       if(enforced){
-        const checks=protocolContradictions(first.result,a.task);protocol={contradictions:checks,correction:null,failure:false};
-        if(checks.length){result=await provider('reviewer',`${prompt}${protocolCorrectionPrompt(checks,first.result)}`,reviewSchema,undefined,'provider-protocol-correction-1');protocol.correction={contradictions:protocolContradictions(result.result,a.task)};protocol.failure=protocol.correction.contradictions.length>0;}
+        const checks=contradictionsOf(first);protocol={contradictions:checks,correction:null,failure:false};
+        if(checks.length){result=await provider('reviewer',correctionPrompt(checks,first.result),reviewSchema,undefined,'provider-protocol-correction-1');protocol.correction={contradictions:contradictionsOf(result)};protocol.failure=protocol.correction.contradictions.length>0;}
+        // The mirrored priorFindingsDisposition (5.2), before today's routing reads it.
+        if(ledger)result.result.priorFindingsDisposition=mirroredDispositions(ledger.ledger,result.result,round);
       }
       const classified={...result,phase,baseHead,...(scopePaths.length?{scope:{paths:scopePaths,outside:outside?.slice(0,200)??null,outsideCount:outside?.length??null}}:{}),...reviewDisposition(satisfied?{...config,policy:{...config.policy,reviewProtocol:'fresh-full'}}:reviewConfig,a.task,{...a,effectiveRisk:result!==first&&strictOf([first])?'strict':a.risk.level},result,phase),...(protocol?.correction?{protocolCorrections:[{reason:'protocol',contradictions:protocol.contradictions,original:first,originalArtifact:'provider',correctionArtifact:'provider-protocol-correction-1'}]}:{})};
       if(satisfied&&!['pass'].includes(classified.route))classified.route='revise';
@@ -749,28 +801,45 @@ async function runScopedAction(intent, { signal, providerInvoke=invoke, accounti
       // reports, before the legacy fallback, the strict checks and every other route; it mints no
       // review evidence. The satisfied review, which has no park edge, revises, ending that flow (5.4, 6.5).
       if(protocol?.failure)Object.assign(classified,{route:satisfied?'revise':'park',disposition:'protocol-failure'});
-      const round=(a.reviewHistory?.length??0)+1;
       // A correction never lowers the risk of the result it replaced: the original's strict escalation carries over.
       const derived=async(row,extra={})=>{
         const strict=effectiveRisk(a.task,{...a,effectiveRisk:row!==first&&strictOf([first])?'strict':a.risk.level,results:{...(a.results??{}),review:row}})==='strict';
         const incomplete=!assessmentComplete(row.result.riskAssessment)||!['fullDiffInspected','threatModelReviewed','stopConditionsReviewed'].every(key=>row.result.strictReview?.[key]===true);
-        const derivation=deriveReview(row.result.findings,{round,risk:strict?'strict':'ordinary',strictFollowups:a.reviewPolicy?.strictFollowups===true,purpose:row.result.purpose??null,...await citationContext(a,cwd,row)});
-        return {derivation,review:{strict:strict||derivation.escalated,incomplete:strict&&incomplete,bounded:!satisfied&&boundedReview(reviewConfig),phase,satisfied},...extra};
+        const context=await citationContext(a,cwd,row);
+        const derivation=deriveReview(row.result.findings,{round,risk:strict?'strict':'ordinary',strictFollowups:a.reviewPolicy?.strictFollowups===true,purpose:row.result.purpose??null,inFixEvidence:ledgerOn&&round>=(a.reviewPolicy?.inFixEvidenceFrom??3),...context});
+        return {derivation,context,review:{strict:strict||derivation.escalated,incomplete:strict&&incomplete,bounded:!satisfied&&boundedReview(reviewConfig),phase,satisfied},...extra};
       };
-      if(enforced)Object.assign(classified,await mustFixOutcome(async()=>{const {derivation}=await derived(result);return {mustFix:mustFixRecord({schemaFallback:result.schemaFallback??null,derivation,round,basis:result===first?'original':'correction',protocol,purpose:purposeSummary(result.result,a.task)})};}));
-      // Shadow v2: what the must-fix bar would have done, recorded beside the route taken; never acted
-      // on. A contradictory result gets the correction review the must-fix bar would run, for the
+      // A ledger flow's record of one result: who reviewed it, the family the review was expected on, the
+      // validation of each judgement's citations, and the ledger after it, whose digest the engine's
+      // stored ledger must equal. `recorded`: the result the history row will keep; `route`: the shadow route.
+      const ledgerRecord=(row,record,context,recorded,route=null)=>{
+        if(!ledger)return record;
+        const reviewer={provider:row.provider??null,model:row.model??null,family:row.family??null,sessionId:row.sessionId??null};
+        const fields={expectedFamily:ledger.family,preparation:ledger.preparation,presented:ledger.presented.map(item=>({id:item.entry.id,awaits:item.awaits})),citations:(Array.isArray(row.result.ledger)?row.result.ledger:[]).map(judgement=>(Array.isArray(judgement?.evidence)?judgement.evidence:[]).map(citation=>citationStatus(citation,context)))};
+        const full={...record,reviewer,ledger:fields},after=replayLedger([...(a.reviewHistory??[]),{step:a.binding??a.step,identity:row.identity,result:recorded,mustFix:full,...(route?{shadowRoute:{route}}:{})}],a.reviewPolicy);
+        return {...full,ledger:{...fields,...(shadow?{priorFindingsDisposition:mirroredDispositions(ledger.ledger,row.result,round)}:{}),applied:after.entries.flatMap(entry=>entry.judgements.filter(judgement=>judgement.round===round).map(judgement=>({id:entry.id,judgement:judgement.judgement,counted:judgement.counted,...(judgement.why?{why:judgement.why}:{})}))),counts:after.counts,digest:ledgerDigest(after)}};
+      };
+      if(enforced)Object.assign(classified,await mustFixOutcome(async()=>{const {derivation,context}=await derived(result);return {mustFix:ledgerRecord(result,mustFixRecord({schema:ledgerOn?MUST_FIX_LEDGER_SCHEMA_VERSION:MUST_FIX_SCHEMA_VERSION,schemaFallback:result.schemaFallback??null,derivation,round,basis:result===first?'original':'correction',protocol,purpose:purposeSummary(result.result,a.task)}),context,result.result)};}));
+      // Shadow v2 and v3: what the must-fix bar would have done, recorded beside the route taken; never
+      // acted on. A contradictory result gets the correction review the must-fix bar would run, for the
       // estimate only: its result never reaches the route, which stays today's (5.4).
       if(shadow)Object.assign(classified,await shadowOutcome(async()=>{
-        const checks=protocolContradictions(first.result,a.task);
+        if(ledger?.error)throw new Error(`the review ledger could not be built: ${ledger.error}`);
+        const checks=contradictionsOf(first),schema=ledgerOn?MUST_FIX_LEDGER_SCHEMA_VERSION:MUST_FIX_SCHEMA_VERSION;
         let basis=first,correction=null;
         if(checks.length){
-          const corrected=await shadowCorrection(call=>provider('reviewer',`${prompt}${protocolCorrectionPrompt(checks,first.result)}`,reviewSchema,undefined,'provider-shadow-protocol-correction',legacySchema,{...call,label:SHADOW_REVIEW_CALL}),{deadlineAt,signal,limits:shadowCorrectionLimits});
-          if(corrected.skipped){const {derivation}=await derived(first);return skippedEstimate(mustFixRecord({schemaFallback:first.schemaFallback??null,derivation,round,protocol:{contradictions:checks,correction:{skipped:corrected.skipped,...(corrected.error?{error:corrected.error}:{})},failure:null},purpose:purposeSummary(first.result,a.task)}),corrected,classified);}
-          basis=corrected.result;correction={contradictions:protocolContradictions(basis.result,a.task),result:basis.result,...(basis.schemaFallback?{schemaFallback:basis.schemaFallback}:{})};}
-        const failure=correction?correction.contradictions.length>0:false,{derivation,review}=await derived(basis);
-        return shadowRecord({schemaFallback:basis.schemaFallback??null,derivation,route:shadowRouteV2(derivation.findings,review,{failure}),actual:classified,verdict:basis.result.verdict,round,basis:basis===first?'original':'correction',protocol:{contradictions:checks,correction,failure},purpose:purposeSummary(basis.result,a.task)});
-      },signal));
+          const corrected=await shadowCorrection(call=>provider('reviewer',correctionPrompt(checks,first.result),reviewSchema,undefined,'provider-shadow-protocol-correction',legacySchema,{...call,label:SHADOW_REVIEW_CALL}),{deadlineAt,signal,limits:shadowCorrectionLimits});
+          if(corrected.skipped){const {derivation,context}=await derived(first);return skippedEstimate(ledgerRecord(first,mustFixRecord({schema,schemaFallback:first.schemaFallback??null,derivation,round,protocol:{contradictions:checks,correction:{skipped:corrected.skipped,...(corrected.error?{error:corrected.error}:{})},failure:null},purpose:purposeSummary(first.result,a.task)}),context,first.result),corrected,classified,ledgerOn?SHADOW_LEDGER_ROUTE_VERSION:SHADOW_ROUTE_VERSION);}
+          basis=corrected.result;correction={contradictions:contradictionsOf(basis),result:basis.result,...(basis.schemaFallback?{schemaFallback:basis.schemaFallback}:{})};}
+        const failure=correction?correction.contradictions.length>0:false,{derivation,review,context}=await derived(basis);
+        const fields={schema,schemaFallback:basis.schemaFallback??null,derivation,actual:classified,verdict:basis.result.verdict,round,basis:basis===first?'original':'correction',protocol:{contradictions:checks,correction,failure},purpose:purposeSummary(basis.result,a.task)};
+        if(!ledger)return shadowRecord({...fields,route:shadowRouteV2(derivation.findings,review,{failure})});
+        // v3: the route from the ledger after this review (before this route records anything), then
+        // the ledger again with the route, as the engine will store it.
+        const before=ledgerRecord(basis,mustFixRecord(fields),context,first.result),pending=replayLedger([...(a.reviewHistory??[]),{step:a.binding??a.step,identity:basis.identity,result:first.result,mustFix:before}],a.reviewPolicy);
+        const route=shadowRouteV3(pending,review,{failure}),recorded=shadowRecord({...fields,route,version:SHADOW_LEDGER_ROUTE_VERSION});
+        return {...recorded,mustFix:ledgerRecord(basis,mustFixRecord(fields),context,first.result,route.route)};
+      },signal,ledgerOn?SHADOW_LEDGER_ROUTE_VERSION:SHADOW_ROUTE_VERSION));
       // Same-family review is allowed. Record the pairing so it stays visible in evidence.
       const builder=a.results.build;
       return {...classified,independence:builder?(builder.family&&result.family&&builder.family===result.family?'same-family':'different-family'):'external-author-unknown-manual-decision-required',...(builder?{pairing:{builder:{provider:builder.provider??null,model:builder.model??null,family:builder.family??null},reviewer:{provider:result.provider??null,model:result.model??null,family:result.family??null}}}:{})};
