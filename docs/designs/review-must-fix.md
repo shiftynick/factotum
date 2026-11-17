@@ -680,6 +680,8 @@ For **every admitted change and document flow**, under each bar, not only merged
 | Q7 | For GitHub-source projects, keep opening the follow-up issue in addition to the rows? | Yes, as today |
 | Q8 | Should `strictFollowups` exist at all in the first enforcement release, or wait for enforcement data on ordinary work? | Ship it, off, and turn it on for the third adopter only after the enforcement window passes |
 
+**Decided (operator, 2026-11-17):** every recommendation in this table is accepted as written, Q1 to Q9. Building starts with slice 1 (shadow only).
+
 ## 18. Review points and where they are addressed
 
 | # | Point | Answer |
