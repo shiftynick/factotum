@@ -179,6 +179,10 @@ input, textarea, select { font: inherit; color: var(--ink); background: var(--su
 textarea { resize: vertical; }
 input:disabled, textarea:disabled { background: var(--surface-2); color: var(--ink-3); }
 .field { display: grid; gap: .25rem; }
+.field-check { grid-template-columns: auto 1fr; align-items: start; column-gap: .5rem; }
+.field-check .help { grid-column: 2; }
+.ack-list { margin: 0; padding-left: 1.1rem; }
+.ack-list li { margin: .35rem 0; }
 .field label { font-weight: 600; font-size: .88rem; }
 .field.inline { display: flex; flex-direction: column; min-width: 9rem; }
 .filters { justify-content: flex-start; align-items: flex-end; }

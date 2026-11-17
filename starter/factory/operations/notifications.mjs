@@ -51,6 +51,19 @@ export function notificationConfigWarnings(config) {
 export const notificationLevel = config => config?.notifications?.level ?? 'essential';
 // Conservative attention check: successful execution is not proof that follow-up
 // work was fulfilled. Keep result-declared material even when another step passed.
+// A must-fix flow (review-must-fix design 12.2; test fixtures only until the enabling release) reads
+// its stored ledger: any operator item, follow-up, deferral or operator disposition, any acknowledged finding
+// and any refused decision makes it non-routine, as unresolved history does today. A severity or
+// shadow flow never reaches it.
+function mustFixAttention(flow) {
+  if (flow.reviewBar !== 'must-fix') return false;
+  // The ledger the engine stores with each review (equal to a recomputation); one it could not build is attention.
+  const ledger = flow.reviewLedger;
+  if (ledger?.error) return true;
+  return (Array.isArray(ledger?.entries) ? ledger.entries : []).some(entry => (entry.kind !== 'must-fix' && entry.status !== 'superseded') || entry.deferral || (entry.operatorDispositions?.length ?? 0) > 0)
+    || (flow.operatorFindingDispositions?.length ?? 0) > 0 || (flow.reviewRowOverflow?.count ?? 0) > 0 || (flow.refusedDecisions?.length ?? 0) > 0
+    || (flow.mergeAuthorization?.acknowledgedFindings?.length ?? 0) > 0 || (flow.completionDecision?.acknowledgedFindings?.length ?? 0) > 0;
+}
 export function flowNeedsAttention(store, flow, outcome, reason = '') {
   const fulfilled = obligation => {
     const canonical = obligation.id ? store.get('obligation', obligation.id) : null;
@@ -73,7 +86,7 @@ export function flowNeedsAttention(store, flow, outcome, reason = '') {
       // A required check that passed only after a rerun is a recovery, not a clean pass.
       || (row.rerun?.runs?.length ?? 0) > 0
       || (row.obligations?.length ?? 0) > 0 && row.obligations.some(obligation => !fulfilled(obligation))))
-    || (flow.workerReports ?? []).some(reported) || unresolvedHistory
+    || (flow.workerReports ?? []).some(reported) || unresolvedHistory || mustFixAttention(flow)
     || (flow.taskSnapshot?.postMerge?.length ?? 0) > 0
     || store.by('obligation', 'flowId', flow.id).some(row => !fulfilled(row))
     // Lifecycle status only: an attempt that settled cleanly and reported a failure (outcome

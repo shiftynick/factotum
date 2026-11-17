@@ -95,7 +95,9 @@ const legacyDisposition = (entry, result, entries) => entry.bar === 'legacy' && 
 // effective risk and pinned setting. A must-fix flow's build checks every deferral against this
 // before it routes (workflows/dispatch.mjs: a refused deferral makes the build `blocked`, so it
 // reaches the operator through the build question); the replay applies only valid ones.
-export function deferralRefusal(entry, finding, disposition, { risk = 'strict', strictFollowups = false } = {}) {
+// `restriction` (slice 5, design 13.4): an active review.restrict; protectedClassDeferral false voids a
+// deferral of a protected-class finding.
+export function deferralRefusal(entry, finding, disposition, { risk = 'strict', strictFollowups = false, restriction = null } = {}) {
   if (!entry) return 'is not a ledger entry';
   if (entry.kind !== 'must-fix' || !OPEN.includes(entry.status)) return `is not an open must-fix item (it is ${entry.status})`;
   if (entry.status === 'contested') return 'is contested: its deferral was rejected, so it must be fixed, or the build returns blocked for the operator';
@@ -103,6 +105,7 @@ export function deferralRefusal(entry, finding, disposition, { risk = 'strict', 
   if (entry.deferral) return 'was already deferred once; a finding can be deferred once';
   if (entry.source !== 'review' || !mustFixShaped(finding)) return 'has no scenario to defer (a legacy finding, or one the factory added for unmet purpose)';
   if (risk === 'strict' && !strictFollowups) return 'strict work without policy.review.strictFollowups has no builder deferral: every finding requires resolution';
+  if (restriction?.protectedClassDeferral === false && PROTECTED_CLASSES.includes(entry.purposeImpact)) return 'the operator restricted protected-class deferral (review.restrict protectedClassDeferral false): a protected-class finding must be fixed';
   if (!DEFERRAL_REASONS.includes(disposition?.reason)) return 'a deferral needs reason cant-happen-here or not-worth-mechanism';
   if (disposition.reason === 'not-worth-mechanism' && (entry.purposeImpact !== 'outcome' || risk !== 'ordinary')) return 'not-worth-mechanism is allowed only for outcome findings in ordinary work';
   if (disposition.reason === 'cant-happen-here' && (!(Array.isArray(disposition.evidence) ? disposition.evidence : []).some(citation => citation?.kind && citation.kind !== 'reasoning') || !collapse(disposition.coverage))) return 'cant-happen-here needs at least one citation that is not reasoning, and stated coverage';
@@ -112,11 +115,11 @@ export function deferralRefusal(entry, finding, disposition, { risk = 'strict', 
 // validation of each citation at the reviewed candidate, which contains the build's output). Only a
 // `deferred` one changes an entry; `fixed`, or none, is a claimed fix. A refused or repeated deferral
 // (one a stale build result would carry again) changes nothing.
-function applyDispositions(entries, findings, dispositions, { round, risk, strictFollowups }) {
+function applyDispositions(entries, findings, dispositions, { round, risk, strictFollowups, restriction = null }) {
   for (const row of Array.isArray(dispositions) ? dispositions : []) {
     if (row?.disposition !== 'deferred') continue;
     const entry = entries.get(row.id);
-    if (deferralRefusal(entry, findings.get(row.id), row, { risk, strictFollowups })) continue;
+    if (deferralRefusal(entry, findings.get(row.id), row, { risk, strictFollowups, restriction })) continue;
     const citations = Array.isArray(row.citations) ? row.citations : [];
     entry.deferral = { round, reason: row.reason, evidence: Array.isArray(row.evidence) ? row.evidence : [], coverage: collapse(row.coverage).slice(0, 1200), note: collapse(row.note).slice(0, 1200), citations };
     touch(entry);
@@ -196,7 +199,7 @@ export function replay(rows, policy = {}, { operatorDispositions = [] } = {}) {
     const round = position + 1, head = row?.identity?.head ?? null, record = row?.mustFix ?? null, basis = basisResult(row), risk = record?.risk ?? row?.risk ?? 'strict';
     const reviewer = who(record?.reviewer), view = { head, family: record?.ledger?.expectedFamily ?? null, round };
     // 0. The builder's dispositions from the build before this review (a must-fix flow only).
-    applyDispositions(entries, findings, record?.ledger?.dispositions, { round, risk: record?.ledger?.dispositionRisk ?? row?.risk ?? risk, strictFollowups });
+    applyDispositions(entries, findings, record?.ledger?.dispositions, { round, risk: record?.ledger?.dispositionRisk ?? row?.risk ?? risk, strictFollowups, restriction: record?.ledger?.dispositionRestriction ?? null });
     // 1. What this review was shown as awaiting its judgement; a must-fix entry on a changed candidate is a claimed fix (9.1).
     const presented = new Map(awaitingEntries({ entries: [...entries.values()] }, view).map(row => [row.entry.id, row.awaits]));
     for (const entry of entries.values()) if (presented.get(entry.id)?.includes('fix') && entry.status === 'open') { entry.status = 'fixed-claimed'; touch(entry); }

@@ -10,7 +10,7 @@ import { knownSecrets } from '../operations/known-secrets.mjs';
 import { recordAdoptionRefs } from '../operations/adoption-refs.mjs';
 import { adoptionRefNames } from './adoption-ref-names.mjs';
 import { attemptDir, inspect, launch, requestAbort, resumeInterruptedFreeze, writeIntent, LAUNCH_STALL_NOTICE_MS } from './effects.mjs';
-import { authorized, move, stopFlow, subject, executeCommand, flowNotice, replanFlow, settleFlowJob, QUESTION_SUBJECT_CHANGED } from './project.mjs';
+import { authorized, move, stopFlow, subject, executeCommand, flowNotice, replanFlow, settleFlowJob, reopenDecision, QUESTION_SUBJECT_CHANGED } from './project.mjs';
 import { isPlanQuestion, planQuestionItem, planContentDigest } from './plan-questions.mjs';
 import { isBuildQuestion, buildQuestionItem, recordCarriedQuestions, carriedQuestionsItem, overflowMarker, carriedOverflow } from './worker-questions.mjs';
 import {integrationQuestion} from '../workflows/integrations.mjs';
@@ -21,7 +21,8 @@ import { recordReviewRowsInTransaction } from '../operations/review-rows.mjs';
 import { flowKeepsLedger, flowReviewBar } from './review-bar.mjs';
 import { effectiveRisk, mergeDecisionRole, strictReviewRequirement, recordRiskAssessment } from './risk.mjs';
 import { repositoryIdentity, repositoryIdentityOffThread, repositoryProbe } from './repository.mjs';
-import { actionSpecification, workingRoot, verifyDecision, verifySatisfiedDecision, followTarget } from '../workflows/actions.mjs';
+import { actionSpecification, workingRoot, verifyDecision, verifySatisfiedDecision, followTarget, staleDecisionReason } from '../workflows/actions.mjs';
+import { REVIEW_RESTRICTION_META, publicGuard, reviewDecisionGuard } from './review-decision.mjs';
 import { adoptableResult, assertEvidence, isObservation, nodeContract, ownsStepSlot, requiredEvidence } from './operations.mjs';
 import { recordRetrospective, auditFindingsInTransaction, recordPushbackInTransaction } from '../operations/index.mjs';
 import { abandonUpkeepFlowInTransaction, closeLinkedTaskInTransaction, expireLapsedGrants, findingTasks, noteUncertainUpkeepFlowInTransaction, settleFlowFindingsInTransaction, supersedeOpenQuestions } from './project.mjs';
@@ -480,7 +481,11 @@ export class Engine {
         // Task flows: the question carries the task's brief and the latest note from an earlier answer.
         const adoptionContext = node.mergeDecision && current.candidate ? adoptionQuestionContext(current) : '';
         const taskContext = adoptionContext || (current.kind === 'task' ? (() => { const t = s.need('task', current.taskId), last = current.answerNotes?.at(-1); return [`${t.title}`, t.acceptance?.length ? `Done when: ${t.acceptance.join('; ')}` : null, t.source?.url ? `Source: ${t.source.url}` : null, last ? `Note from ${last.actor} (${last.answer}): ${last.note}` : null].filter(Boolean).join('\n'); })() : null);
-        const strictReview = current.mode === 'delivery' && (node.mergeDecision || node.satisfiedDecision) ? strictReviewRequirement(s.need('task', current.taskId), current, identity) : null;
+        // A must-fix flow (fixtures only until the enabling release) reads the review restriction, and
+        // its decision guard (review-must-fix design 12.5) may return the decision to the operator.
+        const restriction = s.meta(REVIEW_RESTRICTION_META, null);
+        const strictReview = current.mode === 'delivery' && (node.mergeDecision || node.satisfiedDecision) ? strictReviewRequirement(s.need('task', current.taskId), current, identity, { restriction }) : null;
+        const reviewDecision = current.mode === 'delivery' && (node.mergeDecision || node.satisfiedDecision) ? reviewDecisionGuard(current, { risk: effectiveRisk(s.need('task', current.taskId), current), restriction }) : null;
         const currentSubject = subject(s, current, identity);
         // Only this flow's own open question: a stop or completion notice of the flow is not one.
         let existing = s.live('inbox').find(q => q.flowId === flowId && q.kind === 'question' && !q.standalone && q.status === 'open');
@@ -503,10 +508,10 @@ export class Engine {
         // An upkeep-origin flow is never merged by policy (knowledge-upkeep design, 7.5; N1): keyed on the
         // marker of the task and of the flow's own snapshot of it.
         // One task read, the same as before: the marker is checked on the task the risk is read from.
-        const autoMerge = node.mergeDecision && !current.candidate && !hasUpkeepMarker(current.taskSnapshot) && s.meta('config', {}).policy?.autoMerge === true && (task => !hasUpkeepMarker(task) && effectiveRisk(task, current) === 'ordinary')(s.need('task', current.taskId)) && s.meta('config', {}).qualification?.qualified === true;
+        const autoMerge = node.mergeDecision && !current.candidate && !hasUpkeepMarker(current.taskSnapshot) && s.meta('config', {}).policy?.autoMerge === true && (task => !hasUpkeepMarker(task) && effectiveRisk(task, current) === 'ordinary')(s.need('task', current.taskId)) && s.meta('config', {}).qualification?.qualified === true && !reviewDecision?.operator && !reviewDecision?.blocked.length;
         // The candidate's preview, when the workflow ran one on this exact head.
         const preview = node.mergeDecision && current.results?.preview?.head === identity.head && current.results.preview.attemptId ? { attemptId: current.results.preview.attemptId, files: current.results.preview.files ?? [], route: current.results.preview.route, ...(current.results.preview.reason ? { reason: current.results.preview.reason } : {}) } : null;
-        const item = {...(preview ? { preview } : {}),integration:integrationQuestion(current,node), id: uid(), kind: 'question', status: 'open', flowId, version: 1, subjectDigest: currentSubject, question: strictReview ? `${node.question} Strict outcome: the designated reviewer must inspect the exact candidate ${identity.head}, threat model and stop conditions before acknowledging.` : node.question, ...(strictReview ? {strictReview} : {}), answers: Object.keys(node.answers), choices: answerChoices(Object.keys(node.answers)), transitions: node.answers, ...(taskContext ? { context: taskContext } : {}), ...(planItem ?? buildItem ?? {}), ...(carried ? { carriedQuestions: carried } : {}), ...(node.remind !== undefined ? { remind: node.remind } : {}), ...(adoptionContext ? { originalPR: current.originalPRObservation ?? null } : {}), role: autoMerge ? 'orchestrator' : strictReview ? (current.candidate && node.mergeDecision ? 'operator' : current.strictDecisionRole??'operator') : node.mergeDecision ? (node.role === 'orchestrator' ? mergeDecisionRole(s.need('task', current.taskId), current) : 'operator') : node.role, autoMerge, ...(current.reopenCausedBy ? { causedBy: current.reopenCausedBy } : {}), createdAt: now(), expiresAt: new Date(Date.now() + (node.expiryMs ?? 86400000)).toISOString() };
+        const item = {...(preview ? { preview } : {}),integration:integrationQuestion(current,node), id: uid(), kind: 'question', status: 'open', flowId, version: 1, subjectDigest: currentSubject, question: strictReview ? `${node.question} Strict outcome: the designated reviewer must inspect the exact candidate ${identity.head}, threat model and stop conditions before acknowledging.${strictReview.bar === 'must-fix' && strictReview.acknowledgements.length ? ` Acknowledge each listed finding by id and claim digest${strictReview.operatorOnly ? '; an operator-only finding is listed, so only the operator may' : ''}.` : ''}` : reviewDecision?.operator ? `${node.question} The review leaves findings or an unsettled purpose assessment that only the operator may accept: acknowledge each listed finding by id and claim digest.` : node.question, ...(strictReview ? {strictReview} : {}), ...(reviewDecision ? { reviewDecision: publicGuard(reviewDecision) } : {}), answers: Object.keys(node.answers), choices: answerChoices(Object.keys(node.answers)), transitions: node.answers, ...(taskContext ? { context: taskContext } : {}), ...(planItem ?? buildItem ?? {}), ...(carried ? { carriedQuestions: carried } : {}), ...(node.remind !== undefined ? { remind: node.remind } : {}), ...(adoptionContext ? { originalPR: current.originalPRObservation ?? null } : {}), role: autoMerge ? 'orchestrator' : strictReview ? (current.candidate && node.mergeDecision ? 'operator' : strictReview.bar === 'must-fix' ? strictReview.requiredRole : current.strictDecisionRole??'operator') : reviewDecision?.operator ? 'operator' : node.mergeDecision ? (node.role === 'orchestrator' ? mergeDecisionRole(s.need('task', current.taskId), current) : 'operator') : node.role, autoMerge, ...(current.reopenCausedBy ? { causedBy: current.reopenCausedBy } : {}), createdAt: now(), expiresAt: new Date(Date.now() + (node.expiryMs ?? 86400000)).toISOString() };
         // The target already moved past the integrated base before the question opened: say so from the start.
         if (moved?.moved) { item.targetMoved = { target: moved.target, from: moved.from, to: moved.to, changed: moved.changed ?? null, overlap: moved.overlap ?? null, overlapCount: moved.overlapCount ?? null, ...(moved.rewound ? { rewound: true } : {}), observedAt: item.createdAt, baseContext: item.context ?? null }; item.context = [item.context, targetMoveText(moved, moved.target)].filter(Boolean).join('\n\n'); }
         current.parkedAt ??= item.createdAt;
@@ -569,6 +574,10 @@ export class Engine {
         if (held) return;
       }
       // Decision and evidence requirements belong to the operation, not graph flags.
+      // A must-fix flow whose decision no longer matches its guard or strict requirement (a restriction,
+      // a ledger change or a new review since the answer) is refused before the effect, and its question
+      // opens again for a new answer (review-must-fix design 12.5, 13.4) rather than the flow stopping.
+      if (contract.operation === 'outcome.satisfied' || contract.requiresDecision || node.requireDecision) { const stale = staleDecisionReason(s, flow, contract.operation === 'outcome.satisfied' ? 'satisfied' : 'merge'); if (stale && s.tx(() => reopenDecision(s, s.need('flow', flowId), stale))) return; }
       if (contract.operation === 'outcome.satisfied') verifySatisfiedDecision(s, flow);
       else if (contract.requiresDecision || node.requireDecision) verifyDecision(s, flow);
       const outcome = { 'forge.merge': 'merge', 'outcome.satisfied': 'satisfied' }[contract.operation];

@@ -69,13 +69,53 @@ export function mergeCandidateView(project, item) {
     ['Not delivered', undelivered],
     ['Candidate commit', m.candidate ? h('span', {}, h('code', { text: m.candidate.slice(0, 12) }), commitUrl ? [' · ', externalLink(commitUrl, 'Commit')] : null) : h('span', { class: 'muted', text: 'Not recorded' })],
     ['Base', m.base ? h('code', { text: m.base.slice(0, 12) }) : undefined],
-    ['Review', review ? h('span', {}, chip(review.verdict === 'pass' ? 'passed' : review.verdict ?? ROUTE_STATUS[review.route] ?? 'unknown', review.verdict ?? review.route ?? 'not recorded'), ` ${review.findings === 1 ? '1 finding' : `${review.findings} findings`}${severities ? ` (${severities})` : ''}${review.phase ? ` · ${review.phase} review` : ''}`, review.current ? null : h('span', { class: 'warn-text', text: ' · recorded for another commit' })) : h('span', { class: 'muted', text: 'No review recorded' })],
+    ['Review', review ? h('span', {}, chip(review.verdict === 'pass' ? 'passed' : review.verdict ?? ROUTE_STATUS[review.route] ?? 'unknown', review.verdict ?? review.route ?? 'not recorded'), ` ${review.findings === 1 ? '1 finding' : `${review.findings} findings`}${item.reviewDecision ? ` (${mustFixCounts(item.reviewDecision.counts)})` : severities ? ` (${severities})` : ''}${review.phase ? ` · ${review.phase} review` : ''}`, review.current ? null : h('span', { class: 'warn-text', text: ' · recorded for another commit' })) : h('span', { class: 'muted', text: 'No review recorded' })],
     ['Checks', checkSummary(m.gate, 'No gate result recorded')],
     ['Fast checks', m.fastChecks ? checkSummary(m.fastChecks, '') : undefined],
     ['Changes', diffUrl ? externalLink(diffUrl, `View the changes on ${host}`) : h('span', { class: 'muted', text: forge ? 'No link: the recorded pull request is not on the configured repository' : 'No forge link: no repository is configured' })]], 'compact'),
     review?.summary ? h('p', { class: 'preline small', text: `Review summary: ${review.summary}` }) : null,
 
     adopted ? h('p', { class: 'help', text: 'An adopted pull request’s merge question is answered by the operator only. This flow delivers only the adopted head; commits pushed to the original afterwards are not included.' }) : null), { cls: 'merge-candidate' });
+}
+
+// A must-fix flow's merge or satisfied question (review-must-fix design 12.3, 11.5; test fixtures only
+// until the enabling release): in place of severity counts, the must-fix counts; the purpose
+// assessment; why the decision is the operator's; and every finding that was not fixed, operator items
+// first, with its scenario, class, reachability, each citation's validation, its support, who deferred
+// or excluded it and each counted judgement with the reviewer's model family. Validated is never shown
+// as verified: it says the cited thing exists, not that it supports the claim.
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+export const mustFixCounts = c => c ? [plural(c.mustFixOpen ?? 0, 'must-fix open', 'must-fix open'), plural(c.operatorItems ?? 0, 'operator item'), plural(c.followUps ?? 0, 'follow-up'), plural(c.deferrals ?? 0, 'deferral')].join(', ') : '';
+const GUARD_REASON = { 'operator-items': 'operator items need your acceptance', critical: 'a reviewer rated a finding critical', 'purpose-missing': 'the review has no purpose assessment', 'purpose-not-met': 'the outcome or a criterion is not shown to be met', 'silent-wrong-answer': 'a silent wrong answer is not ruled out', 'row-overflow': 'more findings than the flow records as rows', restricted: 'the review restriction (operatorDisposition all) is active' };
+const KIND_LABEL = { 'operator-item': 'Operator item', 'follow-up': 'Follow-up', 'must-fix': 'Must-fix (adjudicated)', purpose: 'Purpose assessment' };
+export function acknowledgementText(row) {
+  if (row.kind === 'purpose') return row.id === 'purpose:silent-wrong-answer' ? `Silent wrong answer: ${row.answer ?? 'not assessed'}${row.settle ? `. What would settle it: ${row.settle}` : ''}${row.how ? `. How: ${row.how}` : ''}` : `Outcome ${row.outcome ?? 'not assessed'}${row.unverified?.length ? `; not verified: ${row.unverified.join('; ')}` : ''}${row.notMet?.length ? `; not met: ${row.notMet.join('; ')}` : ''}`;
+  const citations = (row.citations ?? []).length ? `citations ${row.citations.join(', ')}` : 'no citations';
+  return [`${row.scenario ?? row.message ?? ''}`, row.purposeImpact ? `class ${row.purposeImpact}` : null, row.reachable ? `reachability ${row.reachable.reported}${row.reachable.read !== row.reachable.reported ? `, read as ${row.reachable.read}` : ''}` : null, citations, row.support ? `support ${row.support}` : null,
+    row.deferral ? `deferred by the builder (${row.deferral.reason}) in round ${row.deferral.round}: ${row.deferral.void ? 'void' : row.deferral.outcome ?? 'awaiting judgement'}` : null, row.excludedByFamily ? `excluded by a reviewer on ${row.excludedByFamily}` : null, row.confirmedByFamily ? `confirmed by a reviewer on ${row.confirmedByFamily}` : null,
+    (row.judgements ?? []).length ? `judged ${row.judgements.map(j => `${j.judgement} (round ${j.round}${j.family ? `, ${j.family}` : ''})`).join('; ')}` : null, row.operatorDisposition ? `operator: ${row.operatorDisposition}` : null].filter(Boolean).join(' · ');
+}
+function reviewDecisionView(item) {
+  const g = item.reviewDecision, list = item.strictReview?.acknowledgements ?? g.acknowledgements ?? [];
+  const purposeRows = list.filter(row => row.kind === 'purpose');
+  return card('Review findings', h('div', { class: 'stack' },
+    kv([['Findings', mustFixCounts(g.counts)], ['Purpose', purposeRows.length ? purposeRows.map(acknowledgementText).join(' | ') : 'outcome and every criterion met; no silent wrong answer'], ['Decided by', g.operator ? `you: ${g.reasons.map(row => GUARD_REASON[row.reason] ?? row.reason).join('; ')}` : item.strictReview ? `the strict decision role${item.strictReview.operatorOnly ? ' (you: an operator-only finding is listed)' : ''}` : 'as configured'],
+      ['Restriction', g.restriction?.version ? `version ${g.restriction.version}${g.restriction.operatorDisposition === 'all' ? ', every finding is yours to accept' : ''}${g.restriction.protectedClassDeferral === false ? ', protected-class deferral restricted' : ''}` : undefined],
+      ['Blocked', g.blocked?.length ? `open must-fix items ${g.blocked.join(', ')}: send the change back` : undefined]], 'compact'),
+    list.length ? h('ol', { class: 'ack-list' }, list.map(row => h('li', {}, h('strong', { text: `${row.id} · ${KIND_LABEL[row.kind] ?? row.kind}` }), row.reason ? ` (${row.reason})` : '', row.operatorOnly ? h('span', { class: 'warn-text', text: ' · operator only' }) : null, h('div', { class: 'small', text: acknowledgementText(row) }), h('div', { class: 'muted small' }, 'claim ', h('code', { text: short(row.claimDigest, 16) }))))) : h('p', { class: 'muted', text: 'Nothing left to acknowledge.' }),
+    g.acknowledgementsOmitted ? h('p', { class: 'warn-text', text: `${g.acknowledgementsOmitted} more are listed in the question record; answer from the command line with every one of them.` }) : null,
+    h('p', { class: 'help', text: '“Validated” means the cited text, fact or record exists as cited, not that it supports the claim.' })), { cls: 'review-findings' });
+}
+// The merge or accept answer of a question that lists findings to acknowledge: one check box per
+// finding, sending the claim digests this page shows; a changed finding makes the project refuse it,
+// and the refreshed page shows the change.
+function acknowledgementForm(project, item, answer, expired) {
+  const list = item.strictReview?.acknowledgements ?? item.reviewDecision.acknowledgements, strict = Boolean(item.strictReview);
+  return commandForm(project, { key: `acknowledge:${item.id}:${answer}`, title: answer === 'merge' ? 'Acknowledge and authorize the merge' : 'Acknowledge and accept', operation: 'answer', variant: 'primary', subject: { label: `question ${short(item.id, 8)}`, version: item.subjectDigest },
+    intro: `Check each finding you accept for this ${strict ? `exact candidate ${String(item.strictReview.head).slice(0, 12)}` : 'decision'}. The page sends the claim digests it shows.`,
+    fields: list.map((row, index) => ({ name: `ack${index}`, type: 'checkbox', label: `${row.id} · ${KIND_LABEL[row.kind] ?? row.kind}${row.reason ? ` (${row.reason})` : ''}${row.operatorOnly ? ' · operator only' : ''}`, help: `${acknowledgementText(row).slice(0, 400)} · claim ${short(row.claimDigest, 16)}` })),
+    payload: values => { if (list.some((_, index) => values[`ack${index}`] !== 'true')) throw new Error('Check every listed finding to acknowledge it, or send the change back with a note.'); return { inboxId: item.id, version: item.version, subjectDigest: item.subjectDigest, answer, ...(strict ? { reviewedHead: item.strictReview.head } : {}), acknowledgedFindings: list.map(row => ({ id: row.id, claimDigest: row.claimDigest })) }; },
+    confirm: `Acknowledge ${list.length === 1 ? 'this finding' : `these ${list.length} findings`} and ${answer === 'merge' ? 'authorize the merge' : 'accept the outcome'}?`, reasons: expired ? ['The question has expired.'] : item.reviewDecision?.blocked?.length ? ['A must-fix item is open: send the change back.'] : [], explainRejection: staleAnswer(item.id), submitLabel: answer === 'merge' ? 'Authorize merge' : 'Accept' });
 }
 
 // Questions the planner or builder went ahead on without an answer (dev.83), from the merge
@@ -128,6 +168,7 @@ function decisionCard(project, item, focused) {
   if (item.strictReview) article.append(card('Strict review', h('div', {},
     h('p', { text: 'Read the exact candidate below (its commit, changes and any preview) before authorizing it.' }),
     h('h4', { text: 'Threat model' }), h('ul', {}, (item.strictReview.threatModel ?? []).map(text => h('li', { text }))), h('h4', { text: 'Stop conditions' }), h('ul', {}, (item.strictReview.stopConditions ?? []).map(text => h('li', { text }))), raw('Review binding', item.strictReview))));
+  if (item.reviewDecision) article.append(reviewDecisionView(item));
   if (item.integration) article.append(card('Workflow authorization', h('div', {},
     kv([['Workflow', item.integration.workflowId], ['Candidate', item.integration.candidate?.head], ['Spending cap', new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:6}).format((item.integration.capMicros ?? 0)/1000000)], ['Allocations', JSON.stringify(item.integration.allocationsMicros ?? {})]]),
     h('p',{class:'help',text:'Approval applies to the displayed candidate, configured workflow, cap and retained evidence. Review the evidence before authorizing an external action.'}), raw('Retained workflow evidence', item.integration.evidence))));
@@ -159,7 +200,10 @@ function decisionCard(project, item, focused) {
   }
   else if (['operator','orchestrator'].includes(item.role) && Array.isArray(item.answers)) {
     article.append(h('p', { class: 'help', text: 'Answers are sent to this project only, with the question version shown above. A changed subject is rejected by the project.' }));
-    const strictAnswer = item.strictReview && item.answers.find(answer => ['merge', 'accept'].includes(answer));
+    // A must-fix flow's question that lists findings to acknowledge answers merge (or accept) through a form with one check box per finding.
+    const ackList = item.strictReview?.acknowledgements ?? (item.reviewDecision?.operator ? item.reviewDecision.acknowledgements : null);
+    const ackAnswer = ackList?.length ? item.answers.find(answer => ['merge', 'accept'].includes(answer)) : null;
+    const strictAnswer = !ackAnswer && item.strictReview && item.answers.find(answer => ['merge', 'accept'].includes(answer));
     // A plan question's proceed takes an optional note too (answers for the plan reviewer and builder).
     const feedbackAnswers = item.answers.filter(answer=>['send_back','repair','retry','replan','blocked'].includes(answer)||answer==='proceed'&&item.planQuestion);
     const choice = answer => item.choices?.find(row=>row.id===answer);
@@ -177,7 +221,8 @@ function decisionCard(project, item, focused) {
         payload: { inboxId: item.id, version: item.version, subjectDigest: item.subjectDigest, answer: strictAnswer, reviewedHead: item.strictReview.head },
         subject: { label: `strict candidate ${item.strictReview.head.slice(0, 12)}`, version: item.subjectDigest },
         confirm: `Authorize ${strictAnswer} of commit ${item.strictReview.head.slice(0, 12)}, the candidate shown here?`, reasons: expired ? ['The question has expired.'] : [], explainRejection: staleAnswer(item.id) })));
-    article.append(h('div', { class: 'button-row answers' }, item.answers.filter(a => typeof a === 'string' && a !== strictAnswer && !feedbackAnswers.includes(a)).map(answer => commandButton(project, {
+    if (ackAnswer) article.append(h('div', { class: 'stack' }, item.strictReview ? candidateLinks(project, item, flow) : null, acknowledgementForm(project, item, ackAnswer, expired)));
+    article.append(h('div', { class: 'button-row answers' }, item.answers.filter(a => typeof a === 'string' && a !== strictAnswer && a !== ackAnswer && !feedbackAnswers.includes(a)).map(answer => commandButton(project, {
       key: `answer:${item.id}:${answer}`, label: item.choices?.find(choice=>choice.id===answer)?.label ?? (answer === 'stop' ? 'Stop flow' : `Answer “${answer}”`), help:item.choices?.find(choice=>choice.id===answer)?.description, operation: 'answer', variant: answer === 'stop' ? 'danger' : 'primary',
       payload: { inboxId: item.id, version: item.version, subjectDigest: item.subjectDigest, answer }, subject: { label: `question ${short(item.id, 8)}`, version: item.version },
       confirm: `Send “${item.choices?.find(choice=>choice.id===answer)?.label??answer}” to ${project.name}`, reasons: expired ? ['The question has expired; the project will not accept an answer.'] : [], showReasons: answer === item.answers[0], explainRejection: staleAnswer(item.id),

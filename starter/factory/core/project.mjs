@@ -10,7 +10,7 @@ import { MAINTENANCE_OPERATIONS } from './command-help.mjs';
 import { LIVE_SETTINGS, liveValue, applyLiveChanges, keepLiveValues, operatorOnlyChanges, liveSettingChanges, recordLiveChanges, changedLiveSettings } from '../operations/live-settings.mjs';
 import { queueStatus } from '../operations/queue-status.mjs';
 import {sourceSettings} from '../operations/source-config.mjs';
-import { bindingNode, PLAN_PROCEED } from './operations.mjs';
+import { bindingNode, nodeContract, PLAN_PROCEED } from './operations.mjs';
 import { isPlanQuestion, planDigest, planContentDigest, proceedable, PLAN_CLARIFICATIONS } from './plan-questions.mjs';
 import { carryProceededQuestions, carriedQuestionsText, archiveCarriedQuestions, MAX_CARRIED } from './worker-questions.mjs';
 import { isScheduledOperation, scheduledTaskName, syncScheduledTaskRecords } from '../operations/scheduled-tasks.mjs';
@@ -58,6 +58,7 @@ import { admissionReasons, metrics, retrospective, recordPushbackInTransaction }
 import { validateConfig, changeWorkflow, obsoleteSettings, OBSOLETE_SETTING_REASONS } from './configuration.mjs';
 import { observedStats, settingsView, upkeepHealthView } from '../operations/views.mjs';
 import { effectiveRisk, mergeDecisionRole, riskSummary, strictReviewRequirement } from './risk.mjs';
+import { REVIEW_RESTRICTION_META, RESTRICTION_HISTORY_LIMIT, assertAcknowledged, restrictionOf, reviewDecisionGuard } from './review-decision.mjs';
 import { validateQueueMetadata } from '../operations/queue-order.mjs';
 import { recordQueueAdmission } from '../operations/queue-diagnostics.mjs';
 import { workingRoot } from '../workflows/actions.mjs';
@@ -175,13 +176,46 @@ export function authorized(store, flow) {
   assert(executorDigest() === flow.executorDigest, 'pinned executor differs; drain with original code');
   return task;
 }
+// A must-fix flow's merge or accepted-outcome answer (review-must-fix design 7.4, 12.5; test fixtures
+// only until the enabling release). The strict requirement: the actor is the operator, or the strict
+// decision role when nothing listed is operator-only, with reviewedHead and acknowledgedFindings naming
+// every listed finding by id and claim digest. The decision guard: no open must-fix item; when it
+// returns the decision to the operator, only the operator answers, naming every listed finding. The
+// decision records the guard digest and the acknowledgements, which are checked again before the
+// effect. Nothing (an empty object) for any other flow, whose answer is exactly today's.
+function mustFixAnswer(store, flow, item, p, actor, identity, requirement, what) {
+  if (flow.mode !== 'delivery' || flowReviewBar(flow) !== 'must-fix') return {};
+  const guard = reviewDecisionGuard(flow, { risk: effectiveRisk(store.need('task', flow.taskId), flow), restriction: store.meta(REVIEW_RESTRICTION_META, null) });
+  assert(!guard.blocked.length, `a must-fix item is open (${guard.blocked.join(', ')}): it must be fixed before ${what}; send it back`);
+  let acknowledged = [];
+  if (requirement?.bar === 'must-fix') {
+    assert(actor === 'operator' || actor === requirement.requiredRole, requirement.operatorOnly ? `${what} lists an operator-only finding (a protected class, a critical rating or a restriction): only the operator may acknowledge it` : 'strict change requires explicit exact-head operator review acknowledgement');
+    assert(p.reviewedHead === identity.head, 'strict change requires explicit exact-head operator review acknowledgement: reviewedHead must name the exact candidate');
+    acknowledged = assertAcknowledged(requirement.acknowledgements, p.acknowledgedFindings, what);
+  }
+  if (guard.operator) {
+    assert(actor === 'operator', `${what} is the operator's decision (${guard.reasons.map(row => row.reason).join(', ')}): a delegated, recorded-instruction or automatic answer does not apply`);
+    if (requirement?.bar !== 'must-fix') acknowledged = assertAcknowledged(guard.acknowledgements, p.acknowledgedFindings, what);
+  }
+  return { reviewDecisionDigest: guard.digest, ...(acknowledged.length ? { acknowledgedFindings: acknowledged } : {}), ...(guard.operator ? { operatorDecision: guard.reasons.map(row => row.reason) } : {}) };
+}
 // The refusal of an answer whose candidate, risk or task changed since the question opened.
 // The engine fingerprints parked questions again when it sees one (core/engine.mjs).
 export const QUESTION_SUBJECT_CHANGED = 'question subject changed';
 export function subject(store, flow, identity = repositoryIdentity(workingRoot(store, flow))) {
   // A task flow's questions are about the task, not the checkout: other merges must not invalidate them.
   if (flow.kind === 'task') return digest({ projectId: store.meta('project').projectId, flowId: flow.id, taskRevision: store.need('task', flow.taskId).revision, workflowDigest: commissionedDigest(store, flow), step: flow.step });
-  return digest({ ...(flow.integration ? {integration:flow.integration,integrationResults:flow.results??{},integrationDecisions:flow.integrationDecisions??{},pinnedWorkflow:flow.workflowDigest}:{}), projectId: store.meta('project').projectId, flowId: flow.id, taskRevision: store.need('task', flow.taskId).revision, workflowDigest: ['maintenance','planning'].includes(flow.kind) ? flow.workflowDigest : commissionedDigest(store, flow), step: flow.step, ...(flow.mode === 'delivery' ? {risk:effectiveRisk(store.need('task', flow.taskId),flow), riskAssessments:flow.riskAssessments ?? [], riskAssessmentDigest:digest({summary:riskSummary(store.need('task',flow.taskId),flow),review:flow.results?.review??flow.results?.['satisfied-review']??null})} : {}), ...identity });
+  return digest({ ...(flow.integration ? {integration:flow.integration,integrationResults:flow.results??{},integrationDecisions:flow.integrationDecisions??{},pinnedWorkflow:flow.workflowDigest}:{}), projectId: store.meta('project').projectId, flowId: flow.id, taskRevision: store.need('task', flow.taskId).revision, workflowDigest: ['maintenance','planning'].includes(flow.kind) ? flow.workflowDigest : commissionedDigest(store, flow), step: flow.step, ...(flow.mode === 'delivery' ? {risk:effectiveRisk(store.need('task', flow.taskId),flow), riskAssessments:flow.riskAssessments ?? [], riskAssessmentDigest:digest({summary:riskSummary(store.need('task',flow.taskId),flow),review:flow.results?.review??flow.results?.['satisfied-review']??null})} : {}), ...identity, ...mustFixDecisionSubject(store, flow) });
+}
+// A must-fix flow's merge or satisfied question (review-must-fix design 12.5, 7.4; test fixtures only
+// until the enabling release): the decision guard's digest is part of the subject, so a change to its
+// findings, the ledger, the restriction or the review reopens the question. Nothing for any other flow,
+// so a severity or shadow flow's subject is exactly what it was.
+function mustFixDecisionSubject(store, flow) {
+  const node = flow.workflow?.nodes?.[flow.step];
+  if (flow.mode !== 'delivery' || flowReviewBar(flow) !== 'must-fix' || !(node?.mergeDecision || node?.satisfiedDecision)) return {};
+  const guard = reviewDecisionGuard(flow, { risk: effectiveRisk(store.need('task', flow.taskId), flow), restriction: store.meta(REVIEW_RESTRICTION_META, null) });
+  return { reviewDecision: guard.digest };
 }
 // Scheduled and manual maintenance runs each carry a synthetic task record. They are
 // retained as history but are not project work, so Tasks and counts leave them out.
@@ -495,6 +529,13 @@ function closeAbandonedInbox(store, flow, reason) {
   for (const item of store.by('inbox', 'flowId', flow.id).filter(q => q.kind === 'notice' && q.status === 'open')) { item.status = 'superseded'; item.supersededReason = reason; item.supersededBy = store.commandActor ?? null; item.version++; store.put('inbox', item); store.event('inbox.superseded', { inboxId: item.id, flowId: flow.id, reason }); }
 }
 // A finished flow's questions can no longer be answered; resolve them so they stop waking anyone.
+// A must-fix flow's open merge or satisfied question, superseded so the engine opens it again with the
+// current decision guard (review-must-fix design 12.5, 13.4). Returns whether one was open.
+export function supersedeDecisionQuestion(store, flow, reason) {
+  const node = flow.workflow?.nodes?.[flow.step];
+  if (!(node?.mergeDecision || node?.satisfiedDecision) || !store.by('inbox', 'flowId', flow.id).some(q => q.kind === 'question' && !q.standalone && q.status === 'open')) return false;
+  supersedeOpenQuestions(store, flow, reason); return true;
+}
 export function supersedeOpenQuestions(store, flow, reason) {
   for (const item of store.by('inbox', 'flowId', flow.id).filter(q => q.kind === 'question' && q.status === 'open')) {
     item.status = 'superseded'; item.supersededBy = store.commandActor ?? null; item.supersededReason = reason; item.version++; store.put('inbox', item);
@@ -589,6 +630,26 @@ export function reachableSteps(workflow, from) {
 }
 // Operator guidance reaches every model step of the flow through its operator feedback.
 function addFlowNote(flow, row) { flow.operatorFeedback ??= []; flow.operatorFeedback.push({ ...row, at: now() }); }
+// The decision question a merge or outcome step was authorized from: the question node whose merge (or
+// accept) answer leads to the flow's current step.
+export function decisionQuestionStep(workflow, step, kind) {
+  return Object.entries(workflow?.nodes ?? {}).find(([, node]) => node.kind === 'question' && (kind === 'satisfied' ? node.satisfiedDecision && node.answers?.accept === step : node.mergeDecision && node.answers?.merge === step))?.[0] ?? null;
+}
+// Refuses the recorded decision and returns the flow to its decision question, which the engine opens
+// again with the current guard; the move back counts as a transition, as any move does. Without a
+// question to return to, the decision is only cleared and verifyDecision stops the flow.
+export function reopenDecision(store, flow, reason) {
+  const kind = nodeContract(flow.step, flow.workflow?.nodes?.[flow.step]).operation === 'outcome.satisfied' ? 'satisfied' : 'merge';
+  const question = decisionQuestionStep(flow.workflow, flow.step, kind), refused = kind === 'satisfied' ? flow.completionDecision : flow.mergeAuthorization;
+  if (!question || flow.attemptId) return false;
+  if (kind === 'satisfied') flow.completionDecision = null; else flow.mergeAuthorization = null;
+  (flow.refusedDecisions ??= []).push({ kind, step: flow.step, inboxId: refused?.inboxId ?? null, actor: refused?.actor ?? null, reason: String(reason).slice(0, 300), at: new Date().toISOString() });
+  flow.refusedDecisions = flow.refusedDecisions.slice(-10);
+  const from = flow.step; flow.reopenCausedBy = 'factory';
+  move(store, flow, question);
+  store.event('flow.decision-refused', { flowId: flow.id, kind, from, to: question, inboxId: refused?.inboxId ?? null, reason: String(reason).slice(0, 300) });
+  return true;
+}
 export function move(store, flow, next) {
   assert(next && Object.hasOwn(flow.workflow.nodes, next), 'missing transition');
   const transitions = flow.transitions + 1, visits = (flow.visits[next] ?? 0) + 1;
@@ -915,6 +976,33 @@ export function applyOperationInTransaction(store, { operation, payload: p, acto
       addFlowNote(flow, { step: flow.step, answer: 'note', note: note(p.note), actor, ...(onBehalfOf ? { onBehalfOf } : {}) });
       store.put('flow', flow); store.event('flow.noted', { flowId: flow.id, step: flow.step }); return flow;
     }
+    case 'review.restrict': {
+      // The review restriction (review-must-fix design 13.4, 16.3; slice 5): the one tightening-only
+      // change that reaches running flows. Operator only, never delegable, stored in project meta (not
+      // the configuration, so no digest changes and no flow is refused), versioned, recorded as an
+      // event. Only must-fix flows read it: protectedClassDeferral false voids builder deferrals of
+      // protected-class findings, reads a reviewer's not-here on a protected class as unknown, and makes
+      // recorded protected-class follow-ups operator items; operatorDisposition all makes every
+      // non-fixed finding an operator item and leaves no delegated or automatic merge. Lifting is this
+      // command too. Every change raises the version, which the decision guard and the strict
+      // requirement bind: an open merge or satisfied question of a must-fix flow is superseded and
+      // opens again, and an answer given before the change is refused before the merge.
+      assert(actor === 'operator', 'review.restrict is the operator\'s own command: it cannot be delegated or run on a recorded instruction');
+      assert(p && typeof p === 'object' && Object.keys(p).every(key => ['protectedClassDeferral', 'operatorDisposition', 'expectedVersion', 'note'].includes(key)), 'review.restrict accepts protectedClassDeferral (false restricts, true lifts), operatorDisposition (all restricts, none lifts), expectedVersion and note');
+      assert(p.protectedClassDeferral !== undefined || p.operatorDisposition !== undefined, 'review.restrict needs protectedClassDeferral or operatorDisposition');
+      assert(p.protectedClassDeferral === undefined || typeof p.protectedClassDeferral === 'boolean', 'protectedClassDeferral must be true or false');
+      assert(p.operatorDisposition === undefined || ['all', 'none'].includes(p.operatorDisposition), 'operatorDisposition must be all or none');
+      const text = note(p.note), before = store.meta(REVIEW_RESTRICTION_META, null), current = restrictionOf(before);
+      assert(p.expectedVersion === current.version, `the review restriction changed since you read it (version ${current.version} now, ${p.expectedVersion} named); read it again`);
+      const next = { protectedClassDeferral: p.protectedClassDeferral ?? current.protectedClassDeferral, operatorDisposition: p.operatorDisposition ?? current.operatorDisposition };
+      assert(next.protectedClassDeferral !== current.protectedClassDeferral || next.operatorDisposition !== current.operatorDisposition, 'the review restriction already says that');
+      const at = now(), record = { version: current.version + 1, ...next, note: text, actor, at, history: [...(before?.history ?? []), { version: current.version + 1, ...next, note: text, actor, at }].slice(-RESTRICTION_HISTORY_LIMIT) };
+      store.setMeta(REVIEW_RESTRICTION_META, record);
+      const superseded = [];
+      for (const flow of store.live('flow').filter(row => !['completed', 'failed'].includes(row.state) && flowReviewBar(row) === 'must-fix')) if (supersedeDecisionQuestion(store, flow, `the review restriction changed (version ${record.version})`)) superseded.push(flow.id);
+      store.event('review.restricted', { version: record.version, protectedClassDeferral: next.protectedClassDeferral, operatorDisposition: next.operatorDisposition, tightened: next.protectedClassDeferral === false && current.protectedClassDeferral || next.operatorDisposition === 'all' && current.operatorDisposition !== 'all', note: text, superseded });
+      return { restriction: restrictionOf(record), superseded };
+    }
     case 'flow.disposeFinding': {
       // The operator's disposition of one review ledger entry (review-must-fix design 9.5), so a contested
       // or disputed finding can be settled before retry or send_back: operator-accepted (it stops
@@ -943,6 +1031,9 @@ export function applyOperationInTransaction(store, { operation, payload: p, acto
       }
       flow.operatorFindingDispositions = [...(flow.operatorFindingDispositions ?? []), { id: entry.id, disposition: p.disposition, note: text, version: entry.version, afterRound: (flow.reviewHistory ?? []).length, actor, ...(onBehalfOf ? { onBehalfOf } : {}), at: now() }];
       flow.reviewLedger = computeReviewLedger(flow); recordReviewRowsInTransaction(store, flow);
+      // A disposition changes the decision guard (slice 5): an open merge or satisfied question is
+      // superseded and opens again with the changed list, rather than failing its subject check.
+      supersedeDecisionQuestion(store, flow, `ledger entry ${entry.id} was disposed of (${p.disposition})`);
       store.put('flow', flow); store.event('flow.finding-disposed', { flowId: flow.id, findingId: entry.id, disposition: p.disposition, actor, ...(onBehalfOf ? { onBehalfOf } : {}) });
       return { flowId: flow.id, entry: flow.reviewLedger.entries.find(row => row.id === entry.id) };
     }
@@ -1008,7 +1099,7 @@ export function applyOperationInTransaction(store, { operation, payload: p, acto
       // recorded instruction, delegated operation, merge or strict decision role widens it.
       assert(actor==='operator'||!(node?.mergeDecision&&store.get('flow',item.flowId)?.candidate),ADOPTED_MERGE_OPERATOR_ONLY);
       // Strict-review sign-off stays with a human; deploy and spending approvals need an explicit policy.
-      const delegatedAnswer=actor==='orchestrator'&&item.role==='operator'&&!item.strictReview&&(!node?.integrationDecision||store.meta('config',{}).policy?.delegateIntegrationDecisions===true)&&operatorAuthority(store,{operation,actor,onBehalfOf})==='delegated';
+      const delegatedAnswer=actor==='orchestrator'&&item.role==='operator'&&!item.strictReview&&!item.reviewDecision?.operator&&(!node?.integrationDecision||store.meta('config',{}).policy?.delegateIntegrationDecisions===true)&&operatorAuthority(store,{operation,actor,onBehalfOf})==='delegated';
       if(item.standalone){const answered=answerStandaloneInbox(store,item,p,actor,{delegated:delegatedAnswer,relayed});noteHandoffAnswerInTransaction(store,answered);return answered;}
       const flow = store.need('flow', item.flowId);
       assert(actor === 'operator' || actor === item.role || delegatedAnswer, 'question requires designated actor');
@@ -1067,17 +1158,19 @@ export function applyOperationInTransaction(store, { operation, payload: p, acto
       if(planQuestion&&p.answer===PLAN_PROCEED)assert(!carryProceededQuestions(flow,{actor,note:p.note,inboxId:item.id}),`this plan goes ahead on more questions than the flow carries (at most ${MAX_CARRIED}); answer replan with a note asking the planner for fewer`);
 
       if (flow.workflow.nodes[flow.step].satisfiedDecision && p.answer === 'accept') {
-        const requirement = flow.mode === 'delivery' ? strictReviewRequirement(store.need('task',flow.taskId),flow,identity) : null;
-        if (requirement) assert((actor === 'operator'||actor === (flow.strictDecisionRole??'operator')) && p.reviewedHead === identity.head, 'strict outcome requires explicit exact-head operator review acknowledgement');
-        flow.completionDecision = { identity, taskRevision: flow.taskRevision, workflowDigest: flow.workflowDigest, configDigest: flow.configDigest, inboxId: item.id, actor, at: now(), ...(requirement ? {reviewedHead:p.reviewedHead,riskAssessmentDigest:requirement.assessmentDigest} : {}) };
+        const requirement = flow.mode === 'delivery' ? strictReviewRequirement(store.need('task',flow.taskId),flow,identity,{restriction:store.meta(REVIEW_RESTRICTION_META,null)}) : null;
+        if (requirement?.bar !== 'must-fix' && requirement) assert((actor === 'operator'||actor === (flow.strictDecisionRole??'operator')) && p.reviewedHead === identity.head, 'strict outcome requires explicit exact-head operator review acknowledgement');
+        const reviewed = mustFixAnswer(store, flow, item, p, actor, identity, requirement, 'this accepted outcome');
+        flow.completionDecision = { identity, taskRevision: flow.taskRevision, workflowDigest: flow.workflowDigest, configDigest: flow.configDigest, inboxId: item.id, actor, at: now(), ...(requirement ? {reviewedHead:p.reviewedHead,riskAssessmentDigest:requirement.assessmentDigest} : {}), ...reviewed };
       }
       if (flow.workflow.nodes[flow.step].mergeDecision && p.answer === 'merge') {
-        const requirement = flow.mode === 'delivery' ? strictReviewRequirement(store.need('task',flow.taskId),flow,identity) : null;
+        const requirement = flow.mode === 'delivery' ? strictReviewRequirement(store.need('task',flow.taskId),flow,identity,{restriction:store.meta(REVIEW_RESTRICTION_META,null)}) : null;
         // Re-derive delegation at answer time: risk may have escalated since the question opened.
         const authority = actor === 'operator' ? 'operator' : item.autoMerge ? 'autoMerge' : requirement ? 'strictDecisionRole' : delegatedAnswer ? 'delegated' : 'mergeDecisionRole';
         if (authority === 'mergeDecisionRole') assert(mergeDecisionRole(store.need('task',flow.taskId),flow) === actor, 'merge decision is not delegated to this role for the current candidate');
-        if (requirement) assert((actor === 'operator'||actor === (flow.strictDecisionRole??'operator')) && p.reviewedHead === identity.head, 'strict change requires explicit exact-head operator review acknowledgement');
-        flow.mergeAuthorization = { identity, taskRevision: flow.taskRevision, workflowDigest: flow.workflowDigest, configDigest: flow.configDigest, inboxId: item.id, actor, authority, ...(delegatedAnswer ? { onBehalfOf } : {}), answeredAt: now(), ...(requirement ? {reviewedHead:p.reviewedHead,riskAssessmentDigest:requirement.assessmentDigest} : {}) };
+        if (requirement?.bar !== 'must-fix' && requirement) assert((actor === 'operator'||actor === (flow.strictDecisionRole??'operator')) && p.reviewedHead === identity.head, 'strict change requires explicit exact-head operator review acknowledgement');
+        const reviewed = mustFixAnswer(store, flow, item, p, actor, identity, requirement, 'this merge');
+        flow.mergeAuthorization = { identity, taskRevision: flow.taskRevision, workflowDigest: flow.workflowDigest, configDigest: flow.configDigest, inboxId: item.id, actor, authority, ...(delegatedAnswer ? { onBehalfOf } : {}), answeredAt: now(), ...(requirement ? {reviewedHead:p.reviewedHead,riskAssessmentDigest:requirement.assessmentDigest} : {}), ...reviewed };
       }
       if (flow.workflow.nodes[next].kind === 'end' && flow.workflow.nodes[next].outcome === 'completed') flow.completionDecision = { identity, taskRevision: flow.taskRevision, workflowDigest: flow.workflowDigest, inboxId: item.id };
       item.status = 'answered'; item.answer = p.answer; item.answeredBy = actor; item.answeredAt = now(); item.version++;

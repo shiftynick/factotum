@@ -39,6 +39,17 @@ function learningsOfFlow(flow) {
     learningUse: use ? { selected: Array.isArray(use.selected) ? use.selected : [], cited: Array.isArray(use.cited) ? use.cited : [] } : null,
     learningCitations: learningCitationsOf(flow) };
 }
+// A must-fix flow's review state (review-must-fix design 12.3; test fixtures only until the enabling
+// release), bounded: the pinned settings, the ledger by entry (id, kind, status, reason, class, support,
+// claim digest), what the merge or outcome decision acknowledged, and any decision refused before its effect.
+const LEDGER_ENTRIES = 60;
+function mustFixOfFlow(flow) {
+  const ledger = flow.reviewLedger, decision = flow.mergeAuthorization ?? flow.completionDecision ?? null;
+  return { reviewPolicy: pick(flow.reviewPolicy, ['mustFixRounds', 'inFixEvidenceFrom', 'maxFollowupsPerFlow', 'strictFollowups']), mustFixAllowance: flow.mustFixAllowance ?? 0,
+    ledger: ledger?.error ? { error: ledger.error } : ledger ? { rounds: ledger.rounds ?? null, counts: ledger.counts ?? {}, entries: (ledger.entries ?? []).slice(-LEDGER_ENTRIES).map(entry => pick(entry, ['id', 'round', 'kind', 'status', 'reason', 'purposeImpact', 'support', 'operatorOnly', 'claimDigest', 'version'])), omitted: Math.max(0, (ledger.entries ?? []).length - LEDGER_ENTRIES) } : null,
+    rowOverflow: flow.reviewRowOverflow ?? null, decision: decision ? { reviewDecisionDigest: decision.reviewDecisionDigest ?? null, operatorDecision: decision.operatorDecision ?? null, acknowledged: (decision.acknowledgedFindings ?? []).map(row => row.id).slice(0, LEDGER_ENTRIES) } : null,
+    refusedDecisions: (flow.refusedDecisions ?? []).slice(-5) };
+}
 const slotWait = (store, flow) => { try { return flow.slotWait ? queueStatus(store).capacity?.waiting.find(row => row.flowId === flow.id) ?? null : null; } catch { return null; } };
 
 // The holds that stop the whole queue (queueStatus reads only unsettled dispatching attempts).
@@ -80,6 +91,8 @@ export function stateView(store, { inbox: inboxId, flow: flowId, task: taskId } 
       mainHealth: { ...pick(main, ['status', 'head', 'checkedAt', 'tier']), scheduled: main.scheduled ? pick(main.scheduled, ['status', 'head', 'failed']) : null },
       operatorPresence: operatorPresence(store).state ?? null,
       session: pick(session, ['version', 'sessionId', 'deliveries', 'limit']),
+      // The review restriction (review-must-fix design 13.4), only once the operator has set one.
+      ...(store.meta('reviewRestriction', null) ? { reviewRestriction: pick(store.meta('reviewRestriction'), ['version', 'protectedClassDeferral', 'operatorDisposition', 'actor', 'at', 'note']) } : {}),
     },
     recentFaults: rows(store, `SELECT sequence,at,type,payload FROM events WHERE type IN (${FAULT_EVENTS.map(() => '?').join(',')}) ORDER BY sequence DESC LIMIT 5`, ...FAULT_EVENTS).map(row => ({ ...row, payload: JSON.parse(row.payload) })),
     // The live set of inbox items is the open ones; it reads through SQL only for a verified kind.
@@ -93,6 +106,7 @@ export function stateView(store, { inbox: inboxId, flow: flowId, task: taskId } 
       // Why a failed flow failed, when its step said (an enforcement refusal, a failed check); null otherwise.
       failure,
       ...learningsOfFlow(flow),
+      ...(flow.reviewBar === 'must-fix' ? { mustFix: mustFixOfFlow(flow) } : {}),
       evidence: Object.fromEntries(Object.entries(shownFlow.results ?? {}).map(([step, row]) => [step, evidence(row)])) } : null,
     attempts: attemptRows.map(row => ({ attempt: publicAttempt(row), notice: noticeOf(row) })).map(({ attempt: row, notice }) => ({ id: row.id, step: row.step, status: row.status, ...(row.outcome ? { outcome: row.outcome } : {}), settledAt: row.settledAt ?? null, ...(row.reason ? { reason: row.reason } : {}), ...(row.failure ? { failure: row.failure } : {}), ...(notice ? { notice } : {}) })),
     task: task ? pick(taskView(store, task), ['id', 'title', 'outcome', 'acceptance', 'revision', 'approved', 'approvedRevision', 'status', 'risk', 'paths', 'labels', 'models', 'notBefore', 'admissionReasons']) : null,

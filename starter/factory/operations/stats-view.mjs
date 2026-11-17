@@ -159,6 +159,25 @@ export function projectStats(store, { window = '7d', nowMs = Date.now() } = {}) 
     metric('planned-reviews', 'Review rounds, planned changes', delivered.filter(x => x.planned), { kind: 'mean', value: r => r.reviewRounds }),
     metric('unplanned-reviews', 'Review rounds, unplanned changes', delivered.filter(x => !x.planned), { kind: 'mean', value: r => r.reviewRounds }));
 
+  // Must-fix flows (review-must-fix design 12.3 and 16.1; test fixtures only until the enabling release),
+  // only when the window has one, so a severity project's stats are unchanged: parks at the cap or on a
+  // protocol failure, operator items, follow-ups, deferrals and acknowledgements per flow, verdict
+  // overrides, and findings in earlier fixes or missed by earlier rounds. From the records each flow
+  // keeps (its review history, its stored ledger and its decision); shadow estimates are not counted here.
+  const mustFixFlows = changeLike.filter(x => x.flow.reviewBar === 'must-fix');
+  if (mustFixFlows.length) {
+    const entries = f => Array.isArray(f.reviewLedger?.entries) ? f.reviewLedger.entries : [], enforced = f => (f.reviewHistory ?? []).map(row => row?.mustFix?.enforcement).filter(Boolean);
+    const reviewRows = mustFixFlows.flatMap(x => enforced(x.flow).map(row => ({ flow: x.flow, at: x.at, overridden: row.verdictOverridden === true })));
+    quality.push(
+      metric('mustfix-parked', 'Must-fix flows parked at the cap or on a protocol failure', mustFixFlows, { kind: 'percent', value: r => enforced(r.flow).some(row => ['must-fix-cap', 'budget', 'protocol-failure'].includes(row.disposition)), note: 'Parked for the operator by the must-fix cap, the budget check or a second contradictory review.' }),
+      metric('mustfix-operator-items', 'Operator items per must-fix flow', mustFixFlows, { kind: 'mean', value: r => entries(r.flow).filter(e => e.kind === 'operator-item').length }),
+      metric('mustfix-follow-ups', 'Follow-ups per must-fix flow', mustFixFlows, { kind: 'mean', value: r => entries(r.flow).filter(e => e.kind === 'follow-up').length }),
+      metric('mustfix-deferrals', 'Builder deferrals per must-fix flow', mustFixFlows, { kind: 'mean', value: r => entries(r.flow).filter(e => e.deferral).length }),
+      metric('mustfix-acknowledgements', 'Acknowledgements per must-fix flow', mustFixFlows, { kind: 'mean', value: r => (r.flow.mergeAuthorization ?? r.flow.completionDecision)?.acknowledgedFindings?.length ?? 0, note: 'Findings the operator (or the strict decision role) acknowledged by id and claim digest at the merge or satisfied question.' }),
+      metric('mustfix-overrides', 'Reviews whose verdict the must-fix route overrode', reviewRows, { kind: 'percent', value: r => r.overridden, sampleUnit: 'reviews' }),
+      metric('mustfix-late', 'In-fix and missed findings per must-fix flow', mustFixFlows, { kind: 'mean', value: r => entries(r.flow).filter(e => ['in-fix', 'missed'].includes(e.origin)).length, note: 'Findings in code an earlier round\'s fix added, or in code an earlier round reviewed without reporting them.' }));
+  }
+
   // Checks: per change, and per configured check.
   const gated = changeLike.filter(x => x.gateRuns);
   const checksMetrics = [

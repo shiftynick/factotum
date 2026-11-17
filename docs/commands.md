@@ -44,7 +44,7 @@ A fourth is an operator decision too: **`cleanup archive-drop apply` and `cleanu
 | Record that a question is also shown on a prompt channel | `inbox.present` | operator or orchestrator |
 | Withdraw the prompt, keep the question | `inbox.unpresent` | its presenter or the operator |
 | Acknowledge a notice | `inbox.ack` | operator or orchestrator |
-| Answer a question | `answer` | the question's role (the operator can always answer); the orchestrator on instruction, except strict-review sign-off, an adopted pull request's merge question and, unless enabled, deploy/spending approvals |
+| Answer a question | `answer` | the question's role (the operator can always answer); the orchestrator on instruction, except strict-review sign-off, an adopted pull request's merge question, a must-fix flow's merge or satisfied decision the decision guard returns to the operator and, unless enabled, deploy/spending approvals. A must-fix flow's question that lists findings (fixtures only until the enabling release) takes `acknowledgedFindings: [{id, claimDigest}]` naming each listed finding once; an operator-only finding needs the operator's own answer |
 | Enter the operator's answer for them | `answer` with `relay {quote, channel}` (and `presentationId`) | whoever could answer without it, except the operator; stored as relayed, see [communication](communication.md#prompt-presentations-and-relayed-answers) |
 | Feedback with send back / repair / retry | `answer` with `note` | the question's role |
 | Acknowledge a delivery | `delivery.ack` | operator or orchestrator |
@@ -55,6 +55,7 @@ A fourth is an operator decision too: **`cleanup archive-drop apply` and `cleanu
 | Add a note for a running flow's agents | `flow.note` | operator, or delegated |
 | Replan / abandon a flow | `flow.replan` / `flow.abandon` | operator, or delegated |
 | Settle one review ledger entry of a must-fix flow (fixtures only until the enabling release) | `flow.disposeFinding {flowId, findingId, disposition: operator-accepted \| operator-required, note, expectedVersion}` | operator. On a recorded instruction the orchestrator may record `operator-required` on an outcome item in ordinary work only; `operator-accepted` and every protected-class item stay the operator's. See [must-fix enforcement](risk-review.md#must-fix-enforcement-fixtures-only) |
+| Tighten or lift the review restriction of must-fix flows (fixtures only until the enabling release) | `review.restrict {protectedClassDeferral?: false \| true, operatorDisposition?: all \| none, expectedVersion, note}` | operator only, directly; never delegable. Stored in project meta, not the configuration; each change raises the version, supersedes open must-fix merge and satisfied questions and refuses a decision given before it |
 | Stop a flow | `stop` | operator or orchestrator |
 | Pause / resume / stop all | `pause` / `resume` / `stop.all` | operator, or delegated |
 | Queue order, add, remove | `queue.put` | operator, or delegated |

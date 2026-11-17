@@ -15,6 +15,8 @@ export const LESSON_SIGNAL_KINDS = Object.freeze({
   'review-correction': 'verified', 'fast-check-correction': 'verified', 'gate-correction': 'verified',
   'review-correction-inferred': 'weak', 'plan-send-back': 'weak', 'person-replan': 'weak', 'operator-note': 'weak',
   'rule-pushback': 'weak', 'plan-departure': 'weak', 'unverified-acceptance': 'weak', 'unchanged-candidate': 'weak',
+  // A must-fix flow (review-must-fix design 12.1): a builder's deferral, and a corner case a fix introduced.
+  'review-deferral': 'weak', 'fix-churn': 'weak',
 });
 const signal = (kind, ref, detail = {}) => ({ id: digest({ kind, ...ref }), kind, class: LESSON_SIGNAL_KINDS[kind], ...ref, ...detail });
 
@@ -23,16 +25,20 @@ const signal = (kind, ref, detail = {}) => ({ id: digest({ kind, ...ref }), kind
 const SENT_BACK = new Set(['correct', 'incomplete', 'incomplete-prior-findings', 'parked']);
 const sentBack = round => round.disposition === undefined ? round.result?.verdict !== 'pass' : SENT_BACK.has(round.disposition);
 const passed = round => round.result?.verdict === 'pass';
+const safeFile = file => typeof file === 'string' && file && file.length <= TEXT && !file.startsWith('/') && !/[\0\n\\]/.test(file) && !file.split('/').includes('..') ? file : null;
 function reviewSignals(flow) {
-  const rounds = Array.isArray(flow.reviewHistory) ? flow.reviewHistory : [], found = [];
+  const rounds = Array.isArray(flow.reviewHistory) ? flow.reviewHistory : [], found = [], mustFix = flow.reviewBar === 'must-fix';
   rounds.forEach((round, index) => {
     if (!sentBack(round)) return;
     const later = rounds.slice(index + 1);
-    for (const finding of Array.isArray(round.result?.findings) ? round.result.findings : []) {
+    for (const [at, finding] of (Array.isArray(round.result?.findings) ? round.result.findings : []).entries()) {
+      // A must-fix flow's finding in the must-fix shape is matched by its ledger id instead (ledgerSignals);
+      // a legacy finding keeps today's rules.
+      if (mustFix && round.mustFix?.findings?.[at]?.bar === 'must-fix') continue;
       const message = typeof finding?.message === 'string' ? finding.message : null; if (!message) continue;
       // The file a finding names, when it is a repository-relative path: the directories of such
       // files are among the anchors a capture candidate may choose (4.2).
-      const file = typeof finding.file === 'string' && finding.file && finding.file.length <= TEXT && !finding.file.startsWith('/') && !/[\0\n\\]/.test(finding.file) && !finding.file.split('/').includes('..') ? finding.file : null;
+      const file = safeFile(finding.file);
       const ref = { attemptId: round.attemptId ?? null, finding: digest(message) }, shown = { step: round.step ?? null, severity: finding.severity ?? null, ...(file ? { file } : {}), message: clip(message) };
       // The later round that disposed of it, by the reviewer's own statement.
       const disposed = later.map(row => ({ row, entry: (row.result?.priorFindingsDisposition ?? []).find(entry => entry?.finding === message) })).find(found => found.entry);
@@ -45,6 +51,27 @@ function reviewSignals(flow) {
       if (passing) found.push(signal('review-correction-inferred', ref, { ...shown, absentFrom: passing.attemptId ?? null }));
     }
   });
+  return mustFix ? [...found, ...ledgerSignals(flow, rounds)] : found;
+}
+// A must-fix flow's findings in the must-fix shape, matched by ledger id (review-must-fix design 12.1):
+// a verified review-correction only for a must-fix finding a later review judged fix-holds (marked
+// contested when its deferral was rejected first); operator items, follow-ups and accepted deferrals
+// give no verified signal. Weak: review-deferral (a builder's deferral, with what became of it) and
+// fix-churn (a finding in code an earlier round's fix added, naming that fix's entry).
+// The ledger is the one the engine stores with each review (flow.reviewLedger, equal to a recomputation
+// from the history); this module reads records only and never derives it.
+function ledgerSignals(flow, rounds) {
+  const found = [], attemptOf = round => rounds[round - 1]?.attemptId ?? null;
+  for (const entry of Array.isArray(flow.reviewLedger?.entries) ? flow.reviewLedger.entries : []) {
+    if (!entry || typeof entry !== 'object') continue;
+    if (entry.source !== 'review' || entry.bar !== 'must-fix') continue;
+    const file = safeFile(entry.file), ref = { attemptId: attemptOf(entry.round), ledgerId: entry.id };
+    const shown = { step: entry.step ?? null, severity: entry.severity ?? null, ...(file ? { file } : {}), message: clip(entry.message ?? entry.scenario ?? ''), purposeImpact: entry.purposeImpact ?? null };
+    const holds = (entry.judgements ?? []).filter(row => row.counted && row.judgement === 'fix-holds').at(-1);
+    if (entry.kind === 'must-fix' && entry.status === 'fixed' && holds) found.push(signal('review-correction', ref, { ...shown, fixedBy: attemptOf(holds.round), evidence: clip(holds.coverage) || `judged fix-holds in round ${holds.round}`, ...(entry.deferral?.outcome === 'contested' ? { contested: true } : {}) }));
+    if (entry.deferral) found.push(signal('review-deferral', ref, { ...shown, reason: entry.deferral.reason ?? null, outcome: entry.deferral.void ? 'void' : entry.deferral.outcome ?? 'awaiting' }));
+    if (entry.origin === 'in-fix' && typeof entry.fixOf === 'string') found.push(signal('fix-churn', ref, { ...shown, fixOf: entry.fixOf }));
+  }
   return found;
 }
 
