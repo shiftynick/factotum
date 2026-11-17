@@ -5,9 +5,10 @@
 //   review node through the first edge of each step (in the reference graph: build, commit,
 //   integrate, the fast check when configured, publish, review), and the path from that review to
 //   the merge question along `pass` edges.
-// - One more cycle fits when every step on the cycle with a visit bound has a visit left (its bound
-//   plus its extensions, minus its visits, as move() and publicFlow() in core/project.mjs count
-//   them) and the flow's remaining transitions cover the cycle plus the path to the merge question.
+// - One more cycle fits when every step with a visit bound on the cycle and on the path to the merge
+//   question has a visit left (its bound plus its extensions, minus its visits, as move() and
+//   publicFlow() in core/project.mjs count them), and the flow's remaining transitions cover the
+//   cycle plus the path to the merge question.
 //
 // Nothing here changes a graph, a bound or a route: a must-fix review reads it before routing
 // `revise`, and a must-fix flow's `send_back` reads it before it is accepted. A severity or shadow
@@ -85,13 +86,14 @@ const visitsLeft = (flow, step) => {
 const transitionsLeft = flow => (flow.workflow?.maxTransitions ?? 100) + (flow.transitionAllowance ?? 0) - (flow.transitions ?? 0);
 
 // Whether one more correction cycle starting at `from` (a review's revise target, or a send_back's
-// target) fits the flow's bounds. `flow`: { workflow, visits, limitExtensions, transitions,
+// target), and the path from it to the merge question, fit the flow's bounds. `flow`: { workflow, visits, limitExtensions, transitions,
 // transitionAllowance }. Returns the cycle, the path to the merge question, each bounded step that
 // lacks a visit, and the transitions needed and left.
 export function cycleBudget(flow, from) {
   const cycle = from ? correctionPath(flow.workflow, from) : null, toMerge = cycle ? mergePath(flow.workflow, cycle.at(-1)) : null;
   if (!cycle || !toMerge) return { fits: false, reason: 'no correction cycle', from: from ?? null, cycle, toMerge };
-  const needed = new Map(); for (const step of cycle) needed.set(step, (needed.get(step) ?? 0) + 1);
+  // Every bounded step the change passes through, the path to the merge question included (the gate).
+  const needed = new Map(); for (const step of [...cycle, ...toMerge]) needed.set(step, (needed.get(step) ?? 0) + 1);
   const short = [...needed].map(([step, visits]) => ({ step, needed: visits, left: visitsLeft(flow, step) })).filter(row => row.left !== null && row.left < row.needed);
   const transitions = { needed: cycle.length + toMerge.length, left: transitionsLeft(flow) };
   const fits = !short.length && transitions.left >= transitions.needed;

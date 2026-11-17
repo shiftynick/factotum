@@ -52,7 +52,11 @@ const who = reviewer => reviewer ? { provider: reviewer.provider ?? null, model:
 export const basisResult = row => (row?.mustFix?.basis === 'correction' && row.mustFix.protocol?.correction?.result) || row?.result || {};
 const isFixEntry = entry => entry.source === 'review' && entry.kind === 'must-fix';
 const isExclusion = entry => entry.source === 'review' && entry.reachable?.read === 'not-here';
-const awaitsConfirmation = entry => isExclusion(entry) && entry.support === 'unconfirmed';
+// An entry the operator disposed of (flow.disposeFinding) keeps that disposition: no reviewer judgement
+// re-derives it. `operator-required` is settled only by a later review's fix-holds, or by the
+// operator; `operator-accepted` only by the operator. So neither awaits, or admits, an exclusion judgement.
+const operatorDisposed = entry => ['operator-required', 'operator-accepted'].includes(entry.status);
+const awaitsConfirmation = entry => isExclusion(entry) && entry.support === 'unconfirmed' && !operatorDisposed(entry);
 
 // What an entry awaits from the review about to run at `head`, expected on model family `family`, as
 // review round `round` (8.2, 11.3): `fix`, a must-fix entry whose candidate changed since it was
@@ -66,7 +70,9 @@ function awaits(entry, { head, family, round }) {
   return out;
 }
 export const awaitingEntries = (ledger, view) => (ledger?.entries ?? []).map(entry => ({ entry, awaits: awaits(entry, view) })).filter(row => row.awaits.length);
-const allowedJudgements = entry => [...(isFixEntry(entry) ? (entry.status === 'deferred-claimed' ? DEFERRAL_JUDGEMENTS : FIX_JUDGEMENTS) : []), ...(isExclusion(entry) ? EXCLUSION_JUDGEMENTS : [])];
+const allowedJudgements = entry => [...(isFixEntry(entry) ? (entry.status === 'deferred-claimed' ? DEFERRAL_JUDGEMENTS : FIX_JUDGEMENTS) : []), ...(isExclusion(entry) && !operatorDisposed(entry) ? EXCLUSION_JUDGEMENTS : [])];
+// The status a fix-incomplete leaves: a contested entry, or one the operator required, stays so.
+const reopened = entry => ['contested', 'operator-required'].includes(entry.status) ? entry.status : 'open';
 
 // A judgement's entry: by id; failing that, the legacy fallback (5.5): an entry raised by a finding
 // without the must-fix fields, named by its exact message, when exactly one such entry in the ledger
@@ -179,7 +185,7 @@ export function replay(rows, policy = {}, { operatorDispositions = [] } = {}) {
   // An entry derived again after a judgement (11.3), with the judging review's risk (risk only rises).
   const rederive = (entry, risk, head, { confirmed = false, unknown = false } = {}) => {
     const finding = findings.get(entry.id);
-    if (!mustFixShaped(finding)) return;
+    if (!mustFixShaped(finding) || operatorDisposed(entry)) return;
     const derived = deriveFinding(unknown ? { ...finding, reachable: { ...finding.reachable, status: 'unknown' } } : finding, { risk, strictFollowups, confirmed, statuses: entry.citations, inFixEvidence: entry.inFixRule === true });
     const wasMustFix = entry.kind === 'must-fix';
     Object.assign(entry, { kind: derived.kind, reason: derived.reason, reachable: derived.reachable, support: derived.support ?? null, claimDigest: derived.claimDigest, operatorOnly: derived.operatorOnly === true });
@@ -212,7 +218,7 @@ export function replay(rows, policy = {}, { operatorDispositions = [] } = {}) {
         // A contested entry, or one the operator required, stays so: it still cannot be deferred.
         if (judgement.sameScenario !== true) why('not-same-scenario');
         else if (!(judgement.evidence?.length > 0)) why('no-evidence');
-        else { applied.counted = true; Object.assign(entry, { status: ['contested', 'operator-required'].includes(entry.status) ? entry.status : 'open', touchedHead: head }); }
+        else { applied.counted = true; Object.assign(entry, { status: reopened(entry), touchedHead: head }); }
       } else if (DEFERRAL_JUDGEMENTS.includes(judgement.judgement)) {
         if (!awaited.includes('deferral')) why('not-awaiting');
         else { applied.counted = true; applied.relevance = Array.isArray(judgement.relevance) ? judgement.relevance.slice(0, 4) : []; judgeDeferral(entry, findings.get(entry.id), deferralOutcome(entry.deferral, judgement, statuses), { risk, strictFollowups, head }); applied.outcome = entry.deferral.outcome; }
@@ -234,7 +240,7 @@ export function replay(rows, policy = {}, { operatorDispositions = [] } = {}) {
       if (!old) continue;
       const fixed = old.disposition === 'fixed';
       entry.judgements.push({ round, judgement: fixed ? 'fix-holds' : 'fix-incomplete', via: 'legacy-disposition', sameScenario: !fixed, coverage: collapse(old.evidence).slice(0, 300), citations: [], reviewer, counted: true });
-      Object.assign(entry, { status: fixed ? 'fixed' : 'open', touchedHead: head }); touch(entry);
+      Object.assign(entry, { status: fixed ? 'fixed' : reopened(entry), touchedHead: head }); touch(entry);
     }
     // 3. Unmet purpose added earlier is settled by this review's purpose assessment.
     const added = (record?.findings ?? []).filter(row => row?.added);

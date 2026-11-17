@@ -28,10 +28,13 @@ export function mustFixCap(history, { rounds = 3, allowance = 0 } = {}) {
 // 5. a strict phase that must be followed by another review: delta;
 // 6. operator items or follow-ups not yet recorded: defer;
 // 7. nothing open: pass.
-// Every route that would send the change back (`revise`) first passes the budget check (9.5): when
-// one more correction cycle does not fit, it parks with reason budget instead, below the cap too. The
-// cap and the budget check apply only to a send-back: an adjudication, a park and a satisfied
-// review's revise (which ends that flow) are not corrections.
+// The cap is checked before final-phase routing (route 3 precedes route 4): an open must-fix item at
+// the cap parks whatever the phase would otherwise route (revise, a strict final's adjudicate, an
+// ordinary final's park). The exceptions keep their routes: a protocol failure (route 1), incomplete
+// strict attestations (route 2), and the satisfied review, which routes only pass and revise and ends
+// its flow on revise. Every route that would send the change back (`revise`) then passes the budget
+// check (9.5): when one more correction cycle does not fit, it parks with reason budget, below the cap
+// too. An adjudication or a park is not a correction, so it has no budget check.
 // `ledger`: the ledger after this review, before its route records anything; a must-fix flow without
 // one (a fixture that pinned an earlier schema) routes on this review's own derived findings.
 // `review`: { strict, incomplete, bounded, phase, satisfied }. `cap`: mustFixCap's result. `budget`:
@@ -43,8 +46,9 @@ export function enforcedRoute({ ledger = null, derived = [], review, failure = f
   const items = entries ? entries.some(entry => entry.kind !== 'must-fix' && entry.status !== 'superseded' && !entry.recorded) : derived.some(row => row.kind !== 'must-fix');
   const route = openRoute({ mustFix, items }, review);
   const reason = route.disposition === 'incomplete' ? 'incomplete' : mustFix && ['revise', 'adjudicate', 'park'].includes(route.route) ? 'must-fix' : route.route === 'defer' ? 'items' : route.route;
-  if (route.route !== 'revise' || review.satisfied) return { ...route, reason, sendBack: false };
+  if (review.satisfied) return { ...route, reason, sendBack: false };
   if (reason === 'must-fix' && cap && cap.used >= cap.limit) return { route: 'park', disposition: 'must-fix-cap', reason: 'must-fix-cap', sendBack: false };
+  if (route.route !== 'revise') return { ...route, reason, sendBack: false };
   if (!budget?.fits) return { route: 'park', disposition: 'budget', reason: 'budget', sendBack: false };
   return { ...route, reason, sendBack: reason === 'must-fix' };
 }

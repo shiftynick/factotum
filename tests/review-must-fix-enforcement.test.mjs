@@ -20,7 +20,7 @@ import { pinnedReviewSettings, validateReviewPolicy } from '../starter/factory/c
 import { changeWorkflow, documentWorkflow, validateConfig } from '../starter/factory/core/configuration.mjs';
 import { correctionCycles, cycleBudget, mustFixGraphProblems, assertMustFixGraph } from '../starter/factory/core/must-fix-budget.mjs';
 import { validateSchemaDefinition, validateSchema, MUST_FIX_BUILD_SCHEMA, DELIVERY_BUILD_SCHEMA, FINDING_DISPOSITION_SCHEMA } from '../starter/factory/adapters/providers/index.mjs';
-import { computeReviewLedger, deferralRefusal } from '../starter/factory/workflows/review-ledger.mjs';
+import { awaitingEntries, computeReviewLedger, deferralRefusal, replayLedger } from '../starter/factory/workflows/review-ledger.mjs';
 import { enforcedRoute, mustFixCap } from '../starter/factory/workflows/must-fix-enforcement.mjs';
 
 const ACCEPTANCE = ['Each record is read once', 'The reader reports a missing file'];
@@ -101,18 +101,21 @@ test('route order (6.1), as a table: every route at both risk levels and both pr
       assert.equal(route(none, review), strict && bounded && phase === 'full' ? 'delta/full-reviewed' : 'pass/accepted', `7 ${at}`);
     }
     if (bounded) {
-      // The final phase: a strict open item is adjudicated (never capped: it is not a send-back); an
-      // ordinary one parks, as today (12.6); an incomplete strict final parks.
+      // The final phase: below the cap a strict open item is adjudicated (not a send-back, so no
+      // budget check) and an ordinary one parks, as today (12.6); at the cap either parks at the cap,
+      // which is checked before final-phase routing; an incomplete strict final parks.
       const final = { ...base, phase: 'final' };
-      assert.equal(route(open, final, { cap: capped, budget: full }), strict ? 'adjudicate/operator-adjudication' : 'park/parked', `final ${risk}`);
+      assert.equal(route(open, final, { budget: full }), strict ? 'adjudicate/operator-adjudication' : 'park/parked', `final ${risk}`);
+      assert.equal(route(open, final, { cap: capped, budget: full }), 'park/must-fix-cap', `final ${risk} at the cap`);
       assert.equal(route(items, final), 'defer/followup-required');
       assert.equal(route(none, final), 'pass/accepted');
-      if (strict) { assert.equal(route(open, { ...final, incomplete: true }), 'park/incomplete'); assert.equal(route(none, { ...base, phase: 'ordinary' }), 'delta/escalated-full-review-required', 'an ordinary-phase review that finds strict risk'); }
+      if (strict) { assert.equal(route(open, { ...final, incomplete: true }, { cap: capped }), 'park/incomplete', 'incomplete attestations come before the cap'); assert.equal(route(none, { ...base, phase: 'ordinary' }), 'delta/escalated-full-review-required', 'an ordinary-phase review that finds strict risk'); }
     }
   }
   // The satisfied review routes only pass and revise (6.5): no cap, no budget, a protocol failure revises.
   const satisfied = { strict: false, satisfied: true };
-  assert.equal(route(open, satisfied, { cap: capped, budget: full }), 'revise/correct');
+  assert.equal(route(open, satisfied, { cap: capped, budget: full }), 'revise/correct', 'the satisfied review is never capped');
+  assert.equal(route(open, { strict: true, bounded: true, phase: 'final' }, { cap: capped, failure: true }), 'park/protocol-failure', 'protocol failure comes first');
   assert.equal(route(items, satisfied), 'pass/accepted');
   assert.equal(route(open, satisfied, { failure: true }), 'revise/protocol-failure');
   // The cap counts reviews that sent must-fix items back, plus each operator send_back.
@@ -392,4 +395,47 @@ test('accepted when: mustFixRounds 4 with maxBuildRounds 4 is refused by validat
   assert.throws(() => validateReviewPolicy({ policy: { maxBuildRounds: 4, review: { mustFixRounds: 4 } } }), /policy\.review\.mustFixRounds \(4\) must be at most policy\.maxBuildRounds - 1 \(3\): the first build round is not a correction/);
   assert.doesNotThrow(() => validateReviewPolicy({ policy: { maxBuildRounds: 4, review: { mustFixRounds: 3 } } }));
   assert.throws(() => validateReviewPolicy({ policy: { reviewBar: 'shadow', maxBuildRounds: 1 } }), /must be at most policy\.maxBuildRounds - 1 \(0\)/, 'a project with maxBuildRounds 1 cannot use the must-fix cap');
+});
+
+// ---- Review of slice 4 ----
+
+test('review fix 1: no reviewer judgement lowers operator-required; only fix-holds settles it, and the operator alone accepts it', () => {
+  // R1.1: a reviewer's own not-here, validated and covered, so unconfirmed (an operator item); the operator requires it.
+  const excluded = finding('Records may be lost', 'outcome', 'not-here', [factCite()]);
+  const one = { identity: { head: 'a' }, result: { findings: [excluded, finding('A legacy-style message', 'outcome', 'shown', [fileCite()])] }, mustFix: { risk: 'ordinary', reviewer: { family: 'anthropic', sessionId: 's1' }, findings: [{ id: 'R1.1', bar: 'must-fix', kind: 'operator-item', reason: 'unconfirmed-exclusion', purposeImpact: 'outcome', reachable: { reported: 'not-here', read: 'not-here' }, citations: ['validated'], support: 'unconfirmed' }, { id: 'R1.2', bar: 'must-fix', kind: 'must-fix', reason: 'outcome-shown', purposeImpact: 'outcome', reachable: { reported: 'shown', read: 'shown' }, citations: ['validated'] }], enforcement: { route: 'revise' } } };
+  const required = [{ id: 'R1.1', disposition: 'operator-required', afterRound: 1, version: 1 }];
+  const at = rows => replayLedger(rows, {}, { operatorDispositions: required }).entries[0];
+  assert.equal(at([one]).status, 'operator-required');
+  // It is no longer shown to a different-family reviewer as an exclusion awaiting confirmation; only its fix awaits judgement.
+  assert.deepEqual(awaitingEntries(replayLedger([one], {}, { operatorDispositions: required }), { head: 'b', family: 'openai', round: 2 }).map(row => [row.entry.id, row.awaits]), [['R1.1', ['fix']], ['R1.2', ['fix']]]);
+  const later = judgement => ({ identity: { head: 'b' }, result: { findings: [], ledger: [judgement] }, mustFix: { risk: 'ordinary', reviewer: { family: 'openai', sessionId: 's2' }, findings: [], ledger: { expectedFamily: 'openai', citations: [[]] } } });
+  for (const judgement of [judge('R1.1', 'exclusion-confirmed', { coverage: 'Only one host rules it out.' }), judge('R1.1', 'exclusion-rejected'), judge('R1.1', 'fix-incomplete', { sameScenario: true, evidence: [fileCite()] })]) {
+    const entry = at([one, later(judgement)]);
+    assert.deepEqual([entry.kind, entry.status], ['must-fix', 'operator-required'], judgement.judgement);
+  }
+  assert.equal(at([one, later(judge('R1.1', 'exclusion-confirmed', { coverage: 'x' }))]).judgements.at(-1).why, 'not-applicable');
+  // A later review's fix-holds settles it.
+  assert.equal(at([one, later(judge('R1.1', 'fix-holds'))]).status, 'fixed');
+  // The operator alone lowers it: an explicit operator-accepted after the next review.
+  const accepted = replayLedger([one, later(judge('R1.1', 'fix-incomplete', { sameScenario: true, evidence: [fileCite()] }))], {}, { operatorDispositions: [...required, { id: 'R1.1', disposition: 'operator-accepted', afterRound: 2, version: 3 }] }).entries[0];
+  assert.deepEqual([accepted.kind, accepted.status], ['follow-up', 'operator-accepted']);
+  // The legacy fallback (today's priorFindingsDisposition, by message) keeps it too.
+  const legacy = { identity: { head: 'a' }, result: { findings: [{ severity: 'high', file: 'input.txt', line: 1, message: 'A legacy finding' }] }, mustFix: { risk: 'ordinary', reviewer: { family: 'anthropic' }, findings: [{ id: 'R1.1', bar: 'legacy', kind: 'must-fix', reason: 'legacy-severity' }], enforcement: { route: 'revise' } } };
+  const remaining = { identity: { head: 'b' }, result: { findings: [], ledger: [], priorFindingsDisposition: [{ finding: 'A legacy finding', disposition: 'remaining', evidence: 'Still read twice.' }] }, mustFix: { risk: 'ordinary', reviewer: { family: 'openai' }, findings: [], ledger: { expectedFamily: 'openai', citations: [] } } };
+  assert.equal(replayLedger([legacy, remaining], {}, { operatorDispositions: required }).entries[0].status, 'operator-required');
+});
+
+test('review fix 2: the cap is checked before final-phase routing: a strict bounded-delta final review at the cap parks instead of adjudicating', async t => {
+  const r = reviewRounds(t, { risk: 'strict', protocol: 'bounded-delta', review: { mustFixRounds: 2 } });
+  assert.equal((await r.round([changeResult({ verdict: 'revise', strict: true, findings: [finding('Records are read twice', 'outcome', 'shown', [fileCite()])] })])).route, 'revise');
+  assert.equal((await r.round([changeResult({ verdict: 'revise', strict: true, ledger: [judge('R1.1', 'fix-incomplete', { sameScenario: true, evidence: [fileCite()] })] })])).route, 'revise');
+  const final = await r.round([changeResult({ verdict: 'revise', strict: true, ledger: [judge('R1.1', 'fix-incomplete', { sameScenario: true, evidence: [fileCite()] })] })]);
+  assert.deepEqual([final.phase, final.route, final.disposition, final.mustFix.enforcement.cap.used], ['final', 'park', 'must-fix-cap', 2], 'never adjudicate evidence past the cap');
+});
+
+test('review fix 3: the budget check counts the visits of every bounded step on the path to the merge question', () => {
+  const workflow = changeWorkflow({ policy: {} });
+  const budget = cycleBudget({ workflow, visits: { build: 2, review: 2, gate: 8 }, transitions: 20 }, 'build');
+  assert.deepEqual([budget.fits, budget.reason, budget.short], [false, 'no visit left at gate (0 left, 1 needed)', [{ step: 'gate', needed: 1, left: 0 }]]);
+  assert.equal(cycleBudget({ workflow, visits: { build: 2, review: 2, gate: 8 }, limitExtensions: { gate: 1 }, transitions: 20 }, 'build').fits, true, 'a send_back extension makes it fit');
 });
