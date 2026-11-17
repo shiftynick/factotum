@@ -1,0 +1,2871 @@
+{
+ "fresh-full-ordinary": {
+  "steps": [
+   {
+    "step": 0,
+    "op": "review",
+    "calls": [
+     {
+      "role": "reviewer",
+      "sessionId": null,
+      "prompt": {
+       "sha256": "5364d29c9867b90b5859191746e3106859f71aa862a86b65b33a62636d4a6334",
+       "length": 3117
+      },
+      "schema": "61673209e0dc668c76fdecaa46c8e5ddf9d47722ac40e2cf46ea963f039ee7fe"
+     }
+    ],
+    "result": {
+     "provider": "claude",
+     "model": "fictional-reviewer",
+     "family": "anthropic",
+     "sessionId": "review-session-0-1",
+     "result": {
+      "verdict": "revise",
+      "summary": "Fictional revise review",
+      "findings": [
+       {
+        "severity": "high",
+        "file": "records.txt",
+        "line": 1,
+        "message": "Records are written twice"
+       }
+      ],
+      "riskAssessment": {
+       "level": "ordinary",
+       "rationale": "Bounded fictional change",
+       "threatModel": [],
+       "stopConditions": []
+      },
+      "strictReview": {
+       "fullDiffInspected": true,
+       "threatModelReviewed": false,
+       "stopConditionsReviewed": false
+      },
+      "scopeSummary": "The entire fictional change",
+      "priorFindingsDisposition": [],
+      "learningsChecked": []
+     },
+     "promptDigest": "5364d29c9867b90b5859191746e3106859f71aa862a86b65b33a62636d4a6334",
+     "contextDigest": "fictional-context",
+     "taskRevision": "r1",
+     "identity": {
+      "head": "f937cab3ebd5666cc2d389d17ef6d3560da20221",
+      "treeDigest": "6d994d6a08d50663038dd3fcca28920cd6b8ddfaae0a29bc2ad9fd1560a70d46"
+     },
+     "phase": "full",
+     "baseHead": "a83a86e78cf2e228c090ea486bc1350541a2211e",
+     "route": "revise",
+     "disposition": "correct",
+     "independence": "external-author-unknown-manual-decision-required",
+     "providerInvocations": [
+      {
+       "provider": "claude",
+       "model": "fictional-reviewer",
+       "sessionId": "review-session-0-1"
+      }
+     ]
+    }
+   },
+   {
+    "step": 1,
+    "op": "build",
+    "calls": [
+     {
+      "role": "builder",
+      "sessionId": null,
+      "prompt": {
+       "sha256": "1d2f0a220e1af993bab4445f68ae64886edd9278971cd8d818efc51b641d4f3e",
+       "length": 3731
+      },
+      "schema": "f41b8cdba6dbaed5ba705e73b488b8b4a4d02de121761ad2db538e0c1051a0f3"
+     }
+    ],
+    "result": {
+     "provider": "codex",
+     "model": "fictional-builder",
+     "family": "openai",
+     "sessionId": "builder-session",
+     "result": {
+      "status": "implemented",
+      "summary": "Fictional correction",
+      "questions": [],
+      "assumptions": [],
+      "departures": [],
+      "unverified": [],
+      "pushback": [],
+      "learningsApplied": []
+     },
+     "promptDigest": "1d2f0a220e1af993bab4445f68ae64886edd9278971cd8d818efc51b641d4f3e",
+     "dependencyEvidence": [],
+     "contextDigest": "fictional-context",
+     "taskRevision": "r1",
+     "identity": {
+      "head": "f937cab3ebd5666cc2d389d17ef6d3560da20221",
+      "treeDigest": "6d994d6a08d50663038dd3fcca28920cd6b8ddfaae0a29bc2ad9fd1560a70d46"
+     },
+     "route": "implemented",
+     "providerInvocations": [
+      {
+       "provider": "codex",
+       "model": "fictional-builder",
+       "sessionId": "builder-session"
+      }
+     ]
+    }
+   },
+   {
+    "step": 2,
+    "op": "review",
+    "calls": [
+     {
+      "role": "reviewer",
+      "sessionId": null,
+      "prompt": {
+       "sha256": "da7da21e4b3e1867b81d015543818d87fc4b398c284e73a50c85239319c27769",
+       "length": 4153
+      },
+      "schema": "61673209e0dc668c76fdecaa46c8e5ddf9d47722ac40e2cf46ea963f039ee7fe"
+     }
+    ],
+    "result": {
+     "provider": "claude",
+     "model": "fictional-reviewer",
+     "family": "anthropic",
+     "sessionId": "review-session-2-1",
+     "result": {
+      "verdict": "pass",
+      "summary": "Fictional pass review",
+      "findings": [
+       {
+        "severity": "low",
+        "file": "records.txt",
+        "line": 1,
+        "message": "Name the record format"
+       }
+      ],
+      "riskAssessment": {
+       "level": "ordinary",
+       "rationale": "Bounded fictional change",
+       "threatModel": [],
+       "stopConditions": []
+      },
+      "strictReview": {
+       "fullDiffInspected": true,
+       "threatModelReviewed": false,
+       "stopConditionsReviewed": false
+      },
+      "scopeSummary": "The entire fictional change",
+      "priorFindingsDisposition": [],
+      "learningsChecked": []
+     },
+     "promptDigest": "da7da21e4b3e1867b81d015543818d87fc4b398c284e73a50c85239319c27769",
+     "contextDigest": "fictional-context",
+     "taskRevision": "r1",
+     "identity": {
+      "head": "0ea2da85c81477c2ca7de2e4d621501a26cc54e9",
+      "treeDigest": "3c3441383069c877b89c483242023bdb3f53f2bf976db28a84b2b7d027d6677f"
+     },
+     "phase": "full",
+     "baseHead": "a83a86e78cf2e228c090ea486bc1350541a2211e",
+     "route": "defer",
+     "disposition": "followup-required",
+     "independence": "different-family",
+     "pairing": {
+      "builder": {
+       "provider": "codex",
+       "model": "fictional-builder",
+       "family": "openai"
+      },
+      "reviewer": {
+       "provider": "claude",
+       "model": "fictional-reviewer",
+       "family": "anthropic"
+      }
+     },
+     "providerInvocations": [
+      {
+       "provider": "claude",
+       "model": "fictional-reviewer",
+       "sessionId": "review-session-2-1"
+      }
+     ]
+    }
+   },
+   {
+    "step": 3,
+    "op": "review",
+    "calls": [
+     {
+      "role": "reviewer",
+      "sessionId": null,
+      "prompt": {
+       "sha256": "0fff9e951fa7b86a03d9068df03ad868578ee3923495c75e0127d6143784bb63",
+       "length": 5017
+      },
+      "schema": "61673209e0dc668c76fdecaa46c8e5ddf9d47722ac40e2cf46ea963f039ee7fe"
+     }
+    ],
+    "result": {
+     "provider": "claude",
+     "model": "fictional-reviewer",
+     "family": "anthropic",
+     "sessionId": "review-session-3-1",
+     "result": {
+      "verdict": "pass",
+      "summary": "Fictional pass review",
+      "findings": [
+       {
+        "severity": "medium",
+        "file": "records.txt",
+        "line": 1,
+        "message": "Document the reader"
+       }
+      ],
+      "riskAssessment": {
+       "level": "ordinary",
+       "rationale": "Bounded fictional change",
+       "threatModel": [],
+       "stopConditions": []
+      },
+      "strictReview": {
+       "fullDiffInspected": true,
+       "threatModelReviewed": false,
+       "stopConditionsReviewed": false
+      },
+      "scopeSummary": "The entire fictional change",
+      "priorFindingsDisposition": [],
+      "learningsChecked": []
+     },
+     "promptDigest": "0fff9e951fa7b86a03d9068df03ad868578ee3923495c75e0127d6143784bb63",
+     "contextDigest": "fictional-context",
+     "taskRevision": "r1",
+     "identity": {
+      "head": "9be5645e8b400f654fd4cd14d60f1755833fce14",
+      "treeDigest": "983367ad331d224fdd59a01e2f30ea19564ce77bb3b771f7b3c0bbb966262806"
+     },
+     "phase": "full",
+     "baseHead": "a83a86e78cf2e228c090ea486bc1350541a2211e",
+     "route": "revise",
+     "disposition": "correct",
+     "independence": "different-family",
+     "pairing": {
+      "builder": {
+       "provider": "codex",
+       "model": "fictional-builder",
+       "family": "openai"
+      },
+      "reviewer": {
+       "provider": "claude",
+       "model": "fictional-reviewer",
+       "family": "anthropic"
+      }
+     },
+     "providerInvocations": [
+      {
+       "provider": "claude",
+       "model": "fictional-reviewer",
+       "sessionId": "review-session-3-1"
+      }
+     ]
+    }
+   },
+   {
+    "step": 4,
+    "op": "review",
+    "calls": [
+     {
+      "role": "reviewer",
+      "sessionId": null,
+      "prompt": {
+       "sha256": "9b754e1a2576a9f1167b589c483e4e123767c3717f45e123b1166d257171f6b1",
+       "length": 5873
+      },
+      "schema": "61673209e0dc668c76fdecaa46c8e5ddf9d47722ac40e2cf46ea963f039ee7fe"
+     }
+    ],
+    "result": {
+     "provider": "claude",
+     "model": "fictional-reviewer",
+     "family": "anthropic",
+     "sessionId": "review-session-4-1",
+     "result": {
+      "verdict": "pass",
+      "summary": "Fictional pass review",
+      "findings": [],
+      "riskAssessment": {
+       "level": "ordinary",
+       "rationale": "Bounded fictional change",
+       "threatModel": [],
+       "stopConditions": []
+      },
+      "strictReview": {
+       "fullDiffInspected": true,
+       "threatModelReviewed": false,
+       "stopConditionsReviewed": false
+      },
+      "scopeSummary": "The entire fictional change",
+      "priorFindingsDisposition": [],
+      "learningsChecked": []
+     },
+     "promptDigest": "9b754e1a2576a9f1167b589c483e4e123767c3717f45e123b1166d257171f6b1",
+     "contextDigest": "fictional-context",
+     "taskRevision": "r1",
+     "identity": {
+      "head": "c52b6c79db54e42f0f40a40d575e48b6e9ac74af",
+      "treeDigest": "5fdf4e154ae97321e3993fde89fddc23eaafcab03cf429ff82a45b674231b220"
+     },
+     "phase": "full",
+     "baseHead": "a83a86e78cf2e228c090ea486bc1350541a2211e",
+     "route": "pass",
+     "disposition": "accepted",
+     "independence": "different-family",
+     "pairing": {
+      "builder": {
+       "provider": "codex",
+       "model": "fictional-builder",
+       "family": "openai"
+      },
+      "reviewer": {
+       "provider": "claude",
+       "model": "fictional-reviewer",
+       "family": "anthropic"
+      }
+     },
+     "providerInvocations": [
+      {
+       "provider": "claude",
+       "model": "fictional-reviewer",
+       "sessionId": "review-session-4-1"
+      }
+     ]
+    }
+   }
+  ],
+  "reviewHistory": [
+   {
+    "attemptId": "attempt-0",
+    "step": "review",
+    "phase": "full",
+    "risk": "ordinary",
+    "identity": {
+     "head": "f937cab3ebd5666cc2d389d17ef6d3560da20221",
+     "treeDigest": "6d994d6a08d50663038dd3fcca28920cd6b8ddfaae0a29bc2ad9fd1560a70d46"
+    },
+    "baseHead": "a83a86e78cf2e228c090ea486bc1350541a2211e",
+    "disposition": "correct",
+    "result": {
+     "verdict": "revise",
+     "summary": "Fictional revise review",
+     "findings": [
+      {
+       "severity": "high",
+       "file": "records.txt",
+       "line": 1,
+       "message": "Records are written twice"
+      }
+     ],
+     "riskAssessment": {
+      "level": "ordinary",
+      "rationale": "Bounded fictional change",
+      "threatModel": [],
+      "stopConditions": []
+     },
+     "strictReview": {
+      "fullDiffInspected": true,
+      "threatModelReviewed": false,
+      "stopConditionsReviewed": false
+     },
+     "scopeSummary": "The entire fictional change",
+     "priorFindingsDisposition": [],
+     "learningsChecked": []
+    },
+    "reviewDigest": "0cde6b5047d2ec5004947ebc3902e909298c67cb1827cbe16928420f4373e0bd"
+   },
+   {
+    "attemptId": "attempt-2",
+    "step": "delta-review",
+    "phase": "full",
+    "risk": "ordinary",
+    "identity": {
+     "head": "0ea2da85c81477c2ca7de2e4d621501a26cc54e9",
+     "treeDigest": "3c3441383069c877b89c483242023bdb3f53f2bf976db28a84b2b7d027d6677f"
+    },
+    "baseHead": "a83a86e78cf2e228c090ea486bc1350541a2211e",
+    "disposition": "followup-required",
+    "result": {
+     "verdict": "pass",
+     "summary": "Fictional pass review",
+     "findings": [
+      {
+       "severity": "low",
+       "file": "records.txt",
+       "line": 1,
+       "message": "Name the record format"
+      }
+     ],
+     "riskAssessment": {
+      "level": "ordinary",
+      "rationale": "Bounded fictional change",
+      "threatModel": [],
+      "stopConditions": []
+     },
+     "strictReview": {
+      "fullDiffInspected": true,
+      "threatModelReviewed": false,
+      "stopConditionsReviewed": false
+     },
+     "scopeSummary": "The entire fictional change",
+     "priorFindingsDisposition": [],
+     "learningsChecked": []
+    },
+    "reviewDigest": "8944fcb55265b5fe5b14d0dd64c00fec44a5f8fbf474b3063efcb4c017175a68"
+   },
+   {
+    "attemptId": "attempt-3",
+    "step": "delta-review",
+    "phase": "full",
+    "risk": "ordinary",
+    "identity": {
+     "head": "9be5645e8b400f654fd4cd14d60f1755833fce14",
+     "treeDigest": "983367ad331d224fdd59a01e2f30ea19564ce77bb3b771f7b3c0bbb966262806"
+    },
+    "baseHead": "a83a86e78cf2e228c090ea486bc1350541a2211e",
+    "disposition": "correct",
+    "result": {
+     "verdict": "pass",
+     "summary": "Fictional pass review",
+     "findings": [
+      {
+       "severity": "medium",
+       "file": "records.txt",
+       "line": 1,
+       "message": "Document the reader"
+      }
+     ],
+     "riskAssessment": {
+      "level": "ordinary",
+      "rationale": "Bounded fictional change",
+      "threatModel": [],
+      "stopConditions": []
+     },
+     "strictReview": {
+      "fullDiffInspected": true,
+      "threatModelReviewed": false,
+      "stopConditionsReviewed": false
+     },
+     "scopeSummary": "The entire fictional change",
+     "priorFindingsDisposition": [],
+     "learningsChecked": []
+    },
+    "reviewDigest": "10c6f1d4a66afc2e4e9d26744e5d948761007409e7de078da41e8126dc9fff87"
+   },
+   {
+    "attemptId": "attempt-4",
+    "step": "delta-review",
+    "phase": "full",
+    "risk": "ordinary",
+    "identity": {
+     "head": "c52b6c79db54e42f0f40a40d575e48b6e9ac74af",
+     "treeDigest": "5fdf4e154ae97321e3993fde89fddc23eaafcab03cf429ff82a45b674231b220"
+    },
+    "baseHead": "a83a86e78cf2e228c090ea486bc1350541a2211e",
+    "disposition": "accepted",
+    "result": {
+     "verdict": "pass",
+     "summary": "Fictional pass review",
+     "findings": [],
+     "riskAssessment": {
+      "level": "ordinary",
+      "rationale": "Bounded fictional change",
+      "threatModel": [],
+      "stopConditions": []
+     },
+     "strictReview": {
+      "fullDiffInspected": true,
+      "threatModelReviewed": false,
+      "stopConditionsReviewed": false
+     },
+     "scopeSummary": "The entire fictional change",
+     "priorFindingsDisposition": [],
+     "learningsChecked": []
+    },
+    "reviewDigest": "87034bc578759a51f3a0c9a2f369c1a325e2d7b07396b188fa5ffbc21ae90a4c"
+   }
+  ],
+  "riskAssessments": [
+   {
+    "step": "review",
+    "attemptId": "attempt-0",
+    "identity": {
+     "head": "f937cab3ebd5666cc2d389d17ef6d3560da20221",
+     "treeDigest": "6d994d6a08d50663038dd3fcca28920cd6b8ddfaae0a29bc2ad9fd1560a70d46"
+    },
+    "assessment": {
+     "level": "ordinary",
+     "rationale": "Bounded fictional change",
+     "threatModel": [],
+     "stopConditions": []
+    }
+   },
+   {
+    "step": "delta-review",
+    "attemptId": "attempt-2",
+    "identity": {
+     "head": "0ea2da85c81477c2ca7de2e4d621501a26cc54e9",
+     "treeDigest": "3c3441383069c877b89c483242023bdb3f53f2bf976db28a84b2b7d027d6677f"
+    },
+    "assessment": {
+     "level": "ordinary",
+     "rationale": "Bounded fictional change",
+     "threatModel": [],
+     "stopConditions": []
+    }
+   },
+   {
+    "step": "delta-review",
+    "attemptId": "attempt-3",
+    "identity": {
+     "head": "9be5645e8b400f654fd4cd14d60f1755833fce14",
+     "treeDigest": "983367ad331d224fdd59a01e2f30ea19564ce77bb3b771f7b3c0bbb966262806"
+    },
+    "assessment": {
+     "level": "ordinary",
+     "rationale": "Bounded fictional change",
+     "threatModel": [],
+     "stopConditions": []
+    }
+   },
+   {
+    "step": "delta-review",
+    "attemptId": "attempt-4",
+    "identity": {
+     "head": "c52b6c79db54e42f0f40a40d575e48b6e9ac74af",
+     "treeDigest": "5fdf4e154ae97321e3993fde89fddc23eaafcab03cf429ff82a45b674231b220"
+    },
+    "assessment": {
+     "level": "ordinary",
+     "rationale": "Bounded fictional change",
+     "threatModel": [],
+     "stopConditions": []
+    }
+   }
+  ],
+  "requirement": null
+ },
+ "fresh-full-strict": {
+  "steps": [
+   {
+    "step": 0,
+    "op": "review",
+    "calls": [
+     {
+      "role": "reviewer",
+      "sessionId": null,
+      "prompt": {
+       "sha256": "bcec7646ddd651190b415f1f64517f8292d62c34c93b58f5d7500bf4ed8d818a",
+       "length": 3113
+      },
+      "schema": "61673209e0dc668c76fdecaa46c8e5ddf9d47722ac40e2cf46ea963f039ee7fe"
+     }
+    ],
+    "result": {
+     "provider": "claude",
+     "model": "fictional-reviewer",
+     "family": "anthropic",
+     "sessionId": "review-session-0-1",
+     "result": {
+      "verdict": "pass",
+      "summary": "Fictional pass review",
+      "findings": [
+       {
+        "severity": "low",
+        "file": "records.txt",
+        "line": 1,
+        "message": "Clarify the record format"
+       }
+      ],
+      "riskAssessment": {
+       "level": "strict",
+       "rationale": "Protect fictional saved records",
+       "threatModel": [
+        "Loss of fictional records"
+       ],
+       "stopConditions": [
+        "Halt when record integrity is unproven"
+       ]
+      },
+      "strictReview": {
+       "fullDiffInspected": true,
+       "threatModelReviewed": true,
+       "stopConditionsReviewed": true
+      },
+      "scopeSummary": "The entire fictional change",
+      "priorFindingsDisposition": [],
+      "learningsChecked": []
+     },
+     "promptDigest": "bcec7646ddd651190b415f1f64517f8292d62c34c93b58f5d7500bf4ed8d818a",
+     "contextDigest": "fictional-context",
+     "taskRevision": "r1",
+     "identity": {
+      "head": "f937cab3ebd5666cc2d389d17ef6d3560da20221",
+      "treeDigest": "6d994d6a08d50663038dd3fcca28920cd6b8ddfaae0a29bc2ad9fd1560a70d46"
+     },
+     "phase": "full",
+     "baseHead": "a83a86e78cf2e228c090ea486bc1350541a2211e",
+     "route": "revise",
+     "disposition": "correct",
+     "independence": "external-author-unknown-manual-decision-required",
+     "providerInvocations": [
+      {
+       "provider": "claude",
+       "model": "fictional-reviewer",
+       "sessionId": "review-session-0-1"
+      }
+     ]
+    }
+   },
+   {
+    "step": 1,
+    "op": "build",
+    "calls": [
+     {
+      "role": "builder",
+      "sessionId": null,
+      "prompt": {
+       "sha256": "5e86851e93733d299eaebdd2392bf4116a09bfb6cbf52b6ada5826ffad0bc2f5",
+       "length": 3866
+      },
+      "schema": "f41b8cdba6dbaed5ba705e73b488b8b4a4d02de121761ad2db538e0c1051a0f3"
+     }
+    ],
+    "result": {
+     "provider": "codex",
+     "model": "fictional-builder",
+     "family": "openai",
+     "sessionId": "builder-session",
+     "result": {
+      "status": "implemented",
+      "summary": "Fictional correction",
+      "questions": [],
+      "assumptions": [],
+      "departures": [],
+      "unverified": [],
+      "pushback": [],
+      "learningsApplied": []
+     },
+     "promptDigest": "5e86851e93733d299eaebdd2392bf4116a09bfb6cbf52b6ada5826ffad0bc2f5",
+     "dependencyEvidence": [],
+     "contextDigest": "fictional-context",
+     "taskRevision": "r1",
+     "identity": {
+      "head": "f937cab3ebd5666cc2d389d17ef6d3560da20221",
+      "treeDigest": "6d994d6a08d50663038dd3fcca28920cd6b8ddfaae0a29bc2ad9fd1560a70d46"
+     },
+     "route": "implemented",
+     "providerInvocations": [
+      {
+       "provider": "codex",
+       "model": "fictional-builder",
+       "sessionId": "builder-session"
+      }
+     ]
+    }
+   },
+   {
+    "step": 2,
+    "op": "review",
+    "calls": [
+     {
+      "role": "reviewer",
+      "sessionId": null,
+      "prompt": {
+       "sha256": "536ecf6a354ab9c87c41bc5102c0be3b81f90ff816d418d312de75ae3f75d1ad",
+       "length": 4286
+      },
+      "schema": "61673209e0dc668c76fdecaa46c8e5ddf9d47722ac40e2cf46ea963f039ee7fe"
+     }
+    ],
+    "result": {
+     "provider": "claude",
+     "model": "fictional-reviewer",
+     "family": "anthropic",
+     "sessionId": "review-session-2-1",
+     "result": {
+      "verdict": "pass",
+      "summary": "Fictional pass review",
+      "findings": [],
+      "riskAssessment": {
+       "level": "strict",
+       "rationale": "Protect fictional saved records",
+       "threatModel": [
+        "Loss of fictional records"
+       ],
+       "stopConditions": [
+        "Halt when record integrity is unproven"
+       ]
+      },
+      "strictReview": {
+       "fullDiffInspected": true,
+       "threatModelReviewed": true,
+       "stopConditionsReviewed": true
+      },
+      "scopeSummary": "The entire fictional change",
+      "priorFindingsDisposition": [],
+      "learningsChecked": []
+     },
+     "promptDigest": "536ecf6a354ab9c87c41bc5102c0be3b81f90ff816d418d312de75ae3f75d1ad",
+     "contextDigest": "fictional-context",
+     "taskRevision": "r1",
+     "identity": {
+      "head": "0ea2da85c81477c2ca7de2e4d621501a26cc54e9",
+      "treeDigest": "3c3441383069c877b89c483242023bdb3f53f2bf976db28a84b2b7d027d6677f"
+     },
+     "phase": "full",
+     "baseHead": "a83a86e78cf2e228c090ea486bc1350541a2211e",
+     "route": "pass",
+     "disposition": "accepted",
+     "independence": "different-family",
+     "pairing": {
+      "builder": {
+       "provider": "codex",
+       "model": "fictional-builder",
+       "family": "openai"
+      },
+      "reviewer": {
+       "provider": "claude",
+       "model": "fictional-reviewer",
+       "family": "anthropic"
+      }
+     },
+     "providerInvocations": [
+      {
+       "provider": "claude",
+       "model": "fictional-reviewer",
+       "sessionId": "review-session-2-1"
+      }
+     ]
+    }
+   }
+  ],
+  "reviewHistory": [
+   {
+    "attemptId": "attempt-0",
+    "step": "review",
+    "phase": "full",
+    "risk": "strict",
+    "identity": {
+     "head": "f937cab3ebd5666cc2d389d17ef6d3560da20221",
+     "treeDigest": "6d994d6a08d50663038dd3fcca28920cd6b8ddfaae0a29bc2ad9fd1560a70d46"
+    },
+    "baseHead": "a83a86e78cf2e228c090ea486bc1350541a2211e",
+    "disposition": "correct",
+    "result": {
+     "verdict": "pass",
+     "summary": "Fictional pass review",
+     "findings": [
+      {
+       "severity": "low",
+       "file": "records.txt",
+       "line": 1,
+       "message": "Clarify the record format"
+      }
+     ],
+     "riskAssessment": {
+      "level": "strict",
+      "rationale": "Protect fictional saved records",
+      "threatModel": [
+       "Loss of fictional records"
+      ],
+      "stopConditions": [
+       "Halt when record integrity is unproven"
+      ]
+     },
+     "strictReview": {
+      "fullDiffInspected": true,
+      "threatModelReviewed": true,
+      "stopConditionsReviewed": true
+     },
+     "scopeSummary": "The entire fictional change",
+     "priorFindingsDisposition": [],
+     "learningsChecked": []
+    },
+    "reviewDigest": "a56e02b16ecd84212755061ef73a85c6ff2151188d852523b7cbb7f07378150f"
+   },
+   {
+    "attemptId": "attempt-2",
+    "step": "delta-review",
+    "phase": "full",
+    "risk": "strict",
+    "identity": {
+     "head": "0ea2da85c81477c2ca7de2e4d621501a26cc54e9",
+     "treeDigest": "3c3441383069c877b89c483242023bdb3f53f2bf976db28a84b2b7d027d6677f"
+    },
+    "baseHead": "a83a86e78cf2e228c090ea486bc1350541a2211e",
+    "disposition": "accepted",
+    "result": {
+     "verdict": "pass",
+     "summary": "Fictional pass review",
+     "findings": [],
+     "riskAssessment": {
+      "level": "strict",
+      "rationale": "Protect fictional saved records",
+      "threatModel": [
+       "Loss of fictional records"
+      ],
+      "stopConditions": [
+       "Halt when record integrity is unproven"
+      ]
+     },
+     "strictReview": {
+      "fullDiffInspected": true,
+      "threatModelReviewed": true,
+      "stopConditionsReviewed": true
+     },
+     "scopeSummary": "The entire fictional change",
+     "priorFindingsDisposition": [],
+     "learningsChecked": []
+    },
+    "reviewDigest": "8d4440110313c5771890bee6421f524e860edee1996168dc1cb13062a772298a"
+   }
+  ],
+  "riskAssessments": [
+   {
+    "step": "review",
+    "attemptId": "attempt-0",
+    "identity": {
+     "head": "f937cab3ebd5666cc2d389d17ef6d3560da20221",
+     "treeDigest": "6d994d6a08d50663038dd3fcca28920cd6b8ddfaae0a29bc2ad9fd1560a70d46"
+    },
+    "assessment": {
+     "level": "strict",
+     "rationale": "Protect fictional saved records",
+     "threatModel": [
+      "Loss of fictional records"
+     ],
+     "stopConditions": [
+      "Halt when record integrity is unproven"
+     ]
+    }
+   },
+   {
+    "step": "delta-review",
+    "attemptId": "attempt-2",
+    "identity": {
+     "head": "0ea2da85c81477c2ca7de2e4d621501a26cc54e9",
+     "treeDigest": "3c3441383069c877b89c483242023bdb3f53f2bf976db28a84b2b7d027d6677f"
+    },
+    "assessment": {
+     "level": "strict",
+     "rationale": "Protect fictional saved records",
+     "threatModel": [
+      "Loss of fictional records"
+     ],
+     "stopConditions": [
+      "Halt when record integrity is unproven"
+     ]
+    }
+   }
+  ],
+  "requirement": {
+   "reviewer": {
+    "provider": "claude",
+    "model": "fictional-reviewer",
+    "family": "anthropic",
+    "independence": "different-family"
+   },
+   "scope": {
+    "phase": "full",
+    "baseHead": "a83a86e78cf2e228c090ea486bc1350541a2211e"
+   },
+   "requiredRole": "operator",
+   "unresolvedFindings": [],
+   "phase": "full",
+   "head": "0ea2da85c81477c2ca7de2e4d621501a26cc54e9",
+   "assessmentDigest": "ed23ca18799c594929b530f87fab71f16539713d54cb18298c3fbdbbe8a799bf",
+   "level": "strict",
+   "rationale": [
+    "Protect fictional saved records"
+   ],
+   "threatModel": [
+    "Loss of fictional records"
+   ],
+   "stopConditions": [
+    "Halt when record integrity is unproven"
+   ]
+  }
+ },
+ "bounded-strict": {
+  "steps": [
+   {
+    "step": 0,
+    "op": "review",
+    "calls": [
+     {
+      "role": "reviewer",
+      "sessionId": null,
+      "prompt": {
+       "sha256": "bcec7646ddd651190b415f1f64517f8292d62c34c93b58f5d7500bf4ed8d818a",
+       "length": 3113
+      },
+      "schema": "61673209e0dc668c76fdecaa46c8e5ddf9d47722ac40e2cf46ea963f039ee7fe"
+     }
+    ],
+    "result": {
+     "provider": "claude",
+     "model": "fictional-reviewer",
+     "family": "anthropic",
+     "sessionId": "review-session-0-1",
+     "result": {
+      "verdict": "pass",
+      "summary": "Fictional pass review",
+      "findings": [],
+      "riskAssessment": {
+       "level": "strict",
+       "rationale": "Protect fictional saved records",
+       "threatModel": [
+        "Loss of fictional records"
+       ],
+       "stopConditions": [
+        "Halt when record integrity is unproven"
+       ]
+      },
+      "strictReview": {
+       "fullDiffInspected": true,
+       "threatModelReviewed": true,
+       "stopConditionsReviewed": true
+      },
+      "scopeSummary": "The entire fictional change",
+      "priorFindingsDisposition": [],
+      "learningsChecked": []
+     },
+     "promptDigest": "bcec7646ddd651190b415f1f64517f8292d62c34c93b58f5d7500bf4ed8d818a",
+     "contextDigest": "fictional-context",
+     "taskRevision": "r1",
+     "identity": {
+      "head": "f937cab3ebd5666cc2d389d17ef6d3560da20221",
+      "treeDigest": "6d994d6a08d50663038dd3fcca28920cd6b8ddfaae0a29bc2ad9fd1560a70d46"
+     },
+     "phase": "full",
+     "baseHead": "a83a86e78cf2e228c090ea486bc1350541a2211e",
+     "route": "delta",
+     "disposition": "full-reviewed",
+     "independence": "external-author-unknown-manual-decision-required",
+     "providerInvocations": [
+      {
+       "provider": "claude",
+       "model": "fictional-reviewer",
+       "sessionId": "review-session-0-1"
+      }
+     ]
+    }
+   },
+   {
+    "step": 1,
+    "op": "review",
+    "calls": [
+     {
+      "role": "reviewer",
+      "sessionId": null,
+      "prompt": {
+       "sha256": "7aa28633ecfc9e87b2c7c804f2a72c5f7eb3ee981ad3331d159f5d876a44ff25",
+       "length": 4073
+      },
+      "schema": "61673209e0dc668c76fdecaa46c8e5ddf9d47722ac40e2cf46ea963f039ee7fe"
+     }
+    ],
+    "result": {
+     "provider": "claude",
+     "model": "fictional-reviewer",
+     "family": "anthropic",
+     "sessionId": "review-session-1-1",
+     "result": {
+      "verdict": "revise",
+      "summary": "Fictional revise review",
+      "findings": [
+       {
+        "severity": "high",
+        "file": "records.txt",
+        "line": 1,
+        "message": "Integrity check skipped"
+       }
+      ],
+      "riskAssessment": {
+       "level": "strict",
+       "rationale": "Protect fictional saved records",
+       "threatModel": [
+        "Loss of fictional records"
+       ],
+       "stopConditions": [
+        "Halt when record integrity is unproven"
+       ]
+      },
+      "strictReview": {
+       "fullDiffInspected": true,
+       "threatModelReviewed": true,
+       "stopConditionsReviewed": true
+      },
+      "scopeSummary": "The entire fictional change",
+      "priorFindingsDisposition": [],
+      "learningsChecked": []
+     },
+     "promptDigest": "7aa28633ecfc9e87b2c7c804f2a72c5f7eb3ee981ad3331d159f5d876a44ff25",
+     "contextDigest": "fictional-context",
+     "taskRevision": "r1",
+     "identity": {
+      "head": "0ea2da85c81477c2ca7de2e4d621501a26cc54e9",
+      "treeDigest": "3c3441383069c877b89c483242023bdb3f53f2bf976db28a84b2b7d027d6677f"
+     },
+     "phase": "delta",
+     "baseHead": "f937cab3ebd5666cc2d389d17ef6d3560da20221",
+     "route": "revise",
+     "disposition": "correct",
+     "independence": "external-author-unknown-manual-decision-required",
+     "providerInvocations": [
+      {
+       "provider": "claude",
+       "model": "fictional-reviewer",
+       "sessionId": "review-session-1-1"
+      }
+     ]
+    }
+   },
+   {
+    "step": 2,
+    "op": "build",
+    "calls": [
+     {
+      "role": "builder",
+      "sessionId": null,
+      "prompt": {
+       "sha256": "ca3897776cec5e91fe8613eb927d3dcfe87beebdc0447d3162793929528c9d19",
+       "length": 3869
+      },
+      "schema": "f41b8cdba6dbaed5ba705e73b488b8b4a4d02de121761ad2db538e0c1051a0f3"
+     }
+    ],
+    "result": {
+     "provider": "codex",
+     "model": "fictional-builder",
+     "family": "openai",
+     "sessionId": "builder-session",
+     "result": {
+      "status": "implemented",
+      "summary": "Fictional correction",
+      "questions": [],
+      "assumptions": [],
+      "departures": [],
+      "unverified": [],
+      "pushback": [],
+      "learningsApplied": []
+     },
+     "promptDigest": "ca3897776cec5e91fe8613eb927d3dcfe87beebdc0447d3162793929528c9d19",
+     "dependencyEvidence": [],
+     "contextDigest": "fictional-context",
+     "taskRevision": "r1",
+     "identity": {
+      "head": "0ea2da85c81477c2ca7de2e4d621501a26cc54e9",
+      "treeDigest": "3c3441383069c877b89c483242023bdb3f53f2bf976db28a84b2b7d027d6677f"
+     },
+     "route": "implemented",
+     "providerInvocations": [
+      {
+       "provider": "codex",
+       "model": "fictional-builder",
+       "sessionId": "builder-session"
+      }
+     ]
+    }
+   },
+   {
+    "step": 3,
+    "op": "review",
+    "calls": [
+     {
+      "role": "reviewer",
+      "sessionId": null,
+      "prompt": {
+       "sha256": "3dba12a50de776c884d5512579b6e00e53b7d71c1eb068c636c9e6a19306b300",
+       "length": 5156
+      },
+      "schema": "61673209e0dc668c76fdecaa46c8e5ddf9d47722ac40e2cf46ea963f039ee7fe"
+     }
+    ],
+    "result": {
+     "provider": "claude",
+     "model": "fictional-reviewer",
+     "family": "anthropic",
+     "sessionId": "review-session-3-1",
+     "result": {
+      "verdict": "pass",
+      "summary": "Fictional pass review",
+      "findings": [
+       {
+        "severity": "low",
+        "file": "records.txt",
+        "line": 1,
+        "message": "Rename the reader"
+       }
+      ],
+      "riskAssessment": {
+       "level": "strict",
+       "rationale": "Protect fictional saved records",
+       "threatModel": [
+        "Loss of fictional records"
+       ],
+       "stopConditions": [
+        "Halt when record integrity is unproven"
+       ]
+      },
+      "strictReview": {
+       "fullDiffInspected": true,
+       "threatModelReviewed": true,
+       "stopConditionsReviewed": true
+      },
+      "scopeSummary": "The entire fictional change",
+      "priorFindingsDisposition": [
+       {
+        "finding": "Integrity check skipped",
+        "disposition": "fixed",
+        "evidence": "records.txt line 1"
+       }
+      ],
+      "learningsChecked": []
+     },
+     "promptDigest": "3dba12a50de776c884d5512579b6e00e53b7d71c1eb068c636c9e6a19306b300",
+     "contextDigest": "fictional-context",
+     "taskRevision": "r1",
+     "identity": {
+      "head": "9be5645e8b400f654fd4cd14d60f1755833fce14",
+      "treeDigest": "983367ad331d224fdd59a01e2f30ea19564ce77bb3b771f7b3c0bbb966262806"
+     },
+     "phase": "final",
+     "baseHead": "0ea2da85c81477c2ca7de2e4d621501a26cc54e9",
+     "route": "adjudicate",
+     "disposition": "operator-adjudication",
+     "independence": "different-family",
+     "pairing": {
+      "builder": {
+       "provider": "codex",
+       "model": "fictional-builder",
+       "family": "openai"
+      },
+      "reviewer": {
+       "provider": "claude",
+       "model": "fictional-reviewer",
+       "family": "anthropic"
+      }
+     },
+     "providerInvocations": [
+      {
+       "provider": "claude",
+       "model": "fictional-reviewer",
+       "sessionId": "review-session-3-1"
+      }
+     ]
+    }
+   },
+   {
+    "step": 4,
+    "op": "review",
+    "calls": [
+     {
+      "role": "reviewer",
+      "sessionId": null,
+      "prompt": {
+       "sha256": "30a006f6b40f7bc426fd53d3ec4521bfb088c5742e5f7a33749748b3b84d4c87",
+       "length": 6180
+      },
+      "schema": "61673209e0dc668c76fdecaa46c8e5ddf9d47722ac40e2cf46ea963f039ee7fe"
+     }
+    ],
+    "result": {
+     "provider": "claude",
+     "model": "fictional-reviewer",
+     "family": "anthropic",
+     "sessionId": "review-session-4-1",
+     "result": {
+      "verdict": "pass",
+      "summary": "Fictional pass review",
+      "findings": [],
+      "riskAssessment": {
+       "level": "strict",
+       "rationale": "Protect fictional saved records",
+       "threatModel": [
+        "Loss of fictional records"
+       ],
+       "stopConditions": [
+        "Halt when record integrity is unproven"
+       ]
+      },
+      "strictReview": {
+       "fullDiffInspected": true,
+       "threatModelReviewed": true,
+       "stopConditionsReviewed": true
+      },
+      "scopeSummary": "The entire fictional change",
+      "priorFindingsDisposition": [],
+      "learningsChecked": []
+     },
+     "promptDigest": "30a006f6b40f7bc426fd53d3ec4521bfb088c5742e5f7a33749748b3b84d4c87",
+     "contextDigest": "fictional-context",
+     "taskRevision": "r1",
+     "identity": {
+      "head": "c52b6c79db54e42f0f40a40d575e48b6e9ac74af",
+      "treeDigest": "5fdf4e154ae97321e3993fde89fddc23eaafcab03cf429ff82a45b674231b220"
+     },
+     "phase": "final",
+     "baseHead": "9be5645e8b400f654fd4cd14d60f1755833fce14",
+     "route": "park",
+     "disposition": "incomplete-prior-findings",
+     "independence": "different-family",
+     "pairing": {
+      "builder": {
+       "provider": "codex",
+       "model": "fictional-builder",
+       "family": "openai"
+      },
+      "reviewer": {
+       "provider": "claude",
+       "model": "fictional-reviewer",
+       "family": "anthropic"
+      }
+     },
+     "providerInvocations": [
+      {
+       "provider": "claude",
+       "model": "fictional-reviewer",
+       "sessionId": "review-session-4-1"
+      }
+     ]
+    }
+   }
+  ],
+  "reviewHistory": [
+   {
+    "attemptId": "attempt-0",
+    "step": "review",
+    "phase": "full",
+    "risk": "strict",
+    "identity": {
+     "head": "f937cab3ebd5666cc2d389d17ef6d3560da20221",
+     "treeDigest": "6d994d6a08d50663038dd3fcca28920cd6b8ddfaae0a29bc2ad9fd1560a70d46"
+    },
+    "baseHead": "a83a86e78cf2e228c090ea486bc1350541a2211e",
+    "disposition": "full-reviewed",
+    "result": {
+     "verdict": "pass",
+     "summary": "Fictional pass review",
+     "findings": [],
+     "riskAssessment": {
+      "level": "strict",
+      "rationale": "Protect fictional saved records",
+      "threatModel": [
+       "Loss of fictional records"
+      ],
+      "stopConditions": [
+       "Halt when record integrity is unproven"
+      ]
+     },
+     "strictReview": {
+      "fullDiffInspected": true,
+      "threatModelReviewed": true,
+      "stopConditionsReviewed": true
+     },
+     "scopeSummary": "The entire fictional change",
+     "priorFindingsDisposition": [],
+     "learningsChecked": []
+    },
+    "reviewDigest": "0bfb26aad76e4d878ec95bbf8c1ee807f898fc443c4c2efb233754cba9549721"
+   },
+   {
+    "attemptId": "attempt-1",
+    "step": "delta-review",
+    "phase": "delta",
+    "risk": "strict",
+    "identity": {
+     "head": "0ea2da85c81477c2ca7de2e4d621501a26cc54e9",
+     "treeDigest": "3c3441383069c877b89c483242023bdb3f53f2bf976db28a84b2b7d027d6677f"
+    },
+    "baseHead": "f937cab3ebd5666cc2d389d17ef6d3560da20221",
+    "disposition": "correct",
+    "result": {
+     "verdict": "revise",
+     "summary": "Fictional revise review",
+     "findings": [
+      {
+       "severity": "high",
+       "file": "records.txt",
+       "line": 1,
+       "message": "Integrity check skipped"
+      }
+     ],
+     "riskAssessment": {
+      "level": "strict",
+      "rationale": "Protect fictional saved records",
+      "threatModel": [
+       "Loss of fictional records"
+      ],
+      "stopConditions": [
+       "Halt when record integrity is unproven"
+      ]
+     },
+     "strictReview": {
+      "fullDiffInspected": true,
+      "threatModelReviewed": true,
+      "stopConditionsReviewed": true
+     },
+     "scopeSummary": "The entire fictional change",
+     "priorFindingsDisposition": [],
+     "learningsChecked": []
+    },
+    "reviewDigest": "a5f32cd5b9e575347fd848925abfb5f8dff11550b1e3816e221221eb98202605"
+   },
+   {
+    "attemptId": "attempt-3",
+    "step": "delta-review",
+    "phase": "final",
+    "risk": "strict",
+    "identity": {
+     "head": "9be5645e8b400f654fd4cd14d60f1755833fce14",
+     "treeDigest": "983367ad331d224fdd59a01e2f30ea19564ce77bb3b771f7b3c0bbb966262806"
+    },
+    "baseHead": "0ea2da85c81477c2ca7de2e4d621501a26cc54e9",
+    "disposition": "operator-adjudication",
+    "result": {
+     "verdict": "pass",
+     "summary": "Fictional pass review",
+     "findings": [
+      {
+       "severity": "low",
+       "file": "records.txt",
+       "line": 1,
+       "message": "Rename the reader"
+      }
+     ],
+     "riskAssessment": {
+      "level": "strict",
+      "rationale": "Protect fictional saved records",
+      "threatModel": [
+       "Loss of fictional records"
+      ],
+      "stopConditions": [
+       "Halt when record integrity is unproven"
+      ]
+     },
+     "strictReview": {
+      "fullDiffInspected": true,
+      "threatModelReviewed": true,
+      "stopConditionsReviewed": true
+     },
+     "scopeSummary": "The entire fictional change",
+     "priorFindingsDisposition": [
+      {
+       "finding": "Integrity check skipped",
+       "disposition": "fixed",
+       "evidence": "records.txt line 1"
+      }
+     ],
+     "learningsChecked": []
+    },
+    "reviewDigest": "ff3d113fd2466683cd588801ebb7569afb33d7ce2f527f2da575d14a241f9f93"
+   },
+   {
+    "attemptId": "attempt-4",
+    "step": "delta-review",
+    "phase": "final",
+    "risk": "strict",
+    "identity": {
+     "head": "c52b6c79db54e42f0f40a40d575e48b6e9ac74af",
+     "treeDigest": "5fdf4e154ae97321e3993fde89fddc23eaafcab03cf429ff82a45b674231b220"
+    },
+    "baseHead": "9be5645e8b400f654fd4cd14d60f1755833fce14",
+    "disposition": "incomplete-prior-findings",
+    "result": {
+     "verdict": "pass",
+     "summary": "Fictional pass review",
+     "findings": [],
+     "riskAssessment": {
+      "level": "strict",
+      "rationale": "Protect fictional saved records",
+      "threatModel": [
+       "Loss of fictional records"
+      ],
+      "stopConditions": [
+       "Halt when record integrity is unproven"
+      ]
+     },
+     "strictReview": {
+      "fullDiffInspected": true,
+      "threatModelReviewed": true,
+      "stopConditionsReviewed": true
+     },
+     "scopeSummary": "The entire fictional change",
+     "priorFindingsDisposition": [],
+     "learningsChecked": []
+    },
+    "reviewDigest": "45f608debb471ae4edad4707ce06adca741b24d7a18f153eb985e776ba7f6dbb"
+   }
+  ],
+  "riskAssessments": [
+   {
+    "step": "review",
+    "attemptId": "attempt-0",
+    "identity": {
+     "head": "f937cab3ebd5666cc2d389d17ef6d3560da20221",
+     "treeDigest": "6d994d6a08d50663038dd3fcca28920cd6b8ddfaae0a29bc2ad9fd1560a70d46"
+    },
+    "assessment": {
+     "level": "strict",
+     "rationale": "Protect fictional saved records",
+     "threatModel": [
+      "Loss of fictional records"
+     ],
+     "stopConditions": [
+      "Halt when record integrity is unproven"
+     ]
+    }
+   },
+   {
+    "step": "delta-review",
+    "attemptId": "attempt-1",
+    "identity": {
+     "head": "0ea2da85c81477c2ca7de2e4d621501a26cc54e9",
+     "treeDigest": "3c3441383069c877b89c483242023bdb3f53f2bf976db28a84b2b7d027d6677f"
+    },
+    "assessment": {
+     "level": "strict",
+     "rationale": "Protect fictional saved records",
+     "threatModel": [
+      "Loss of fictional records"
+     ],
+     "stopConditions": [
+      "Halt when record integrity is unproven"
+     ]
+    }
+   },
+   {
+    "step": "delta-review",
+    "attemptId": "attempt-3",
+    "identity": {
+     "head": "9be5645e8b400f654fd4cd14d60f1755833fce14",
+     "treeDigest": "983367ad331d224fdd59a01e2f30ea19564ce77bb3b771f7b3c0bbb966262806"
+    },
+    "assessment": {
+     "level": "strict",
+     "rationale": "Protect fictional saved records",
+     "threatModel": [
+      "Loss of fictional records"
+     ],
+     "stopConditions": [
+      "Halt when record integrity is unproven"
+     ]
+    }
+   },
+   {
+    "step": "delta-review",
+    "attemptId": "attempt-4",
+    "identity": {
+     "head": "c52b6c79db54e42f0f40a40d575e48b6e9ac74af",
+     "treeDigest": "5fdf4e154ae97321e3993fde89fddc23eaafcab03cf429ff82a45b674231b220"
+    },
+    "assessment": {
+     "level": "strict",
+     "rationale": "Protect fictional saved records",
+     "threatModel": [
+      "Loss of fictional records"
+     ],
+     "stopConditions": [
+      "Halt when record integrity is unproven"
+     ]
+    }
+   }
+  ],
+  "requirement": {
+   "refused": "strict change requires a passing independent review or explicit final adjudication"
+  }
+ },
+ "bounded-ordinary": {
+  "steps": [
+   {
+    "step": 0,
+    "op": "review",
+    "calls": [
+     {
+      "role": "reviewer",
+      "sessionId": null,
+      "prompt": {
+       "sha256": "7a392eaa372fd1fcabe642be251b68b69ee7811a63adb888ecc21f5de77103b6",
+       "length": 3121
+      },
+      "schema": "61673209e0dc668c76fdecaa46c8e5ddf9d47722ac40e2cf46ea963f039ee7fe"
+     }
+    ],
+    "result": {
+     "provider": "claude",
+     "model": "fictional-reviewer",
+     "family": "anthropic",
+     "sessionId": "review-session-0-1",
+     "result": {
+      "verdict": "revise",
+      "summary": "Fictional revise review",
+      "findings": [
+       {
+        "severity": "high",
+        "file": "records.txt",
+        "line": 1,
+        "message": "Reader drops the last record"
+       }
+      ],
+      "riskAssessment": {
+       "level": "ordinary",
+       "rationale": "Bounded fictional change",
+       "threatModel": [],
+       "stopConditions": []
+      },
+      "strictReview": {
+       "fullDiffInspected": true,
+       "threatModelReviewed": false,
+       "stopConditionsReviewed": false
+      },
+      "scopeSummary": "The entire fictional change",
+      "priorFindingsDisposition": [],
+      "learningsChecked": []
+     },
+     "promptDigest": "7a392eaa372fd1fcabe642be251b68b69ee7811a63adb888ecc21f5de77103b6",
+     "contextDigest": "fictional-context",
+     "taskRevision": "r1",
+     "identity": {
+      "head": "f937cab3ebd5666cc2d389d17ef6d3560da20221",
+      "treeDigest": "6d994d6a08d50663038dd3fcca28920cd6b8ddfaae0a29bc2ad9fd1560a70d46"
+     },
+     "phase": "ordinary",
+     "baseHead": "a83a86e78cf2e228c090ea486bc1350541a2211e",
+     "route": "revise",
+     "disposition": "correct",
+     "independence": "external-author-unknown-manual-decision-required",
+     "providerInvocations": [
+      {
+       "provider": "claude",
+       "model": "fictional-reviewer",
+       "sessionId": "review-session-0-1"
+      }
+     ]
+    }
+   },
+   {
+    "step": 1,
+    "op": "review",
+    "calls": [
+     {
+      "role": "reviewer",
+      "sessionId": null,
+      "prompt": {
+       "sha256": "2b6774d71bd353a62fc78d21bc16abe912037e90970d60f59edd4e3ab43d9855",
+       "length": 4011
+      },
+      "schema": "61673209e0dc668c76fdecaa46c8e5ddf9d47722ac40e2cf46ea963f039ee7fe"
+     }
+    ],
+    "result": {
+     "provider": "claude",
+     "model": "fictional-reviewer",
+     "family": "anthropic",
+     "sessionId": "review-session-1-1",
+     "result": {
+      "verdict": "revise",
+      "summary": "Fictional revise review",
+      "findings": [
+       {
+        "severity": "medium",
+        "file": "records.txt",
+        "line": 1,
+        "message": "Reader is slow"
+       }
+      ],
+      "riskAssessment": {
+       "level": "ordinary",
+       "rationale": "Bounded fictional change",
+       "threatModel": [],
+       "stopConditions": []
+      },
+      "strictReview": {
+       "fullDiffInspected": true,
+       "threatModelReviewed": false,
+       "stopConditionsReviewed": false
+      },
+      "scopeSummary": "The entire fictional change",
+      "priorFindingsDisposition": [],
+      "learningsChecked": []
+     },
+     "promptDigest": "2b6774d71bd353a62fc78d21bc16abe912037e90970d60f59edd4e3ab43d9855",
+     "contextDigest": "fictional-context",
+     "taskRevision": "r1",
+     "identity": {
+      "head": "0ea2da85c81477c2ca7de2e4d621501a26cc54e9",
+      "treeDigest": "3c3441383069c877b89c483242023bdb3f53f2bf976db28a84b2b7d027d6677f"
+     },
+     "phase": "ordinary",
+     "baseHead": "a83a86e78cf2e228c090ea486bc1350541a2211e",
+     "route": "defer",
+     "disposition": "followup-required",
+     "independence": "external-author-unknown-manual-decision-required",
+     "providerInvocations": [
+      {
+       "provider": "claude",
+       "model": "fictional-reviewer",
+       "sessionId": "review-session-1-1"
+      }
+     ]
+    }
+   },
+   {
+    "step": 2,
+    "op": "review",
+    "calls": [
+     {
+      "role": "reviewer",
+      "sessionId": null,
+      "prompt": {
+       "sha256": "4bcee738c14d7cdb19575cfaa3edac7717db37e297edcf6c43f1ddc2212d91ed",
+       "length": 4878
+      },
+      "schema": "61673209e0dc668c76fdecaa46c8e5ddf9d47722ac40e2cf46ea963f039ee7fe"
+     }
+    ],
+    "result": {
+     "provider": "claude",
+     "model": "fictional-reviewer",
+     "family": "anthropic",
+     "sessionId": "review-session-2-1",
+     "result": {
+      "verdict": "revise",
+      "summary": "Fictional revise review",
+      "findings": [
+       {
+        "severity": "high",
+        "file": "records.txt",
+        "line": 1,
+        "message": "Reader still drops records"
+       }
+      ],
+      "riskAssessment": {
+       "level": "ordinary",
+       "rationale": "Bounded fictional change",
+       "threatModel": [],
+       "stopConditions": []
+      },
+      "strictReview": {
+       "fullDiffInspected": true,
+       "threatModelReviewed": false,
+       "stopConditionsReviewed": false
+      },
+      "scopeSummary": "The entire fictional change",
+      "priorFindingsDisposition": [],
+      "learningsChecked": []
+     },
+     "promptDigest": "4bcee738c14d7cdb19575cfaa3edac7717db37e297edcf6c43f1ddc2212d91ed",
+     "contextDigest": "fictional-context",
+     "taskRevision": "r1",
+     "identity": {
+      "head": "9be5645e8b400f654fd4cd14d60f1755833fce14",
+      "treeDigest": "983367ad331d224fdd59a01e2f30ea19564ce77bb3b771f7b3c0bbb966262806"
+     },
+     "phase": "ordinary",
+     "baseHead": "a83a86e78cf2e228c090ea486bc1350541a2211e",
+     "route": "revise",
+     "disposition": "correct",
+     "independence": "external-author-unknown-manual-decision-required",
+     "providerInvocations": [
+      {
+       "provider": "claude",
+       "model": "fictional-reviewer",
+       "sessionId": "review-session-2-1"
+      }
+     ]
+    }
+   },
+   {
+    "step": 3,
+    "op": "review",
+    "calls": [
+     {
+      "role": "reviewer",
+      "sessionId": null,
+      "prompt": {
+       "sha256": "397ee7d249b06fc577c4b248450546c50e78e7c81bb32418e448b1f72e40040e",
+       "length": 5763
+      },
+      "schema": "61673209e0dc668c76fdecaa46c8e5ddf9d47722ac40e2cf46ea963f039ee7fe"
+     }
+    ],
+    "result": {
+     "provider": "claude",
+     "model": "fictional-reviewer",
+     "family": "anthropic",
+     "sessionId": "review-session-3-1",
+     "result": {
+      "verdict": "revise",
+      "summary": "Fictional revise review",
+      "findings": [
+       {
+        "severity": "high",
+        "file": "records.txt",
+        "line": 1,
+        "message": "Reader drops records again"
+       }
+      ],
+      "riskAssessment": {
+       "level": "ordinary",
+       "rationale": "Bounded fictional change",
+       "threatModel": [],
+       "stopConditions": []
+      },
+      "strictReview": {
+       "fullDiffInspected": true,
+       "threatModelReviewed": false,
+       "stopConditionsReviewed": false
+      },
+      "scopeSummary": "The entire fictional change",
+      "priorFindingsDisposition": [
+       {
+        "finding": "Reader still drops records",
+        "disposition": "remaining",
+        "evidence": "records.txt line 1"
+       }
+      ],
+      "learningsChecked": []
+     },
+     "promptDigest": "397ee7d249b06fc577c4b248450546c50e78e7c81bb32418e448b1f72e40040e",
+     "contextDigest": "fictional-context",
+     "taskRevision": "r1",
+     "identity": {
+      "head": "c52b6c79db54e42f0f40a40d575e48b6e9ac74af",
+      "treeDigest": "5fdf4e154ae97321e3993fde89fddc23eaafcab03cf429ff82a45b674231b220"
+     },
+     "phase": "final",
+     "baseHead": "9be5645e8b400f654fd4cd14d60f1755833fce14",
+     "route": "park",
+     "disposition": "parked",
+     "independence": "external-author-unknown-manual-decision-required",
+     "providerInvocations": [
+      {
+       "provider": "claude",
+       "model": "fictional-reviewer",
+       "sessionId": "review-session-3-1"
+      }
+     ]
+    }
+   }
+  ],
+  "reviewHistory": [
+   {
+    "attemptId": "attempt-0",
+    "step": "review",
+    "phase": "ordinary",
+    "risk": "ordinary",
+    "identity": {
+     "head": "f937cab3ebd5666cc2d389d17ef6d3560da20221",
+     "treeDigest": "6d994d6a08d50663038dd3fcca28920cd6b8ddfaae0a29bc2ad9fd1560a70d46"
+    },
+    "baseHead": "a83a86e78cf2e228c090ea486bc1350541a2211e",
+    "disposition": "correct",
+    "result": {
+     "verdict": "revise",
+     "summary": "Fictional revise review",
+     "findings": [
+      {
+       "severity": "high",
+       "file": "records.txt",
+       "line": 1,
+       "message": "Reader drops the last record"
+      }
+     ],
+     "riskAssessment": {
+      "level": "ordinary",
+      "rationale": "Bounded fictional change",
+      "threatModel": [],
+      "stopConditions": []
+     },
+     "strictReview": {
+      "fullDiffInspected": true,
+      "threatModelReviewed": false,
+      "stopConditionsReviewed": false
+     },
+     "scopeSummary": "The entire fictional change",
+     "priorFindingsDisposition": [],
+     "learningsChecked": []
+    },
+    "reviewDigest": "cc153cd72877c8a9e73becd1fccd19f9dae123007e570af2832b1d0ec16dedb6"
+   },
+   {
+    "attemptId": "attempt-1",
+    "step": "delta-review",
+    "phase": "ordinary",
+    "risk": "ordinary",
+    "identity": {
+     "head": "0ea2da85c81477c2ca7de2e4d621501a26cc54e9",
+     "treeDigest": "3c3441383069c877b89c483242023bdb3f53f2bf976db28a84b2b7d027d6677f"
+    },
+    "baseHead": "a83a86e78cf2e228c090ea486bc1350541a2211e",
+    "disposition": "followup-required",
+    "result": {
+     "verdict": "revise",
+     "summary": "Fictional revise review",
+     "findings": [
+      {
+       "severity": "medium",
+       "file": "records.txt",
+       "line": 1,
+       "message": "Reader is slow"
+      }
+     ],
+     "riskAssessment": {
+      "level": "ordinary",
+      "rationale": "Bounded fictional change",
+      "threatModel": [],
+      "stopConditions": []
+     },
+     "strictReview": {
+      "fullDiffInspected": true,
+      "threatModelReviewed": false,
+      "stopConditionsReviewed": false
+     },
+     "scopeSummary": "The entire fictional change",
+     "priorFindingsDisposition": [],
+     "learningsChecked": []
+    },
+    "reviewDigest": "8b2d1cc11c670e1101c627f04cb6c5396db836883e78094e0260b35549682aac"
+   },
+   {
+    "attemptId": "attempt-2",
+    "step": "delta-review",
+    "phase": "ordinary",
+    "risk": "ordinary",
+    "identity": {
+     "head": "9be5645e8b400f654fd4cd14d60f1755833fce14",
+     "treeDigest": "983367ad331d224fdd59a01e2f30ea19564ce77bb3b771f7b3c0bbb966262806"
+    },
+    "baseHead": "a83a86e78cf2e228c090ea486bc1350541a2211e",
+    "disposition": "correct",
+    "result": {
+     "verdict": "revise",
+     "summary": "Fictional revise review",
+     "findings": [
+      {
+       "severity": "high",
+       "file": "records.txt",
+       "line": 1,
+       "message": "Reader still drops records"
+      }
+     ],
+     "riskAssessment": {
+      "level": "ordinary",
+      "rationale": "Bounded fictional change",
+      "threatModel": [],
+      "stopConditions": []
+     },
+     "strictReview": {
+      "fullDiffInspected": true,
+      "threatModelReviewed": false,
+      "stopConditionsReviewed": false
+     },
+     "scopeSummary": "The entire fictional change",
+     "priorFindingsDisposition": [],
+     "learningsChecked": []
+    },
+    "reviewDigest": "a5710493290dafd6d6dbcb0294d24c8e745873688632bf609988c9fb8a535360"
+   },
+   {
+    "attemptId": "attempt-3",
+    "step": "delta-review",
+    "phase": "final",
+    "risk": "ordinary",
+    "identity": {
+     "head": "c52b6c79db54e42f0f40a40d575e48b6e9ac74af",
+     "treeDigest": "5fdf4e154ae97321e3993fde89fddc23eaafcab03cf429ff82a45b674231b220"
+    },
+    "baseHead": "9be5645e8b400f654fd4cd14d60f1755833fce14",
+    "disposition": "parked",
+    "result": {
+     "verdict": "revise",
+     "summary": "Fictional revise review",
+     "findings": [
+      {
+       "severity": "high",
+       "file": "records.txt",
+       "line": 1,
+       "message": "Reader drops records again"
+      }
+     ],
+     "riskAssessment": {
+      "level": "ordinary",
+      "rationale": "Bounded fictional change",
+      "threatModel": [],
+      "stopConditions": []
+     },
+     "strictReview": {
+      "fullDiffInspected": true,
+      "threatModelReviewed": false,
+      "stopConditionsReviewed": false
+     },
+     "scopeSummary": "The entire fictional change",
+     "priorFindingsDisposition": [
+      {
+       "finding": "Reader still drops records",
+       "disposition": "remaining",
+       "evidence": "records.txt line 1"
+      }
+     ],
+     "learningsChecked": []
+    },
+    "reviewDigest": "f5107ebe282afbe2492608b0c286c77c5e42e41641a35024c006d89d530cbce3"
+   }
+  ],
+  "riskAssessments": [
+   {
+    "step": "review",
+    "attemptId": "attempt-0",
+    "identity": {
+     "head": "f937cab3ebd5666cc2d389d17ef6d3560da20221",
+     "treeDigest": "6d994d6a08d50663038dd3fcca28920cd6b8ddfaae0a29bc2ad9fd1560a70d46"
+    },
+    "assessment": {
+     "level": "ordinary",
+     "rationale": "Bounded fictional change",
+     "threatModel": [],
+     "stopConditions": []
+    }
+   },
+   {
+    "step": "delta-review",
+    "attemptId": "attempt-1",
+    "identity": {
+     "head": "0ea2da85c81477c2ca7de2e4d621501a26cc54e9",
+     "treeDigest": "3c3441383069c877b89c483242023bdb3f53f2bf976db28a84b2b7d027d6677f"
+    },
+    "assessment": {
+     "level": "ordinary",
+     "rationale": "Bounded fictional change",
+     "threatModel": [],
+     "stopConditions": []
+    }
+   },
+   {
+    "step": "delta-review",
+    "attemptId": "attempt-2",
+    "identity": {
+     "head": "9be5645e8b400f654fd4cd14d60f1755833fce14",
+     "treeDigest": "983367ad331d224fdd59a01e2f30ea19564ce77bb3b771f7b3c0bbb966262806"
+    },
+    "assessment": {
+     "level": "ordinary",
+     "rationale": "Bounded fictional change",
+     "threatModel": [],
+     "stopConditions": []
+    }
+   },
+   {
+    "step": "delta-review",
+    "attemptId": "attempt-3",
+    "identity": {
+     "head": "c52b6c79db54e42f0f40a40d575e48b6e9ac74af",
+     "treeDigest": "5fdf4e154ae97321e3993fde89fddc23eaafcab03cf429ff82a45b674231b220"
+    },
+    "assessment": {
+     "level": "ordinary",
+     "rationale": "Bounded fictional change",
+     "threatModel": [],
+     "stopConditions": []
+    }
+   }
+  ],
+  "requirement": null
+ },
+ "escalation": {
+  "steps": [
+   {
+    "step": 0,
+    "op": "review",
+    "calls": [
+     {
+      "role": "reviewer",
+      "sessionId": null,
+      "prompt": {
+       "sha256": "7a392eaa372fd1fcabe642be251b68b69ee7811a63adb888ecc21f5de77103b6",
+       "length": 3121
+      },
+      "schema": "61673209e0dc668c76fdecaa46c8e5ddf9d47722ac40e2cf46ea963f039ee7fe"
+     }
+    ],
+    "result": {
+     "provider": "claude",
+     "model": "fictional-reviewer",
+     "family": "anthropic",
+     "sessionId": "review-session-0-1",
+     "result": {
+      "verdict": "pass",
+      "summary": "Fictional pass review",
+      "findings": [],
+      "riskAssessment": {
+       "level": "strict",
+       "rationale": "Protect fictional saved records",
+       "threatModel": [
+        "Loss of fictional records"
+       ],
+       "stopConditions": [
+        "Halt when record integrity is unproven"
+       ]
+      },
+      "strictReview": {
+       "fullDiffInspected": true,
+       "threatModelReviewed": true,
+       "stopConditionsReviewed": true
+      },
+      "scopeSummary": "The entire fictional change",
+      "priorFindingsDisposition": [],
+      "learningsChecked": []
+     },
+     "promptDigest": "7a392eaa372fd1fcabe642be251b68b69ee7811a63adb888ecc21f5de77103b6",
+     "contextDigest": "fictional-context",
+     "taskRevision": "r1",
+     "identity": {
+      "head": "f937cab3ebd5666cc2d389d17ef6d3560da20221",
+      "treeDigest": "6d994d6a08d50663038dd3fcca28920cd6b8ddfaae0a29bc2ad9fd1560a70d46"
+     },
+     "phase": "ordinary",
+     "baseHead": "a83a86e78cf2e228c090ea486bc1350541a2211e",
+     "route": "delta",
+     "disposition": "escalated-full-review-required",
+     "independence": "external-author-unknown-manual-decision-required",
+     "providerInvocations": [
+      {
+       "provider": "claude",
+       "model": "fictional-reviewer",
+       "sessionId": "review-session-0-1"
+      }
+     ]
+    }
+   }
+  ],
+  "reviewHistory": [
+   {
+    "attemptId": "attempt-0",
+    "step": "review",
+    "phase": "ordinary",
+    "risk": "strict",
+    "identity": {
+     "head": "f937cab3ebd5666cc2d389d17ef6d3560da20221",
+     "treeDigest": "6d994d6a08d50663038dd3fcca28920cd6b8ddfaae0a29bc2ad9fd1560a70d46"
+    },
+    "baseHead": "a83a86e78cf2e228c090ea486bc1350541a2211e",
+    "disposition": "escalated-full-review-required",
+    "result": {
+     "verdict": "pass",
+     "summary": "Fictional pass review",
+     "findings": [],
+     "riskAssessment": {
+      "level": "strict",
+      "rationale": "Protect fictional saved records",
+      "threatModel": [
+       "Loss of fictional records"
+      ],
+      "stopConditions": [
+       "Halt when record integrity is unproven"
+      ]
+     },
+     "strictReview": {
+      "fullDiffInspected": true,
+      "threatModelReviewed": true,
+      "stopConditionsReviewed": true
+     },
+     "scopeSummary": "The entire fictional change",
+     "priorFindingsDisposition": [],
+     "learningsChecked": []
+    },
+    "reviewDigest": "0bfb26aad76e4d878ec95bbf8c1ee807f898fc443c4c2efb233754cba9549721"
+   }
+  ],
+  "riskAssessments": [
+   {
+    "step": "review",
+    "attemptId": "attempt-0",
+    "identity": {
+     "head": "f937cab3ebd5666cc2d389d17ef6d3560da20221",
+     "treeDigest": "6d994d6a08d50663038dd3fcca28920cd6b8ddfaae0a29bc2ad9fd1560a70d46"
+    },
+    "assessment": {
+     "level": "strict",
+     "rationale": "Protect fictional saved records",
+     "threatModel": [
+      "Loss of fictional records"
+     ],
+     "stopConditions": [
+      "Halt when record integrity is unproven"
+     ]
+    }
+   }
+  ],
+  "requirement": {
+   "refused": "strict change requires a passing independent review or explicit final adjudication"
+  }
+ },
+ "satisfied": {
+  "steps": [
+   {
+    "step": 0,
+    "op": "review",
+    "calls": [
+     {
+      "role": "reviewer",
+      "sessionId": null,
+      "prompt": {
+       "sha256": "2a4fa8a561f3b5911da8dfdb551cbe19458de3cf2487a33c6c5b577b6ad32c32",
+       "length": 2958
+      },
+      "schema": "61673209e0dc668c76fdecaa46c8e5ddf9d47722ac40e2cf46ea963f039ee7fe"
+     }
+    ],
+    "result": {
+     "provider": "claude",
+     "model": "fictional-reviewer",
+     "family": "anthropic",
+     "sessionId": "review-session-0-1",
+     "result": {
+      "verdict": "pass",
+      "summary": "Fictional pass review",
+      "findings": [
+       {
+        "severity": "low",
+        "file": "records.txt",
+        "line": 1,
+        "message": "Already satisfied but untidy"
+       }
+      ],
+      "riskAssessment": {
+       "level": "strict",
+       "rationale": "Protect fictional saved records",
+       "threatModel": [
+        "Loss of fictional records"
+       ],
+       "stopConditions": [
+        "Halt when record integrity is unproven"
+       ]
+      },
+      "strictReview": {
+       "fullDiffInspected": true,
+       "threatModelReviewed": true,
+       "stopConditionsReviewed": true
+      },
+      "scopeSummary": "The entire fictional change",
+      "priorFindingsDisposition": [],
+      "learningsChecked": []
+     },
+     "promptDigest": "2a4fa8a561f3b5911da8dfdb551cbe19458de3cf2487a33c6c5b577b6ad32c32",
+     "contextDigest": "fictional-context",
+     "taskRevision": "r1",
+     "identity": {
+      "head": "a83a86e78cf2e228c090ea486bc1350541a2211e",
+      "treeDigest": "1d74315736f2c92c381eb22aa76fce6a9ec65b6ad253e445c6b6d3a5a68612ae"
+     },
+     "phase": "full",
+     "baseHead": "a83a86e78cf2e228c090ea486bc1350541a2211e",
+     "route": "revise",
+     "disposition": "correct",
+     "independence": "external-author-unknown-manual-decision-required",
+     "providerInvocations": [
+      {
+       "provider": "claude",
+       "model": "fictional-reviewer",
+       "sessionId": "review-session-0-1"
+      }
+     ]
+    }
+   },
+   {
+    "step": 1,
+    "op": "review",
+    "calls": [
+     {
+      "role": "reviewer",
+      "sessionId": null,
+      "prompt": {
+       "sha256": "7118ad026b3ec4536738547d30bc90e01c1b723b3710583f0d93f6e7361543c2",
+       "length": 3990
+      },
+      "schema": "61673209e0dc668c76fdecaa46c8e5ddf9d47722ac40e2cf46ea963f039ee7fe"
+     }
+    ],
+    "result": {
+     "provider": "claude",
+     "model": "fictional-reviewer",
+     "family": "anthropic",
+     "sessionId": "review-session-1-1",
+     "result": {
+      "verdict": "pass",
+      "summary": "Fictional pass review",
+      "findings": [],
+      "riskAssessment": {
+       "level": "strict",
+       "rationale": "Protect fictional saved records",
+       "threatModel": [
+        "Loss of fictional records"
+       ],
+       "stopConditions": [
+        "Halt when record integrity is unproven"
+       ]
+      },
+      "strictReview": {
+       "fullDiffInspected": true,
+       "threatModelReviewed": true,
+       "stopConditionsReviewed": true
+      },
+      "scopeSummary": "The entire fictional change",
+      "priorFindingsDisposition": [],
+      "learningsChecked": []
+     },
+     "promptDigest": "7118ad026b3ec4536738547d30bc90e01c1b723b3710583f0d93f6e7361543c2",
+     "contextDigest": "fictional-context",
+     "taskRevision": "r1",
+     "identity": {
+      "head": "a83a86e78cf2e228c090ea486bc1350541a2211e",
+      "treeDigest": "1d74315736f2c92c381eb22aa76fce6a9ec65b6ad253e445c6b6d3a5a68612ae"
+     },
+     "phase": "full",
+     "baseHead": "a83a86e78cf2e228c090ea486bc1350541a2211e",
+     "route": "pass",
+     "disposition": "accepted",
+     "independence": "external-author-unknown-manual-decision-required",
+     "providerInvocations": [
+      {
+       "provider": "claude",
+       "model": "fictional-reviewer",
+       "sessionId": "review-session-1-1"
+      }
+     ]
+    }
+   }
+  ],
+  "reviewHistory": [
+   {
+    "attemptId": "attempt-0",
+    "step": "satisfied-review",
+    "phase": "full",
+    "risk": "strict",
+    "identity": {
+     "head": "a83a86e78cf2e228c090ea486bc1350541a2211e",
+     "treeDigest": "1d74315736f2c92c381eb22aa76fce6a9ec65b6ad253e445c6b6d3a5a68612ae"
+    },
+    "baseHead": "a83a86e78cf2e228c090ea486bc1350541a2211e",
+    "disposition": "correct",
+    "result": {
+     "verdict": "pass",
+     "summary": "Fictional pass review",
+     "findings": [
+      {
+       "severity": "low",
+       "file": "records.txt",
+       "line": 1,
+       "message": "Already satisfied but untidy"
+      }
+     ],
+     "riskAssessment": {
+      "level": "strict",
+      "rationale": "Protect fictional saved records",
+      "threatModel": [
+       "Loss of fictional records"
+      ],
+      "stopConditions": [
+       "Halt when record integrity is unproven"
+      ]
+     },
+     "strictReview": {
+      "fullDiffInspected": true,
+      "threatModelReviewed": true,
+      "stopConditionsReviewed": true
+     },
+     "scopeSummary": "The entire fictional change",
+     "priorFindingsDisposition": [],
+     "learningsChecked": []
+    },
+    "reviewDigest": "1e70c78724d19492028a8bfd2e8122473fc17e8b80ee9095e63f64fd8d8c1abc"
+   },
+   {
+    "attemptId": "attempt-1",
+    "step": "satisfied-review",
+    "phase": "full",
+    "risk": "strict",
+    "identity": {
+     "head": "a83a86e78cf2e228c090ea486bc1350541a2211e",
+     "treeDigest": "1d74315736f2c92c381eb22aa76fce6a9ec65b6ad253e445c6b6d3a5a68612ae"
+    },
+    "baseHead": "a83a86e78cf2e228c090ea486bc1350541a2211e",
+    "disposition": "accepted",
+    "result": {
+     "verdict": "pass",
+     "summary": "Fictional pass review",
+     "findings": [],
+     "riskAssessment": {
+      "level": "strict",
+      "rationale": "Protect fictional saved records",
+      "threatModel": [
+       "Loss of fictional records"
+      ],
+      "stopConditions": [
+       "Halt when record integrity is unproven"
+      ]
+     },
+     "strictReview": {
+      "fullDiffInspected": true,
+      "threatModelReviewed": true,
+      "stopConditionsReviewed": true
+     },
+     "scopeSummary": "The entire fictional change",
+     "priorFindingsDisposition": [],
+     "learningsChecked": []
+    },
+    "reviewDigest": "fb3ae5180fdfa9036067f1c8bd7e2c5c100b5705d9a92fd46153ca7aca9a761c"
+   }
+  ],
+  "riskAssessments": [
+   {
+    "step": "satisfied-review",
+    "attemptId": "attempt-0",
+    "identity": {
+     "head": "a83a86e78cf2e228c090ea486bc1350541a2211e",
+     "treeDigest": "1d74315736f2c92c381eb22aa76fce6a9ec65b6ad253e445c6b6d3a5a68612ae"
+    },
+    "assessment": {
+     "level": "strict",
+     "rationale": "Protect fictional saved records",
+     "threatModel": [
+      "Loss of fictional records"
+     ],
+     "stopConditions": [
+      "Halt when record integrity is unproven"
+     ]
+    }
+   },
+   {
+    "step": "satisfied-review",
+    "attemptId": "attempt-1",
+    "identity": {
+     "head": "a83a86e78cf2e228c090ea486bc1350541a2211e",
+     "treeDigest": "1d74315736f2c92c381eb22aa76fce6a9ec65b6ad253e445c6b6d3a5a68612ae"
+    },
+    "assessment": {
+     "level": "strict",
+     "rationale": "Protect fictional saved records",
+     "threatModel": [
+      "Loss of fictional records"
+     ],
+     "stopConditions": [
+      "Halt when record integrity is unproven"
+     ]
+    }
+   }
+  ],
+  "requirement": {
+   "reviewer": {
+    "provider": "claude",
+    "model": "fictional-reviewer",
+    "family": "anthropic",
+    "independence": "external-author-unknown-manual-decision-required"
+   },
+   "scope": {
+    "phase": "full",
+    "baseHead": "a83a86e78cf2e228c090ea486bc1350541a2211e"
+   },
+   "requiredRole": "operator",
+   "unresolvedFindings": [],
+   "phase": "full",
+   "head": "a83a86e78cf2e228c090ea486bc1350541a2211e",
+   "assessmentDigest": "864f99fa96170ca8792d590f6acd966116d7c93f0762856d9005aa05f9d59985",
+   "level": "strict",
+   "rationale": [
+    "Protect fictional saved records"
+   ],
+   "threatModel": [
+    "Loss of fictional records"
+   ],
+   "stopConditions": [
+    "Halt when record integrity is unproven"
+   ]
+  }
+ },
+ "plan-review": {
+  "steps": [
+   {
+    "step": 0,
+    "op": "plan",
+    "calls": [
+     {
+      "role": "reviewer",
+      "sessionId": null,
+      "prompt": {
+       "sha256": "2310f38a1a385fc7d11175af5c35a6d4b59ec7dd89885e1464364d0a0e3012d4",
+       "length": 2217
+      },
+      "schema": "e3d55aa29b452c94db303d159ffd22131736ce5bd86e88de3edb216f737aceb9"
+     }
+    ],
+    "result": {
+     "provider": "claude",
+     "model": "fictional-reviewer",
+     "family": "anthropic",
+     "sessionId": "review-session-0-1",
+     "result": {
+      "verdict": "pass",
+      "summary": "Fictional plan pass",
+      "findings": [],
+      "riskAssessment": {
+       "level": "ordinary",
+       "rationale": "Bounded fictional change",
+       "threatModel": [],
+       "stopConditions": []
+      }
+     },
+     "promptDigest": "2310f38a1a385fc7d11175af5c35a6d4b59ec7dd89885e1464364d0a0e3012d4",
+     "contextDigest": "fictional-context",
+     "taskRevision": "r1",
+     "identity": {
+      "head": "f937cab3ebd5666cc2d389d17ef6d3560da20221",
+      "treeDigest": "6d994d6a08d50663038dd3fcca28920cd6b8ddfaae0a29bc2ad9fd1560a70d46"
+     },
+     "protocolCorrections": [],
+     "route": "pass",
+     "providerInvocations": [
+      {
+       "provider": "claude",
+       "model": "fictional-reviewer",
+       "sessionId": "review-session-0-1"
+      }
+     ]
+    }
+   },
+   {
+    "step": 1,
+    "op": "plan",
+    "calls": [
+     {
+      "role": "reviewer",
+      "sessionId": null,
+      "prompt": {
+       "sha256": "2ca2098d8219b1fd6e7965d56523c68c79fa7f4147a67928f38a25804697d30d",
+       "length": 2243
+      },
+      "schema": "e3d55aa29b452c94db303d159ffd22131736ce5bd86e88de3edb216f737aceb9"
+     },
+     {
+      "role": "reviewer",
+      "sessionId": null,
+      "prompt": {
+       "sha256": "88ef957d4d49c8be235c7635323ea1c716beef067c92ac689ec6588a8b832d32",
+       "length": 2878
+      },
+      "schema": "e3d55aa29b452c94db303d159ffd22131736ce5bd86e88de3edb216f737aceb9"
+     }
+    ],
+    "result": {
+     "provider": "claude",
+     "model": "fictional-reviewer",
+     "family": "anthropic",
+     "sessionId": "review-session-1-2",
+     "result": {
+      "verdict": "pass",
+      "summary": "Fictional plan pass",
+      "findings": [],
+      "riskAssessment": {
+       "level": "ordinary",
+       "rationale": "Bounded fictional change",
+       "threatModel": [],
+       "stopConditions": []
+      }
+     },
+     "promptDigest": "88ef957d4d49c8be235c7635323ea1c716beef067c92ac689ec6588a8b832d32",
+     "contextDigest": "fictional-context",
+     "taskRevision": "r1",
+     "identity": {
+      "head": "f937cab3ebd5666cc2d389d17ef6d3560da20221",
+      "treeDigest": "6d994d6a08d50663038dd3fcca28920cd6b8ddfaae0a29bc2ad9fd1560a70d46"
+     },
+     "protocolCorrections": [
+      {
+       "reason": "pass-with-findings",
+       "original": {
+        "provider": "claude",
+        "model": "fictional-reviewer",
+        "family": "anthropic",
+        "sessionId": "review-session-1-1",
+        "result": {
+         "verdict": "pass",
+         "summary": "Fictional plan pass",
+         "findings": [
+          {
+           "severity": "low",
+           "file": "records.txt",
+           "line": 1,
+           "message": "Optional observation"
+          }
+         ],
+         "riskAssessment": {
+          "level": "ordinary",
+          "rationale": "Bounded fictional change",
+          "threatModel": [],
+          "stopConditions": []
+         }
+        },
+        "promptDigest": "2ca2098d8219b1fd6e7965d56523c68c79fa7f4147a67928f38a25804697d30d",
+        "contextDigest": "fictional-context",
+        "taskRevision": "r1",
+        "identity": {
+         "head": "f937cab3ebd5666cc2d389d17ef6d3560da20221",
+         "treeDigest": "6d994d6a08d50663038dd3fcca28920cd6b8ddfaae0a29bc2ad9fd1560a70d46"
+        }
+       },
+       "originalArtifact": "provider",
+       "correctionArtifact": "provider-protocol-correction-1"
+      }
+     ],
+     "route": "pass",
+     "providerInvocations": [
+      {
+       "provider": "claude",
+       "model": "fictional-reviewer",
+       "sessionId": "review-session-1-1"
+      },
+      {
+       "provider": "claude",
+       "model": "fictional-reviewer",
+       "sessionId": "review-session-1-2"
+      }
+     ]
+    }
+   },
+   {
+    "step": 2,
+    "op": "plan",
+    "calls": [
+     {
+      "role": "reviewer",
+      "sessionId": null,
+      "prompt": {
+       "sha256": "2ca2098d8219b1fd6e7965d56523c68c79fa7f4147a67928f38a25804697d30d",
+       "length": 2243
+      },
+      "schema": "e3d55aa29b452c94db303d159ffd22131736ce5bd86e88de3edb216f737aceb9"
+     },
+     {
+      "role": "reviewer",
+      "sessionId": null,
+      "prompt": {
+       "sha256": "88ef957d4d49c8be235c7635323ea1c716beef067c92ac689ec6588a8b832d32",
+       "length": 2878
+      },
+      "schema": "e3d55aa29b452c94db303d159ffd22131736ce5bd86e88de3edb216f737aceb9"
+     }
+    ],
+    "result": {
+     "provider": "claude",
+     "model": "fictional-reviewer",
+     "family": "anthropic",
+     "sessionId": "review-session-2-2",
+     "result": {
+      "verdict": "pass",
+      "summary": "Fictional plan pass",
+      "findings": [
+       {
+        "severity": "low",
+        "file": "records.txt",
+        "line": 1,
+        "message": "Optional observation"
+       }
+      ],
+      "riskAssessment": {
+       "level": "ordinary",
+       "rationale": "Bounded fictional change",
+       "threatModel": [],
+       "stopConditions": []
+      }
+     },
+     "promptDigest": "88ef957d4d49c8be235c7635323ea1c716beef067c92ac689ec6588a8b832d32",
+     "contextDigest": "fictional-context",
+     "taskRevision": "r1",
+     "identity": {
+      "head": "f937cab3ebd5666cc2d389d17ef6d3560da20221",
+      "treeDigest": "6d994d6a08d50663038dd3fcca28920cd6b8ddfaae0a29bc2ad9fd1560a70d46"
+     },
+     "protocolCorrections": [
+      {
+       "reason": "pass-with-findings",
+       "original": {
+        "provider": "claude",
+        "model": "fictional-reviewer",
+        "family": "anthropic",
+        "sessionId": "review-session-2-1",
+        "result": {
+         "verdict": "pass",
+         "summary": "Fictional plan pass",
+         "findings": [
+          {
+           "severity": "low",
+           "file": "records.txt",
+           "line": 1,
+           "message": "Optional observation"
+          }
+         ],
+         "riskAssessment": {
+          "level": "ordinary",
+          "rationale": "Bounded fictional change",
+          "threatModel": [],
+          "stopConditions": []
+         }
+        },
+        "promptDigest": "2ca2098d8219b1fd6e7965d56523c68c79fa7f4147a67928f38a25804697d30d",
+        "contextDigest": "fictional-context",
+        "taskRevision": "r1",
+        "identity": {
+         "head": "f937cab3ebd5666cc2d389d17ef6d3560da20221",
+         "treeDigest": "6d994d6a08d50663038dd3fcca28920cd6b8ddfaae0a29bc2ad9fd1560a70d46"
+        }
+       },
+       "originalArtifact": "provider",
+       "correctionArtifact": "provider-protocol-correction-1"
+      }
+     ],
+     "route": "revise",
+     "providerInvocations": [
+      {
+       "provider": "claude",
+       "model": "fictional-reviewer",
+       "sessionId": "review-session-2-1"
+      },
+      {
+       "provider": "claude",
+       "model": "fictional-reviewer",
+       "sessionId": "review-session-2-2"
+      }
+     ]
+    }
+   },
+   {
+    "step": 3,
+    "op": "plan",
+    "calls": [
+     {
+      "role": "reviewer",
+      "sessionId": null,
+      "prompt": {
+       "sha256": "2ca2098d8219b1fd6e7965d56523c68c79fa7f4147a67928f38a25804697d30d",
+       "length": 2243
+      },
+      "schema": "e3d55aa29b452c94db303d159ffd22131736ce5bd86e88de3edb216f737aceb9"
+     }
+    ],
+    "result": {
+     "provider": "claude",
+     "model": "fictional-reviewer",
+     "family": "anthropic",
+     "sessionId": "review-session-3-1",
+     "result": {
+      "verdict": "revise",
+      "summary": "Fictional plan revise",
+      "findings": [
+       {
+        "severity": "high",
+        "file": "records.txt",
+        "line": 1,
+        "message": "Plan misses the reader"
+       }
+      ],
+      "riskAssessment": {
+       "level": "ordinary",
+       "rationale": "Bounded fictional change",
+       "threatModel": [],
+       "stopConditions": []
+      }
+     },
+     "promptDigest": "2ca2098d8219b1fd6e7965d56523c68c79fa7f4147a67928f38a25804697d30d",
+     "contextDigest": "fictional-context",
+     "taskRevision": "r1",
+     "identity": {
+      "head": "f937cab3ebd5666cc2d389d17ef6d3560da20221",
+      "treeDigest": "6d994d6a08d50663038dd3fcca28920cd6b8ddfaae0a29bc2ad9fd1560a70d46"
+     },
+     "protocolCorrections": [],
+     "route": "revise",
+     "providerInvocations": [
+      {
+       "provider": "claude",
+       "model": "fictional-reviewer",
+       "sessionId": "review-session-3-1"
+      }
+     ]
+    }
+   },
+   {
+    "step": 4,
+    "op": "plan",
+    "calls": [
+     {
+      "role": "reviewer",
+      "sessionId": null,
+      "prompt": {
+       "sha256": "2ca2098d8219b1fd6e7965d56523c68c79fa7f4147a67928f38a25804697d30d",
+       "length": 2243
+      },
+      "schema": "e3d55aa29b452c94db303d159ffd22131736ce5bd86e88de3edb216f737aceb9"
+     }
+    ],
+    "result": {
+     "provider": "claude",
+     "model": "fictional-reviewer",
+     "family": "anthropic",
+     "sessionId": "review-session-4-1",
+     "result": {
+      "verdict": "revise",
+      "summary": "Fictional plan pass",
+      "findings": [
+       {
+        "severity": "high",
+        "file": "",
+        "line": 0,
+        "message": "Strict plan review requires a concrete threat model and explicit stop conditions."
+       }
+      ],
+      "riskAssessment": {
+       "level": "strict",
+       "rationale": "Protect fictional saved records",
+       "threatModel": [
+        "Loss of fictional records"
+       ],
+       "stopConditions": []
+      }
+     },
+     "promptDigest": "2ca2098d8219b1fd6e7965d56523c68c79fa7f4147a67928f38a25804697d30d",
+     "contextDigest": "fictional-context",
+     "taskRevision": "r1",
+     "identity": {
+      "head": "f937cab3ebd5666cc2d389d17ef6d3560da20221",
+      "treeDigest": "6d994d6a08d50663038dd3fcca28920cd6b8ddfaae0a29bc2ad9fd1560a70d46"
+     },
+     "protocolCorrections": [],
+     "route": "revise",
+     "providerInvocations": [
+      {
+       "provider": "claude",
+       "model": "fictional-reviewer",
+       "sessionId": "review-session-4-1"
+      }
+     ]
+    }
+   }
+  ],
+  "reviewHistory": [],
+  "riskAssessments": [
+   {
+    "step": "plan-review",
+    "attemptId": "attempt-0",
+    "identity": {
+     "head": "f937cab3ebd5666cc2d389d17ef6d3560da20221",
+     "treeDigest": "6d994d6a08d50663038dd3fcca28920cd6b8ddfaae0a29bc2ad9fd1560a70d46"
+    },
+    "assessment": {
+     "level": "ordinary",
+     "rationale": "Bounded fictional change",
+     "threatModel": [],
+     "stopConditions": []
+    }
+   },
+   {
+    "step": "plan-review",
+    "attemptId": "attempt-1:protocol-1",
+    "identity": {
+     "head": "f937cab3ebd5666cc2d389d17ef6d3560da20221",
+     "treeDigest": "6d994d6a08d50663038dd3fcca28920cd6b8ddfaae0a29bc2ad9fd1560a70d46"
+    },
+    "assessment": {
+     "level": "ordinary",
+     "rationale": "Bounded fictional change",
+     "threatModel": [],
+     "stopConditions": []
+    }
+   },
+   {
+    "step": "plan-review",
+    "attemptId": "attempt-1",
+    "identity": {
+     "head": "f937cab3ebd5666cc2d389d17ef6d3560da20221",
+     "treeDigest": "6d994d6a08d50663038dd3fcca28920cd6b8ddfaae0a29bc2ad9fd1560a70d46"
+    },
+    "assessment": {
+     "level": "ordinary",
+     "rationale": "Bounded fictional change",
+     "threatModel": [],
+     "stopConditions": []
+    }
+   },
+   {
+    "step": "plan-review",
+    "attemptId": "attempt-2:protocol-1",
+    "identity": {
+     "head": "f937cab3ebd5666cc2d389d17ef6d3560da20221",
+     "treeDigest": "6d994d6a08d50663038dd3fcca28920cd6b8ddfaae0a29bc2ad9fd1560a70d46"
+    },
+    "assessment": {
+     "level": "ordinary",
+     "rationale": "Bounded fictional change",
+     "threatModel": [],
+     "stopConditions": []
+    }
+   },
+   {
+    "step": "plan-review",
+    "attemptId": "attempt-2",
+    "identity": {
+     "head": "f937cab3ebd5666cc2d389d17ef6d3560da20221",
+     "treeDigest": "6d994d6a08d50663038dd3fcca28920cd6b8ddfaae0a29bc2ad9fd1560a70d46"
+    },
+    "assessment": {
+     "level": "ordinary",
+     "rationale": "Bounded fictional change",
+     "threatModel": [],
+     "stopConditions": []
+    }
+   },
+   {
+    "step": "plan-review",
+    "attemptId": "attempt-3",
+    "identity": {
+     "head": "f937cab3ebd5666cc2d389d17ef6d3560da20221",
+     "treeDigest": "6d994d6a08d50663038dd3fcca28920cd6b8ddfaae0a29bc2ad9fd1560a70d46"
+    },
+    "assessment": {
+     "level": "ordinary",
+     "rationale": "Bounded fictional change",
+     "threatModel": [],
+     "stopConditions": []
+    }
+   },
+   {
+    "step": "plan-review",
+    "attemptId": "attempt-4",
+    "identity": {
+     "head": "f937cab3ebd5666cc2d389d17ef6d3560da20221",
+     "treeDigest": "6d994d6a08d50663038dd3fcca28920cd6b8ddfaae0a29bc2ad9fd1560a70d46"
+    },
+    "assessment": {
+     "level": "strict",
+     "rationale": "Protect fictional saved records",
+     "threatModel": [
+      "Loss of fictional records"
+     ],
+     "stopConditions": []
+    }
+   }
+  ],
+  "requirement": {
+   "refused": "strict change requires a passing independent review or explicit final adjudication"
+  }
+ }
+}

@@ -7,6 +7,7 @@
 import { digest } from './contracts.mjs';
 import { DELEGABLE } from './delegation.mjs';
 import { delegatedUpkeepChanges, upkeepAuthority } from './upkeep-config.mjs';
+import { reviewAuthority } from './review-bar.mjs';
 
 const QUESTION_FLAGS = ['role', 'mergeDecision', 'satisfiedDecision', 'integrationDecision', 'strictReview', 'autoMerge'];
 export const UPKEEP_AUTHORITY = 'knowledge upkeep';
@@ -21,6 +22,8 @@ export function authorityPolicy(config, { catalog, workflow } = {}) {
     'policy.mergeDecisionRole': policy.mergeDecisionRole ?? 'operator',
     'policy.strictDecisionRole': policy.strictDecisionRole ?? 'operator',
     'policy.autoMerge': policy.autoMerge === true,
+    // The review bar, strict follow-ups and the environment facts reviews may cite (core/review-bar.mjs).
+    ...reviewAuthority(config),
     // Recurring tasks are created already approved: their templates are approval authority.
     recurringTasks: config?.recurringTasks ?? {},
     // Integration workflows declare which decisions authorize their writes.

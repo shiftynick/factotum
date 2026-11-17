@@ -20,6 +20,8 @@ import { VerifiedObjects } from '../core/verified-git.mjs';
 import { upkeepSuspensions } from '../operations/upkeep-records.mjs';
 import { learningsSettings } from '../core/upkeep-config.mjs';
 import { LEARNING_BOUNDARY_OPERATIONS, LEARNING_ROLES, learningSelection, pinnedLearningItems, readLearningStore, selectLearnings } from '../operations/learnings.mjs';
+import { flowReviewBar } from '../core/review-bar.mjs';
+import { citableRecords, CITABLE_RECORD_LIMIT } from './must-fix.mjs';
 
 export function workingRoot(store, flow) {
   if (flow.workspace?.path) {
@@ -172,6 +174,10 @@ export function actionSpecification(store, flow, node, artifactDir) {
   }
   const contract = nodeContract(flow.step, node);
   const input = { step:flow.step, binding:contract.binding, stepModel:contract.role?config.stepModels?.[flowWorkflowKey(flow)]?.[flow.step]??null:null, node:node.action, integration:flow.integration??null, integrationDecisions:flow.integrationDecisions??{}, strictDecisionRole:flow.strictDecisionRole??'operator', reviewProtocol:flow.reviewProtocol??config.policy?.reviewProtocol??'fresh-full', reviewHistory:flow.reviewHistory??[], operatorFeedback:flow.operatorFeedback??[], carriedQuestions: carriedQuestions(flow), carriedOverflow: carriedOverflow(flow), risk: riskSummary(task, flow), riskAssessments: flow.riskAssessments ?? [], operation, kind: flow.kind, preparedPlanWorkspace: flow.preparedPlanWorkspace ?? null, candidate: flow.candidate ?? null, completionMode: flow.completionMode ?? 'merge', target: flow.target ?? config.repository?.target ?? null, mainHealth: targetHealth(store, flow.target), completionDecision: flow.completionDecision ?? null, jobPayload: flow.jobPayload ?? {}, projectId: project.projectId, flowId: flow.id, task, config, configDigest: store.meta('configDigest'), workspace: flow.workspace ?? null, results: flow.results ?? {}, evidence: flow.evidence, sessions: flow.sessions ?? {}, context, governanceEdit: governance ? { commit: governance.commit, entries: governance.entries } : null, governanceBase: flow.governanceBase ?? null, stateDir: store.stateDir, artifactDir, mergeAuthorization: flow.mergeAuthorization ?? null, resource: contract.heavy || (operation === 'fastCheck' && config.fastChecks?.heavy === true) };
+  // A shadow flow's reviews ask the must-fix questions and record what that bar would have done
+  // (workflows/must-fix.mjs). A severity flow's intent is exactly what it was before the bar existed.
+  // Attempts are stored without their intent, so each citable one is read whole.
+  if (['provider.review', 'provider.planReview'].includes(operation) && flowReviewBar(flow) !== 'severity') Object.assign(input, { reviewBar: flowReviewBar(flow), reviewPolicy: flow.reviewPolicy ?? null, reviewRecords: citableRecords(store.by('attempt', 'flowId', flow.id).filter(row => ['passed', 'failed'].includes(row.status)).slice(-CITABLE_RECORD_LIMIT).map(row => store.need('attempt', row.id))), ...(operation === 'provider.planReview' ? { reviewRound: flow.visits?.[flow.step] ?? 1 } : {}) });
   if (LEARNING_ROLES[operation] && flow.kind !== 'maintenance') { const learnings = learningsForStep(flow, task, operation, cwd, config, upkeepSuspensions(store).learnings ?? upkeepSuspensions(store).all ?? null); if (learnings) input.learnings = learnings; }
   if (modelRole(flow.step, node, config) && flow.modelRoutes) {
     assert(Object.hasOwn(flow.modelRoutes, flow.step), 'model step has no pinned route; start a new flow for the changed workflow');

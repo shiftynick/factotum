@@ -29,9 +29,11 @@ export function reviewDisposition(config,task,flow,result,phase) {
   return {route:phase==='final'?'park':'revise',disposition:phase==='final'?'parked':'correct'};
 }
 export function reviewEvidenceAcceptable(result) {return result?.route==='pass'||result?.route==='adjudicate'&&result.disposition==='operator-adjudication';}
+// A shadow flow's row also keeps the must-fix derivation and shadow route (workflows/must-fix.mjs);
+// they are not part of the review digest, which stays the digest of what the reviewer returned.
 export function recordReview(flow,step,result,attemptId) {
   if(!['review','delta-review','final-review','satisfied-review'].includes(step)||!result?.provider)return;
-  flow.reviewHistory??=[];flow.reviewHistory.push({attemptId,step,phase:result.phase??'full',risk:effectiveRisk(flow.taskSnapshot,flow),identity:result.identity,baseHead:result.baseHead??null,disposition:result.disposition,result:result.result,reviewDigest:digest({identity:result.identity,result:result.result})});
+  flow.reviewHistory??=[];flow.reviewHistory.push({attemptId,step,phase:result.phase??'full',risk:effectiveRisk(flow.taskSnapshot,flow),identity:result.identity,baseHead:result.baseHead??null,disposition:result.disposition,result:result.result,reviewDigest:digest({identity:result.identity,result:result.result}),...(result.mustFix?{mustFix:result.mustFix}:{}),...(result.shadowRoute?{shadowRoute:result.shadowRoute}:{})});
 }
 export function operatorReviewRequirement(config,task,flow,identity) {
   if(!boundedReview(config)||effectiveRisk(task,flow)!=='strict')return;

@@ -155,7 +155,7 @@ export function distribution(values) {
 }
 const countBy = (rows, key) => rows.reduce((out, row) => { const value = key(row) ?? 'unknown'; out[value] = (out[value] ?? 0) + 1; return out; }, {});
 const primitive = value => ['string', 'number', 'boolean'].includes(typeof value);
-const policyFields = new Set(['delegateIntegrationDecisions','queueOnApproval','planning','autoQueue','maxBuildRounds','maxFlows','maxActiveFlows','maxParkedFlows','autoMerge','allowFactoryEdits','mainHealthMaxAgeMs','scheduledHealthMaxAgeMs','mainProbeMs','deferLowFindings','followTarget','mainInfrastructureRetries','recovery','requirePaths','queueRanking','reviewProtocol','ordinaryReviewRounds','ordinaryFollowupAfter','strictDecisionRole','mergeDecisionRole','planReviewProtocolCorrections']);
+const policyFields = new Set(['delegateIntegrationDecisions','queueOnApproval','planning','autoQueue','maxBuildRounds','maxFlows','maxActiveFlows','maxParkedFlows','autoMerge','allowFactoryEdits','mainHealthMaxAgeMs','scheduledHealthMaxAgeMs','mainProbeMs','deferLowFindings','followTarget','mainInfrastructureRetries','recovery','requirePaths','queueRanking','reviewProtocol','reviewBar','ordinaryReviewRounds','ordinaryFollowupAfter','strictDecisionRole','mergeDecisionRole','planReviewProtocolCorrections']);
 
 /** Workflow node order by first reachability from the start node; unreachable nodes follow in declaration order. */
 export function workflowOrder(workflow) {
@@ -184,7 +184,7 @@ const providerSettings=(value,{fallback=true}={})=>({
   ...(fallback&&value?.fallback?{fallback:providerSettings(value.fallback,{fallback:false})}:{})
 });
 // Pinned policy settings (changed through config update) and their defaults when unset.
-const PINNED_POLICY = { planning: true, followTarget: true, maxBuildRounds: 4, reviewProtocol: 'fresh-full', ordinaryReviewRounds: 4, ordinaryFollowupAfter: 3, deferLowFindings: true, planReviewProtocolCorrections: 1, mergeDecisionRole: 'operator', strictDecisionRole: 'operator', autoMerge: false, delegateIntegrationDecisions: false, allowFactoryEdits: false, requirePaths: false, recovery: false, mainInfrastructureRetries: 0 };
+const PINNED_POLICY = { planning: true, followTarget: true, maxBuildRounds: 4, reviewProtocol: 'fresh-full', reviewBar: 'severity', ordinaryReviewRounds: 4, ordinaryFollowupAfter: 3, deferLowFindings: true, planReviewProtocolCorrections: 1, mergeDecisionRole: 'operator', strictDecisionRole: 'operator', autoMerge: false, delegateIntegrationDecisions: false, allowFactoryEdits: false, requirePaths: false, recovery: false, mainInfrastructureRetries: 0 };
 /** Settings without credentials, private endpoints or absolute paths. Check commands are shown read-only. */
 export function settingsView(store) {
   const project = store.meta('project'), config = store.meta('config', {}), configDigest = store.meta('configDigest'), commissioning = store.meta('commissioning');

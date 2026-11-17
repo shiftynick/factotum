@@ -28,6 +28,18 @@ export const DELIVERY_BUILD_SCHEMA = object({ ...BUILD_SCHEMA.properties, ...wor
 export const RISK_PLAN_SCHEMA = object({ ...PLAN_SCHEMA.properties, ...workerReport, questions:reportStrings, assumptions, riskAssessment:RISK_SCHEMA, learningsApplied });
 export const RISK_REVIEW_SCHEMA = object({ ...REVIEW_SCHEMA.properties, riskAssessment:RISK_SCHEMA });
 export const CHANGE_REVIEW_SCHEMA = object({ ...RISK_REVIEW_SCHEMA.properties, strictReview:object({ fullDiffInspected:{type:'boolean'}, threatModelReviewed:{type:'boolean'}, stopConditionsReviewed:{type:'boolean'} }), scopeSummary:reportText, priorFindingsDisposition:{type:'array',items:object({finding:reportText,disposition:{enum:['fixed','remaining','outside-scope']},evidence:reportText})}, learningsChecked });
+// Must-fix review (docs/designs/review-must-fix.md 5.1), schema version must-fix-1 (core/review-bar.mjs).
+// A shadow flow's reviewer returns these finding fields beside today's; the factory, not the model,
+// derives whether a finding is must-fix (workflows/must-fix.mjs). Optional values are null, since the
+// helper requires every property. Every citation says what part of the scenario it covers.
+const bounded = (minLength, maxLength) => ({ type:'string', minLength, maxLength });
+const nullable = maxLength => ({ type:['string','null'], maxLength });
+export const CITATION_SCHEMA = object({ kind:{ enum:['file','environment','record','reasoning'] }, ref:bounded(1,300), quote:bounded(0,300), head:nullable(64), check:nullable(300), result:nullable(300), covers:bounded(1,600) });
+const citations = { type:'array', maxItems:4, items:CITATION_SCHEMA };
+export const MUST_FIX_FINDING_SCHEMA = object({ ...REVIEW_SCHEMA.properties.findings.items.properties, scenario:bounded(1,1200), reachable:object({ status:{ enum:['shown','unknown','not-here'] }, evidence:citations, coverage:bounded(0,1200) }), purposeImpact:{ enum:['outcome','security','data-loss','spending','check-trust','none'] }, silent:{ type:'boolean' }, origin:{ enum:['new-code','in-fix','missed'] }, fixOf:nullable(40) });
+const mustFixFindings = { type:'array', items:MUST_FIX_FINDING_SCHEMA };
+export const MUST_FIX_PLAN_REVIEW_SCHEMA = object({ ...RISK_REVIEW_SCHEMA.properties, findings:mustFixFindings });
+export const MUST_FIX_CHANGE_REVIEW_SCHEMA = object({ ...CHANGE_REVIEW_SCHEMA.properties, findings:mustFixFindings });
 // The upkeep role (knowledge upkeep's assessment) always passes its own schema; it is read-only like a reviewer.
 const schemas = { planner:PLAN_SCHEMA, builder:BUILD_SCHEMA, reviewer:REVIEW_SCHEMA, auditor:REVIEW_SCHEMA, reader:REVIEW_SCHEMA, scoreboardOwner:REVIEW_SCHEMA, upkeep:REVIEW_SCHEMA };
 const family = provider => provider === 'codex' ? 'openai' : 'anthropic';
@@ -112,6 +124,7 @@ function checkSpec(spec) {
   if (spec.role!=='builder' && spec.sessionId) throw new ProviderError('Independent planner/reviewer must use a fresh session');
   if (spec.maxTurns!==undefined && (!Number.isSafeInteger(spec.maxTurns)||spec.maxTurns<1)) throw new ProviderError('maxTurns must be a positive integer');
   validateSchemaDefinition(spec.schema||schemas[spec.role]);
+  if (spec.legacySchema!==undefined) validateSchemaDefinition(spec.legacySchema);
   if (spec.sessionId && !/^[0-9a-f-]{36}$/i.test(spec.sessionId)) throw new ProviderError('Invalid session ID');
   if (spec.role!=='builder' && spec.readOnly===false) throw new ProviderError('Planner/reviewer require read-only permissions');
   if (spec.suppressWorktreeInstructions!==undefined && typeof spec.suppressWorktreeInstructions!=='boolean') throw new ProviderError('suppressWorktreeInstructions must be boolean');
@@ -368,8 +381,11 @@ export function createProviderAdapter({ transport=runProcess, environment=proces
       }
       if(typeof sessionId!=='string'||!sessionId || !usage || typeof usage!=='object' || Array.isArray(usage)) throw new Error('Session or usage receipt missing');
       if(spec.sessionId && sessionId!==spec.sessionId) throw new Error('Provider resumed a different session');
-      validateSchema(result,schema);
-      const normalized={...accountingResult,...(limits.length?{limits}:{}),provider:spec.provider,model:spec.model,...(spec.effort?{effort:spec.effort}:{}),family:family(spec.provider),sessionId,result,usage,...(reportedCostUsd!==undefined?{reportedCostUsd}:{}),permissions:{requested:readOnly?'read-only':'workspace-write',enforced:spec.provider==='codex'?'provider-sandbox':readOnly?'provider-tool-allowlist':'provider-restricted-tools'},billing:{mode:'subscription',actualMicros:null,accountCreditCost:'unavailable'},started:true,final:true};
+      // A shadow review asks for the must-fix schema and also accepts a result valid against today's
+      // (legacySchema), marked as such; the factory reads its findings as legacy (workflows/must-fix.mjs).
+      let schemaFallback;
+      try { validateSchema(result,schema); } catch (error) { if (!spec.legacySchema) throw error; validateSchema(result,spec.legacySchema); schemaFallback='legacy'; }
+      const normalized={...(schemaFallback?{schemaFallback}:{}),...accountingResult,...(limits.length?{limits}:{}),provider:spec.provider,model:spec.model,...(spec.effort?{effort:spec.effort}:{}),family:family(spec.provider),sessionId,result,usage,...(reportedCostUsd!==undefined?{reportedCostUsd}:{}),permissions:{requested:readOnly?'read-only':'workspace-write',enforced:spec.provider==='codex'?'provider-sandbox':readOnly?'provider-tool-allowlist':'provider-restricted-tools'},billing:{mode:'subscription',actualMicros:null,accountCreditCost:'unavailable'},started:true,final:true};
       await writeFile(resolve(artifactDir,'result.json'),JSON.stringify(normalized,null,2),{mode:0o600});return normalized;
     } catch {
       // A reported usage limit is the cause, not a malformed result. It is still started work.
