@@ -23,8 +23,8 @@ Includes dev.97. The first slice of the [must-fix review design](designs/review-
 
 **Validation**
 
-- **Local validation:** TBD tests passed, TBD failures, TBD skips. Both fictional process evaluations: TBD.
-- **Review:** TBD.
+- **Local validation:** **1,891 tests passed**, zero failures, one skip. The skipped test needs the external Unicode source. Both fictional process evaluations and the shared console passed.
+- **Review:** independently reviewed by GPT-6.1 Sol, which reproduced the golden on the previous build and confirmed shadow never changes a route. Its two medium findings were fixed: a severity-only result was refused in shadow before legacy handling, and file citations honoured `git replace`. Phase routing now reads a flow's pinned review protocol. The main thread checked the fixes.
 - **New tests:** a fixture for every row and rule of the 4.3 table (rule 2 and rule 4 through the derivation's inputs, which shadow v1 does not supply); `shown` with reasoning only, with a missing quote and with a record at another head read as `unknown`; record citations with the wrong check or result not validating; legacy history rows getting stable ids; the new schemas passing `validateSchemaDefinition`; configuration refusing `must-fix` and out-of-range settings; the reference graph digests unchanged; pinning on admission and after the configuration changes; a severity flow's intents and history rows carrying nothing new; the severity golden; and, under `shadow`, the actual route equal to the severity route in every scenario, with old-shape and must-fix-shaped results. After the review: a severity-only result through the real provider adapter in a shadow flow, a file citation under an installed replacement ref, and phase routing with a pinned protocol that differs from the configuration; each fails on the first dev.98 candidate.
 - **Not qualified:** a shadow trial with a real model.
 - **Upgrading:** use a reviewed, drained adoption and commissioning, with the release's own CLI.
