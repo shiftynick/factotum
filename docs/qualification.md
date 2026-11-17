@@ -2,6 +2,21 @@
 
 Date: 2026-10-22. Target: one trusted Linux account, local project sockets, GitHub, and subscription-backed Codex/Claude CLIs. This record separates executed observations from adapter contracts and installation prerequisites. "The main thread" and "the parent" below mean the coordinating agent session; see [how the change records were written](changes/README.md#how-these-records-were-written).
 
+## Cleanup archive release, 2026-11-17
+
+Dev.97 passed **1,868 tests, zero failures and one skip**, plus both fictional process-evaluation projects and the shared console (`npm run eval`).
+
+- **Manifest:** `a48de1496c9ae1c1397c0dd61cdd2fe76ce4609a70a882280969d8ce0288eda3`.
+- **Payload:** `1e9d64de67d67f093bd0ede86329d3d5f425345717776cf13883f8a667a3b3cc`.
+- **Source:** built from clean commit `37178dbd43e87227076ae8fc9689e4fea833ca59`, with no test files in the payload.
+- **Install check:** the release's own CLI adopted it at the root and under a prefix. `adopt status` was clean and authenticated in both.
+- **Review:** two GPT-6.1 Sol rounds against reproductions on a local install; every reproduced deletion risk is refused.
+
+**Not qualified:**
+- `archive-slim` and `archive-drop` on the second adopter's real archives;
+- archives of hundreds of thousands of files;
+- power loss during a slim (process interruption at every step was tested).
+
 ## Template and documentation release, 2026-11-17
 
 Dev.96 passed **1,836 tests, zero failures and one skip**, plus both fictional process-evaluation projects and the shared console (`npm run eval`).
