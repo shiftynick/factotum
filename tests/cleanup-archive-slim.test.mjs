@@ -67,7 +67,7 @@ test('archive-slim removes only the pnpm paths the globs exclude, keeps the fail
   assert.equal(entry.current.files - entry.slim.files, Object.keys(PNPM).length); assert.equal(entry.current.bytes - entry.slim.bytes, PNPM_BYTES);
   assert.deepEqual([...entry.removed.sample].sort(), ['.next', 'apps/web/node_modules', 'node_modules']);
   assert.equal(entry.current.tarBytes, statSync(join(archive.dir, 'tree.tar')).size);
-  assert.equal(existsSync(join(dirname(archive.dir), `.${basename(archive.dir)}.slim`)), false, 'the plan removed its scratch restore');
+  assert.equal(existsSync(join(dirname(archive.dir), `.${basename(archive.dir)}.scratch`)), false, 'the plan removed its scratch restore');
   await assert.rejects(slim(f, { flowIds: ['failed-pnpm'] }, plan, { actor: 'orchestrator', onBehalfOf: { principal: 'operator', instruction: 'Slim the archives' } }), /cleanup\.archive-slim is operator only and cannot be delegated/);
   await assert.rejects(slim(f, { flowIds: ['failed-pnpm'] }, plan, { note: ' ' }), /note is required/);
   const done = await slim(f, { flowIds: ['failed-pnpm'] }, plan);
@@ -83,9 +83,9 @@ test('archive-slim removes only the pnpm paths the globs exclude, keeps the fail
   assert.deepEqual(listed.filter(path => /node_modules|\.next/.test(path)), []);
   for (const path of ['./feature.txt', './apps/web/page.js', './staged.txt', './notes.md', './debug.log', './.gitignore']) assert.ok(listed.includes(path), path);
   assert.equal(readFileSync(join(commits, 'kept.bundle'), 'utf8'), 'fictional bundle\n');
-  assert.equal(existsSync(join(dirname(archive.dir), `.${basename(archive.dir)}.slim`)), false);
+  assert.equal(existsSync(join(dirname(archive.dir), `.${basename(archive.dir)}.scratch`)), false);
   // Restore: the commits, the modified, staged and untracked files and the non-matching ignored file.
-  const restored = restoreFlowArchive(f.stateDir, 'failed-pnpm', join(f.base, 'restored')), target = restored.target;
+  const restored = await restoreFlowArchive(f.stateDir, 'failed-pnpm', join(f.base, 'restored')), target = restored.target;
   assert.equal(restored.head, archive.head);
   assert.equal(git(target, ['log', '-1', '--format=%s']), 'Unpublished failed-pnpm');
   assert.equal(readFileSync(join(target, 'apps/web/page.js'), 'utf8'), 'export default 2;\n');
@@ -118,34 +118,59 @@ test('apply is bound to the plan digest: changed globs or selection are refused,
   await assert.rejects(archiveSlimPlan(f.stateDir, { all: true }), /no cleanup.excludeIgnored globs/);
 });
 
-test('an interrupted apply leaves a valid archive, and the next plan and apply roll it back or finish it', async t => {
-  const f = monorepo(t), archive = await oversizedArchive(f, 'failed-pnpm'), oldRow = f.store.need('cleanup', 'failed-pnpm');
+test('leftovers of an interrupted apply are recovered without any restore, then the archive is slimmed', async t => {
+  const f = monorepo(t), archive = await oversizedArchive(f, 'failed-pnpm'), oldRow = f.store.need('cleanup', 'failed-pnpm'), selection = { flowIds: ['failed-pnpm'] };
   commission(f);
-  const scratch = join(dirname(archive.dir), `.${basename(archive.dir)}.slim`);
-  // Interrupted before the commit: a partial new tar, a new manifest and the scratch restore are left.
+  const scratch = join(dirname(archive.dir), `.${basename(archive.dir)}.scratch`);
+  // Left before the commit: a new tar, a new manifest and a scratch restore.
   writeFileSync(join(archive.dir, 'tree-0123456789abcdef.tar'), 'partial'); writeFileSync(join(archive.dir, 'manifest.slim.json'), '{"partial":');
-  mkdirSync(join(scratch, 'restore'), { recursive: true });
-  assert.equal(restoreFlowArchive(f.stateDir, 'failed-pnpm', join(f.base, 'before')).head, archive.head, 'the old archive is still valid');
-  const rollBack = await archiveSlimPlan(f.stateDir, { flowIds: ['failed-pnpm'] });
-  assert.deepEqual(rollBack.entries[0].pending, { strays: ['manifest.slim.json', 'tree-0123456789abcdef.tar'], record: false });
+  mkdirSync(join(scratch, 'restore'), { recursive: true }); writeFileSync(join(scratch, 'restore', 'marker'), 'stale');
+  assert.equal((await restoreFlowArchive(f.stateDir, 'failed-pnpm', join(f.base, 'before'))).head, archive.head, 'the old archive is still valid');
+  const rollBack = await archiveSlimPlan(f.stateDir, selection);
+  assert.equal(rollBack.recovery, true); assert.deepEqual(rollBack.entries.map(entry => [entry.action, entry.pending]), [['recover', { strays: ['manifest.slim.json', 'tree-0123456789abcdef.tar'], record: false }]]);
+  assert.ok(existsSync(join(scratch, 'restore', 'marker')), 'a recovery plan restores nothing (it did not even replace the scratch directory)');
+  const recovered = await slim(f, selection, rollBack);
+  assert.equal(recovered.status, 'recovered'); assert.equal(existsSync(scratch), false);
+  assert.deepEqual(readdirSync(archive.dir).sort(), ['history.bundle', 'index', 'index-objects.pack', 'manifest.json', 'tree.tar']);
   const oldTar = join(f.base, 'old-tree.tar'); copyFileSync(join(archive.dir, 'tree.tar'), oldTar);
-  await slim(f, { flowIds: ['failed-pnpm'] }, rollBack);
+  await slim(f, selection, await archiveSlimPlan(f.stateDir, selection));
   const manifest = JSON.parse(readFileSync(join(archive.dir, 'manifest.json'), 'utf8'));
   assert.deepEqual(readdirSync(archive.dir).sort(), ['history.bundle', 'index', 'index-objects.pack', 'manifest.json', manifest.treeFile].sort());
-  assert.equal(existsSync(scratch), false);
-  // Interrupted after the commit, before the record and the old tar's removal.
+  // Left after the commit: the old tar, and a store record still naming the old manifest.
   const newRow = f.store.need('cleanup', 'failed-pnpm');
   copyFileSync(oldTar, join(archive.dir, 'tree.tar')); f.store.put('cleanup', oldRow);
-  assert.equal(restoreFlowArchive(f.stateDir, 'failed-pnpm', join(f.base, 'between')).head, archive.head, 'the new archive is already valid');
-  const finish = await archiveSlimPlan(f.stateDir, { flowIds: ['failed-pnpm'] });
-  assert.deepEqual(finish.entries[0].pending, { strays: ['tree.tar'], record: true }); assert.equal(finish.entries[0].action, 'nothing to remove');
-  const done = await slim(f, { flowIds: ['failed-pnpm'] }, finish);
+  assert.equal((await restoreFlowArchive(f.stateDir, 'failed-pnpm', join(f.base, 'between'))).head, archive.head, 'the new archive is already valid');
+  const finish = await archiveSlimPlan(f.stateDir, selection);
+  assert.deepEqual(finish.entries[0].pending, { strays: ['tree.tar'], record: true });
+  const done = await slim(f, selection, finish);
   assert.equal(done.slimmed[0].recovered, true); assert.equal(done.slimmed[0].newManifestDigest, manifest.manifestDigest);
   assert.equal(f.store.need('cleanup', 'failed-pnpm').archive.manifestDigest, newRow.archive.manifestDigest);
   assert.equal(existsSync(join(archive.dir, 'tree.tar')), false);
+  assert.deepEqual((await archiveSlimPlan(f.stateDir, selection)).entries, []);
   // A manifest that is neither the recorded one nor its direct successor is refused.
   f.store.put('cleanup', { ...newRow, archive: { ...newRow.archive, manifestDigest: '0'.repeat(64) } });
-  assert.match((await archiveSlimPlan(f.stateDir, { flowIds: ['failed-pnpm'] })).refused[0].reason, /not the archive the cleanup recorded/);
+  assert.match((await archiveSlimPlan(f.stateDir, selection)).refused[0].reason, /not the archive the cleanup recorded/);
+});
+
+test('an apply stopped at each step leaves a restorable archive and converges on the next runs', async t => {
+  for (const at of ['tar-written', 'manifest-written', 'verified', 'committed', 'recorded']) {
+    const f = monorepo(t), archive = await oversizedArchive(f, 'failed-pnpm'), selection = { flowIds: ['failed-pnpm'] };
+    commission(f);
+    const plan = await archiveSlimPlan(f.stateDir, selection);
+    await assert.rejects(slim(f, selection, plan, { step: name => { if (name === at) throw new Error(`stopped at ${name}`); } }), /stopped at/);
+    assert.equal(existsSync(join(dirname(archive.dir), `.${basename(archive.dir)}.scratch`)), false, `${at}: scratch removed`);
+    const midway = await restoreFlowArchive(f.stateDir, 'failed-pnpm', join(f.base, `midway-${at}`));
+    assert.equal(midway.head, archive.head, `${at}: the archive restores`);
+    assert.equal(readFileSync(join(midway.target, 'notes.md'), 'utf8'), 'untracked notes\n');
+    let rounds = 0;
+    for (let next = await archiveSlimPlan(f.stateDir, selection); next.entries.length; next = await archiveSlimPlan(f.stateDir, selection)) { assert.ok(++rounds <= 2, `${at}: converges`); await slim(f, selection, next); }
+    const manifest = JSON.parse(readFileSync(join(archive.dir, 'manifest.json'), 'utf8'));
+    assert.deepEqual(readdirSync(archive.dir).sort(), ['history.bundle', 'index', 'index-objects.pack', 'manifest.json', manifest.treeFile].sort(), at);
+    assert.equal(f.store.need('cleanup', 'failed-pnpm').archive.manifestDigest, manifest.manifestDigest, at);
+    assert.equal(f.store.events(200).filter(item => item.type === 'cleanup.archive-slimmed').length, 1, `${at}: one slim recorded`);
+    const restored = await restoreFlowArchive(f.stateDir, 'failed-pnpm', join(f.base, `final-${at}`));
+    assert.equal(existsSync(join(restored.target, 'node_modules')), false); assert.equal(readFileSync(join(restored.target, 'debug.log'), 'utf8'), 'ignored, matches no glob\n');
+  }
 });
 
 test('--all slims every archive that holds removable paths under one digest', async t => {
@@ -163,5 +188,5 @@ test('--all slims every archive that holds removable paths under one digest', as
   for (const archive of [a, b]) assert.equal(existsSync(join(archive.dir, 'tree.tar')), false);
   assert.ok(existsSync(join(plain.dir, 'tree.tar')), 'an archive with nothing to remove is left as it is');
   assert.deepEqual(f.store.events(50).find(item => item.type === 'cleanup.archives-slimmed').payload.flows, ['flow-a', 'flow-b']);
-  for (const archive of [a, b]) assert.equal(restoreFlowArchive(f.stateDir, archive.flowId, join(f.base, `restored-${archive.flowId}`)).head, archive.head);
+  for (const archive of [a, b]) assert.equal((await restoreFlowArchive(f.stateDir, archive.flowId, join(f.base, `restored-${archive.flowId}`))).head, archive.head);
 });

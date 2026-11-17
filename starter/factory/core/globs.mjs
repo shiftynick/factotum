@@ -9,8 +9,9 @@
 // node_modules/.pnpm/x. (Node's path.matchesGlob never lets a wildcard match a dot segment, which
 // is why the factory does not use it for these globs.)
 // Options:
-//   extended   also `[abc]`, `[a-z]` and `[!abc]` (one character other than '/'), `{a,b}` (either
-//              alternative; alternatives may hold wildcards and nest) and `\x` (x literally).
+//   extended   also `[abc]`, `[a-z]`, `[a\-z]` and `[!abc]` (one character other than '/'; see
+//              bracket()), `{a,b}` (either alternative; alternatives may hold wildcards and nest)
+//              and `\x` (x literally).
 //              Without it these characters are literal.
 //   directory  a glob ending in `/**` also matches the directory itself: node_modules/** matches
 //              node_modules, and **/node_modules/** matches apps/web/node_modules.
@@ -36,12 +37,39 @@ function alternatives(body) {
   }
   return [...parts, body.slice(start)];
 }
-function classEnd(glob, at) {
+// A bracket class at glob[at] === '['. Returns { end, source }, or null when no ']' closes it (the
+// '[' is then literal). A leading '!' or '^' negates it; a ']' first in it is literal; '\x' is x
+// literally; 'a-b' is a range between two characters, and an unescaped '-' first or last is
+// literal. It never matches '/'. POSIX classes such as [:alpha:] and characters outside the Basic
+// Multilingual Plane are not supported, and neither is a reversed range: those throw, so a glob never
+// matches more than this says.
+function bracket(glob, at) {
   let i = at + 1;
-  if (glob[i] === '!' || glob[i] === '^') i++;
-  if (glob[i] === ']') i++;
-  for (; i < glob.length; i++) if (glob[i] === ']') return i;
-  return -1;
+  const negated = glob[i] === '!' || glob[i] === '^';
+  if (negated) i++;
+  const tokens = [];
+  for (let first = true; ; first = false) {
+    if (i >= glob.length) return null;
+    if (glob[i] === ']' && !first) break;
+    if (glob[i] === '[' && [':', '=', '.'].includes(glob[i + 1])) throw new Error(`unsupported glob syntax in ${glob}: POSIX classes such as [:alpha:] are not supported`);
+    const escaped = glob[i] === '\\';
+    if (escaped && i + 1 >= glob.length) return null;
+    const code = glob.codePointAt(escaped ? i + 1 : i);
+    if (code > 0xffff) throw new Error(`unsupported glob syntax in ${glob}: a character class may hold only characters of the Basic Multilingual Plane`);
+    tokens.push({ code, escaped });
+    i += escaped ? 2 : 1;
+  }
+  const hex = code => `\\u${code.toString(16).padStart(4, '0')}`;
+  let body = '';
+  for (let k = 0; k < tokens.length; k++) {
+    const dash = tokens[k + 1];
+    if (dash && dash.code === 0x2d && !dash.escaped && k + 2 < tokens.length) {
+      const low = tokens[k].code, high = tokens[k + 2].code;
+      if (low > high) throw new Error(`unsupported glob syntax in ${glob}: the range ${String.fromCodePoint(low)}-${String.fromCodePoint(high)} is reversed`);
+      body += `${hex(low)}-${hex(high)}`; k += 2;
+    } else body += hex(tokens[k].code);
+  }
+  return { end: i, source: negated ? `[^/${body}]` : `(?!/)[${body}]` };
 }
 
 function source(glob, extended) {
@@ -53,12 +81,8 @@ function source(glob, extended) {
       else out += '[^/]*';
     } else if (char === '?') out += '[^/]';
     else if (extended && char === '\\' && at + 1 < glob.length) out += literal(glob[++at]);
-    else if (extended && char === '[' && classEnd(glob, at) > 0) {
-      const end = classEnd(glob, at), negated = glob[at + 1] === '!' || glob[at + 1] === '^';
-      const body = glob.slice(at + (negated ? 2 : 1), end).replace(/[\\\]^[]/g, '\\$&');
-      out += negated ? `[^/${body}]` : `(?!/)[${body}]`;
-      at = end;
-    } else if (extended && char === '{' && closing(glob, at, '{', '}') > 0) {
+    else if (extended && char === '[' && bracket(glob, at)) { const { end, source: part } = bracket(glob, at); out += part; at = end; }
+    else if (extended && char === '{' && closing(glob, at, '{', '}') > 0) {
       const end = closing(glob, at, '{', '}'), parts = alternatives(glob.slice(at + 1, end));
       if (parts.length < 2) { out += literal(char); continue; }
       out += `(?:${parts.map(part => source(part, extended)).join('|')})`;
@@ -68,6 +92,8 @@ function source(glob, extended) {
   return out;
 }
 
+// Throws when the glob uses syntax the matcher does not support; configuration validation calls it.
+export function assertGlob(glob, { extended = false } = {}) { globToRegExp(glob, { extended }); }
 export function globToRegExp(glob, { extended = false } = {}) {
   return new RegExp(`^${source(glob, extended)}$`, 's');
 }

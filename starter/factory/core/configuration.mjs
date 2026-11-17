@@ -3,6 +3,7 @@ import { validateHandoffSettings } from '../operations/orchestrator-session.mjs'
 import {sourceSettings} from '../operations/source-config.mjs';
 import { assertNoReservedNamespace } from './upkeep-namespace.mjs';
 import { validateUpkeepConfig } from './upkeep-config.mjs';
+import { assertGlob } from './globs.mjs';
 import {lifecycleEnabled} from '../operations/source-adapter.mjs';
 import {validateModelCoauthor} from '../operations/attribution.mjs';
 import { validateMainCheckPolicy } from '../operations/main-checks.mjs';
@@ -139,6 +140,7 @@ export function validateConfig(input = {}) {
   assert(config.notifications?.stateEvents===undefined||typeof config.notifications.stateEvents==='boolean','notifications.stateEvents must be boolean');
   assert(config.cleanup===undefined||config.cleanup&&typeof config.cleanup==='object'&&Object.keys(config.cleanup).every(key=>['maxArchiveBytes','excludeIgnored'].includes(key))&&(config.cleanup.maxArchiveBytes===undefined||Number.isSafeInteger(config.cleanup.maxArchiveBytes)&&config.cleanup.maxArchiveBytes>0),'cleanup supports a positive maxArchiveBytes and excludeIgnored');
   assert(config.cleanup?.excludeIgnored===undefined||Array.isArray(config.cleanup.excludeIgnored)&&config.cleanup.excludeIgnored.length<=64&&config.cleanup.excludeIgnored.every(pattern=>typeof pattern==='string'&&pattern&&!pattern.startsWith('/')&&!pattern.split('/').includes('..')&&!pattern.includes('\0')),'cleanup.excludeIgnored must be a list of relative globs');
+  for (const pattern of config.cleanup?.excludeIgnored ?? []) { try { assertGlob(pattern, { extended: true }); } catch (error) { throw new Error(`cleanup.excludeIgnored: ${error.message}`); } }
   validatePricing(config.stats); validatePreview(config.preview);
   // Each workspace.setup command's limit (adapters/workspace prepare); 30 minutes when absent.
   assert(config.workspace?.setupTimeoutMs===undefined||Number.isSafeInteger(config.workspace.setupTimeoutMs)&&config.workspace.setupTimeoutMs>0&&config.workspace.setupTimeoutMs<=14_400_000,'workspace.setupTimeoutMs must be a positive number of milliseconds, at most four hours');

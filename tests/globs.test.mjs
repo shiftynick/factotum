@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { matchesGlob } from '../starter/factory/core/globs.mjs';
+import { readFileSync } from 'node:fs';
+import { assertGlob, matchesGlob } from '../starter/factory/core/globs.mjs';
+import { validateConfig } from '../starter/factory/core/configuration.mjs';
 import { matchesExcludeIgnored } from '../starter/factory/operations/workspace-cleanup.mjs';
 
 const check = (cases, options) => {
@@ -66,4 +68,29 @@ test('cleanup.excludeIgnored: dot segments, the directory itself and a collapsed
   for (const path of ['src/index.js', 'apps/web/.next/cache/x', 'node_modulesx/a', '.env'])
     assert.equal(matchesExcludeIgnored(path, globs), false, path);
   assert.equal(matchesExcludeIgnored('node_modules/a', []), false);
+});
+
+test('globs: character classes parse escapes, negation and ] placement, and never match more than written', () => {
+  const options = { extended: true };
+  check([
+    ['[a\\-z]', ['a', '-', 'z'], ['m', 'b', '\\']],
+    ['[a-z]', ['m'], ['A', '-']],
+    ['[\\]]', [']'], ['\\', 'a']],
+    ['[]a]', [']', 'a'], ['b']],
+    ['[!]a]', ['b', '-'], [']', 'a', '/']],
+    ['[^a-c]x', ['dx'], ['bx', '/x']],
+    ['[a-]', ['a', '-'], ['b']],
+    ['[-a]', ['a', '-'], ['b']],
+    ['[\\!a]', ['!', 'a'], ['b']],
+    ['[.-0]', ['.', '0'], ['/']],
+    ['[*?]', ['*', '?'], ['a']],
+    ['a[\\]', ['a[]'], ['a\\', 'a[\\]']],
+  ], options);
+  for (const glob of ['[[:alpha:]]', '[z-a]', '[[=a=]]']) assert.throws(() => assertGlob(glob, options), /unsupported glob syntax/, glob);
+});
+
+test('configuration rejects cleanup.excludeIgnored globs with unsupported class syntax', () => {
+  const template = JSON.parse(readFileSync(new URL('../starter/project/factotum.template.json', import.meta.url), 'utf8'));
+  assert.throws(() => validateConfig({ ...template, cleanup: { excludeIgnored: ['[[:alpha:]]/**'] } }), /cleanup.excludeIgnored: unsupported glob syntax/);
+  assert.equal(validateConfig({ ...template, cleanup: { excludeIgnored: ['[a\\-z]/**'] } }).cleanup.excludeIgnored[0], '[a\\-z]/**');
 });

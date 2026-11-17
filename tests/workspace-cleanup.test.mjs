@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { sandbox } from './helpers.mjs';
 import { prepare } from '../starter/factory/adapters/workspace/index.mjs';
-import { archiveWorkspace, cleanupApply, cleanupPlan, restoreFlowArchive, treeManifest } from '../starter/factory/operations/workspace-cleanup.mjs';
+import { archiveWorkspace, cleanupApply, cleanupPlan, exclusive, restoreArchive, restoreFlowArchive, treeManifest } from '../starter/factory/operations/workspace-cleanup.mjs';
 
 const git = (cwd, args) => execFileSync('git', ['-c', 'core.hooksPath=/dev/null', ...args], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 async function fixture(t, flowId = 'failed-flow') {
@@ -36,7 +36,7 @@ test('archived cleanup preserves committed, staged, unstaged, deleted, untracked
   assert.equal(done.status, 'released');
   assert.equal(existsSync(f.path), false); assert.equal(git(f.root, ['branch', '--list', f.owned.branch]), '');
   assert.ok(f.store.need('flow', f.flowId).workspaceReleased);
-  const restored = restoreFlowArchive(f.stateDir, f.flowId, join(f.base, 'restored'));
+  const restored = await restoreFlowArchive(f.stateDir, f.flowId, join(f.base, 'restored'));
   assert.equal(restored.treeDigest, tree.digest); assert.equal(restored.head, before.head);
   assert.deepEqual(statusOf(restored.target), before);
   assert.equal(readFileSync(join(restored.target, 'cache/deep/blob.bin')).toString('hex'), '000102ff');
@@ -73,7 +73,7 @@ test('a cleanup interrupted after archiving and worktree removal finishes withou
   assert.notEqual(git(f.root, ['branch', '--list', f.owned.branch]), '');
   const done = await cleanupApply(f.stateDir, { flowId: f.flowId, planDigest: 'unused-on-resume', note: 'Finish interrupted cleanup' });
   assert.equal(done.reconciled, true); assert.equal(git(f.root, ['branch', '--list', f.owned.branch]), '');
-  assert.equal(restoreFlowArchive(f.stateDir, f.flowId, join(f.base, 'restored')).treeDigest, plan.treeDigest);
+  assert.equal((await restoreFlowArchive(f.stateDir, f.flowId, join(f.base, 'restored'))).treeDigest, plan.treeDigest);
   rmSync(join(f.base, 'restored'), { recursive: true, force: true });
 });
 
@@ -89,7 +89,7 @@ test('a workspace left mid-merge with conflicts restores its unmerged index stag
   f.store.put('flow', { id: 'conflicted', taskId: f.task.id, state: 'failed', workspace: owned });
   const plan = await cleanupPlan(f.stateDir, 'conflicted');
   await cleanupApply(f.stateDir, { flowId: 'conflicted', planDigest: plan.planDigest, note: 'Failed integration' });
-  const restored = restoreFlowArchive(f.stateDir, 'conflicted', join(f.base, 'restored'));
+  const restored = await restoreFlowArchive(f.stateDir, 'conflicted', join(f.base, 'restored'));
   assert.equal(git(restored.target, ['ls-files', '--stage']), stages);
   assert.match(JSON.parse(readFileSync(join(f.store.need('cleanup', 'conflicted').archiveDir, 'manifest.json'), 'utf8')).inProgress.MERGE_HEAD, /^[a-f\d]{40}/);
   assert.equal(restored.treeDigest, plan.treeDigest);
@@ -107,7 +107,7 @@ test('excludeIgnored leaves out only ignored paths matching a commissioned glob,
   const plan = await cleanupPlan(f.stateDir, 'deps');
   assert.deepEqual(plan.excludeIgnored, ['deps/**']); assert.equal(plan.excludedFiles, 1); assert.equal(plan.excludedBytes, 'reproducible\n'.length);
   await cleanupApply(f.stateDir, { flowId: 'deps', planDigest: plan.planDigest, note: 'Reproducible dependencies left out' });
-  const restored = restoreFlowArchive(f.stateDir, 'deps', join(f.base, 'restored'));
+  const restored = await restoreFlowArchive(f.stateDir, 'deps', join(f.base, 'restored'));
   assert.equal(existsSync(join(restored.target, 'deps/cache/pkg/big.js')), false);
   assert.equal(readFileSync(join(restored.target, 'deps/keep.txt'), 'utf8'), 'untracked but not ignored\n');
   assert.equal(readFileSync(join(restored.target, 'deps/tracked.txt'), 'utf8'), 'edited tracked\n');
@@ -154,7 +154,7 @@ test('excludeIgnored covers pnpm dot paths: the plan excludes them and the tar h
   const manifest = JSON.parse(readFileSync(join(done.archiveDir, 'manifest.json'), 'utf8'));
   for (const directory of ['node_modules', 'apps/web/node_modules', '.next', '.artifacts']) assert.ok(manifest.excluded.some(entry => entry.path === directory && entry.type === 'dir'), directory);
   assert.ok(manifest.excluded.some(entry => entry.path === 'node_modules/left-pad' && entry.type === 'symlink'));
-  const restored = restoreFlowArchive(f.stateDir, 'pnpm', join(f.base, 'restored'));
+  const restored = await restoreFlowArchive(f.stateDir, 'pnpm', join(f.base, 'restored'));
   assert.equal(existsSync(join(restored.target, 'node_modules')), false);
   assert.equal(readFileSync(join(restored.target, 'local.env'), 'utf8'), 'ignored but not reproducible\n');
 });
@@ -173,4 +173,20 @@ test('excludeIgnored never leaves out a tracked or plain untracked file in a mat
   const listed = execFileSync('tar', ['--list', '--file', join(done.archiveDir, 'tree.tar')], { encoding: 'utf8' }).split('\n');
   assert.ok(listed.includes('./node_modules/.patched/fix.js') && listed.includes('./node_modules/.local-note'));
   assert.ok(!listed.some(entry => entry.includes('.pnpm')));
+});
+
+test('cleanup restore holds the archives lock, verifies first, and never leaves a partial target', async t => {
+  const f = await fixture(t), plan = await cleanupPlan(f.stateDir, f.flowId);
+  await cleanupApply(f.stateDir, { flowId: f.flowId, planDigest: plan.planDigest, note: 'Archive before the restore checks' });
+  const unlock = await exclusive(f.project.projectId, 'archives');
+  try { await assert.rejects(restoreFlowArchive(f.stateDir, f.flowId, join(f.base, 'locked')), /another archive operation/); } finally { await unlock(); }
+  assert.equal(existsSync(join(f.base, 'locked')), false);
+  // A restore that fails after extracting the tree removes what it wrote.
+  const dir = f.store.need('cleanup', f.flowId).archiveDir, manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'));
+  writeFileSync(join(dir, 'index-objects.pack'), 'not a pack');
+  assert.throws(() => restoreArchive(dir, join(f.base, 'partial'), manifest));
+  assert.equal(existsSync(join(f.base, 'partial')), false);
+  // cleanup restore checks every payload file before it extracts anything.
+  await assert.rejects(restoreFlowArchive(f.stateDir, f.flowId, join(f.base, 'checked')), /index-objects\.pack does not match its manifest/);
+  assert.equal(existsSync(join(f.base, 'checked')), false);
 });

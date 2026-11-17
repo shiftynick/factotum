@@ -1,10 +1,10 @@
 import { execFileSync } from 'node:child_process';
-import { closeSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, fsyncSync, lstatSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { assert, digest, now, note } from '../core/contracts.mjs';
 import { Store } from '../core/store.mjs';
 import { operatorAuthority, validateOnBehalfOf } from '../core/delegation.mjs';
-import { archiveTreeFile, cleanupArchiveName, exclusive, ignoredExcluder, restoreArchive, sha256File, treeManifest, verifyArchive } from './workspace-cleanup.mjs';
+import { archiveScratch, archiveTreeFile, cleanupArchiveName, exclusive, ignoredExcluder, inspectionRestore, sha256File, treeManifest, verifyArchive } from './workspace-cleanup.mjs';
 
 // cleanup archive-slim: rewrite an existing cleanup archive (a failed or a completed flow's, under
 // archives/failed-workspaces/ or archives/completed-workspaces/) without the paths the project's
@@ -20,16 +20,18 @@ import { archiveTreeFile, cleanupArchiveName, exclusive, ignoredExcluder, restor
 // files, proves a fresh restore of them reproduces the slim tree, then renames manifest.slim.json
 // over manifest.json. That rename is the only commit point: before it the old manifest and tar are
 // untouched and valid; after it the new manifest names the new tar, which is complete. The old
-// tar is removed last. Anything a run leaves behind (the unused tar, manifest.slim.json, the
-// scratch directory, a store record not yet updated) is listed by the next plan and finished by
-// its apply. Scratch space is a sibling of the archive directory, so it is on the same filesystem.
+// tar is removed last. What a run leaves behind (the unused tar, manifest.slim.json, a store record
+// not yet updated) is found by the next plan without restoring anything; that plan holds only such
+// recoveries, and its apply finishes or rolls them back, so a nearly full disk still converges.
+// Scratch space (archiveScratch) is a sibling of the archive directory, on the same filesystem;
+// a stale one is removed before any restore.
 const ARCHIVE_KINDS = ['failed-workspaces', 'completed-workspaces'];
 const SLIM_MANIFEST = 'manifest.slim.json';
 const STRAY = /^(tree(-[0-9a-f]{16})?\.tar(\.partial)?|manifest\.slim\.json|manifest\.json\.tmp)$/;
 const SAMPLE = 20;
 class Refused extends Error {}
 const refuse = message => { throw new Refused(message); };
-const scratchOf = dir => join(dirname(dir), `.${basename(dir)}.slim`);
+const scratchOf = archiveScratch;
 const syncPath = path => { const fd = openSync(path, 'r'); try { fsyncSync(fd); } finally { closeSync(fd); } };
 
 function readManifest(dir) {
@@ -52,15 +54,11 @@ function locate(store, row) {
   if (!stat?.isDirectory() || stat.isSymbolicLink()) refuse(`the archive directory ${dir} is missing`);
   return { flow, kind, dir };
 }
-// Restore the archive into the scratch directory and work out the slim tree. The caller removes
+// Restore the archive into its scratch directory and work out the slim tree. The caller removes
 // the scratch directory (keep: the restore, for building the new tar).
-function analyse(dir, manifest, globs, scratch) {
-  rmSync(scratch, { recursive: true, force: true }); mkdirSync(scratch, { mode: 0o700 });
-  const restored = join(scratch, 'restore');
-  restoreArchive(dir, restored, manifest);
+function analyse(dir, manifest, globs) {
   // Only the archived tree's own rules: no info/exclude from a template, no global excludes file.
-  mkdirSync(join(restored, '.git', 'info'), { recursive: true }); writeFileSync(join(restored, '.git', 'info', 'exclude'), '');
-  execFileSync('git', ['config', 'core.excludesFile', '/dev/null'], { cwd: restored, stdio: 'ignore' });
+  const restored = inspectionRestore(dir, manifest);
   const full = treeManifest(restored);
   if (full.digest !== manifest.treeDigest || full.special.length) refuse(`${dir} does not restore to the tree its manifest records`);
   return { restored, tree: split(full, ignoredExcluder(restored, globs)) };
@@ -79,8 +77,9 @@ function split(full, exclude) {
 }
 const removedRoots = excluded => { const paths = new Set(excluded.map(entry => entry.path)); return excluded.filter(entry => !entry.path.includes('/') || !paths.has(entry.path.slice(0, entry.path.lastIndexOf('/')))).map(entry => entry.path); };
 
-// One archive: what slimming it would do, and anything an earlier run left to finish.
-function entryFor(store, flowId, globs, { keep = false } = {}) {
+// One archive, without restoring it: where it is, its manifest, and anything an earlier run left
+// to finish (stray files, a store record behind a committed manifest).
+function inspectArchive(store, flowId, globs) {
   const row = store.get('cleanup', flowId);
   if (!row?.archive || !row.archiveDir) refuse('no cleanup archive is recorded for this flow');
   if (row.archiveDrop) refuse(`its archive was dropped (cleanup archive-drop, ${row.archiveDrop.status})`);
@@ -93,10 +92,14 @@ function entryFor(store, flowId, globs, { keep = false } = {}) {
   // A stale scratch directory is only scratch: the analysis below replaces it, so it is not listed.
   const finish = { strays: strays(dir, manifest), record: recordPending };
   const pending = finish.strays.length || finish.record ? finish : null;
-  const base = { flowId, flowState: flow.state, kind, dir, manifestDigest: manifest.manifestDigest, globs, ...(pending ? { pending } : {}) };
+  return { manifest, scratch, base: { flowId, flowState: flow.state, kind, dir, manifestDigest: manifest.manifestDigest, globs, ...(pending ? { pending } : {}) } };
+}
+// What slimming one archive would do (it restores the archive into scratch space).
+function entryFor(store, flowId, globs, { keep = false } = {}) {
+  const { manifest, scratch, base } = inspectArchive(store, flowId, globs), { dir } = base;
   const tarBytes = statSync(join(dir, archiveTreeFile(manifest))).size;
   try {
-    const analysis = analyse(dir, manifest, globs, scratch);
+    const analysis = analyse(dir, manifest, globs);
     const { tree } = analysis, roots = removedRoots(tree.excluded);
     const removedFiles = tree.excluded.filter(entry => entry.type === 'file').length;
     const entry = !tree.excluded.length ? { ...base, action: 'nothing to remove' } : {
@@ -118,10 +121,22 @@ async function planArchiveSlim(store, { flowIds = [], all = false }) {
   assert(globs.length, 'the project commissions no cleanup.excludeIgnored globs, so there is nothing to remove');
   const rows = store.all('cleanup').filter(row => row.archive && !row.archiveDrop);
   const selected = [...new Set([...flowIds, ...(all ? rows.map(row => row.id) : [])])].sort();
-  const entries = [], unchanged = [], refused = [];
-  for (const flowId of selected) {
-    try { const { entry } = entryFor(store, flowId, globs); (entry.action === 'slim' || entry.pending ? entries : unchanged).push(entry); }
-    catch (error) { if (!(error instanceof Refused)) throw error; refused.push({ flowId, reason: error.message }); }
+  const entries = [], unchanged = [], refused = [], inspected = [];
+  const attempt = (flowId, fn) => { try { return fn(); } catch (error) { if (!(error instanceof Refused)) throw error; refused.push({ flowId, reason: error.message }); return null; } };
+  // First, without restoring anything: anything an interrupted run left. Recovering it needs no
+  // restore and frees its space, so a plan that holds any recovery holds only recoveries; plan
+  // again after applying it. A nearly full disk can always get this far.
+  for (const flowId of selected) { const found = attempt(flowId, () => inspectArchive(store, flowId, globs)); if (found) inspected.push(found); }
+  const recovery = inspected.filter(found => found.base.pending).map(found => ({ ...found.base, action: 'recover' }));
+  if (recovery.length) {
+    const bound = { selection: { ids: [...new Set(flowIds)].sort(), all }, globs, recovery: true, entries: recovery, refused };
+    return { ...bound, unchanged: [], archives: 0, bytesFreed: 0, note: 'An earlier archive-slim was interrupted. Apply this plan to finish or roll back what it left (no restore is needed), then plan again.', planDigest: digest(bound) };
+  }
+  // Stale scratch directories go before any restore, to free their space first.
+  for (const found of inspected) rmSync(found.scratch, { recursive: true, force: true });
+  for (const { base } of inspected) {
+    const result = attempt(base.flowId, () => entryFor(store, base.flowId, globs));
+    if (result) (result.entry.action === 'slim' ? entries : unchanged).push(result.entry);
   }
   const bound = { selection: { ids: [...new Set(flowIds)].sort(), all }, globs, entries, unchanged: unchanged.map(entry => ({ flowId: entry.flowId, manifestDigest: entry.manifestDigest })), refused };
   return {
@@ -166,7 +181,7 @@ function record(store, flowId, dir, manifest, { actor, note: reason, planDigest,
   });
   return event;
 }
-function slimOne(store, planned, { actor, note: reason, planDigest, globs }) {
+function slimOne(store, planned, { actor, note: reason, planDigest, globs, step }) {
   const { entry, analysis, manifest } = entryFor(store, planned.flowId, globs, { keep: true });
   const { dir } = entry, scratch = scratchOf(dir);
   try {
@@ -179,24 +194,30 @@ function slimOne(store, planned, { actor, note: reason, planDigest, globs }) {
     const treeSha = sha256File(partial), treeFile = `tree-${treeSha.slice(0, 16)}.tar`;
     assert(treeFile !== oldTree, 'the slim tar is identical to the current one');
     syncPath(partial); renameSync(partial, join(dir, treeFile));
+    step('tar-written');
     // 2. The new manifest: removed entries listed like excluded ones, and where it came from.
     const { manifestDigest: oldDigest, ...body } = manifest, removedFiles = tree.excluded.filter(e => e.type === 'file').length;
     const slimmedFrom = { manifestDigest: oldDigest, treeFile: oldTree, treeDigest: manifest.treeDigest, globs, excludedBefore: (manifest.excluded ?? []).length, removedEntries: tree.excluded.length, removedFiles, removedBytes: tree.excludedBytes, at: now(), actor, note: reason, planDigest, ...(manifest.slimmedFrom ? { previous: manifest.slimmedFrom } : {}) };
     const next = { ...body, treeDigest: tree.digest, treeFile, excluded: [...(manifest.excluded ?? []), ...tree.excluded], files: { ...manifest.files, tree: treeSha }, slimmedFrom };
     const written = { ...next, manifestDigest: digest(next) };
     writeFileSync(join(dir, SLIM_MANIFEST), JSON.stringify(written, null, 2)); syncPath(join(dir, SLIM_MANIFEST)); syncPath(dir);
+    step('manifest-written');
     // 3. Prove a fresh restore of the new archive reproduces the slim tree and the same index.
     verifyArchive(dir, written, { scratch: join(scratch, 'verify') });
     rmSync(scratch, { recursive: true, force: true });
+    step('verified');
     // 4. Commit: the new manifest replaces the old one in one rename. Then record, then remove the old tar.
     renameSync(join(dir, SLIM_MANIFEST), join(dir, 'manifest.json')); syncPath(dir);
+    step('committed');
     const event = record(store, planned.flowId, dir, written, { actor, note: reason, planDigest, oldTarBytes });
+    step('recorded');
     rmSync(join(dir, oldTree), { force: true }); syncPath(dir);
     return event;
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 }
 
-export async function archiveSlimApply(stateDir, { flowIds = [], all = false, planDigest, note: reason, actor = 'operator', onBehalfOf }) {
+// step: tests only; called at each boundary of an archive's slim, so a test can stop apply there.
+export async function archiveSlimApply(stateDir, { flowIds = [], all = false, planDigest, note: reason, actor = 'operator', onBehalfOf, step = () => {} }) {
   validateOnBehalfOf(onBehalfOf, actor);
   const store = new Store(stateDir);
   try {
@@ -209,14 +230,12 @@ export async function archiveSlimApply(stateDir, { flowIds = [], all = false, pl
       assert(plan.planDigest === planDigest, 'the archives, the globs or the selection changed since the archive-slim plan; review a new plan');
       assert(plan.entries.length, 'the plan changes no archive');
       const results = [];
-      for (const planned of plan.entries) {
-        const finished = finishPending(store, planned, { actor, note: reason, planDigest });
-        if (finished) results.push(finished);
-        if (planned.action !== 'slim') continue;
-        // Finishing changes no manifest, so the archive is now exactly as planned, less the pending part.
-        const { pending, ...expected } = planned;
-        results.push(slimOne(store, expected, { actor, note: reason, planDigest, globs: plan.globs }));
+      if (plan.recovery) {
+        for (const planned of plan.entries) { const finished = finishPending(store, planned, { actor, note: reason, planDigest }); results.push(finished ?? { flowId: planned.flowId, recovered: true, tarBytesFreed: null }); }
+        store.event('cleanup.archives-slimmed', { planDigest, recovery: true, flows: results.map(item => item.flowId), actor, note: reason });
+        return { status: 'recovered', planDigest, archives: results.length, slimmed: results, refused: plan.refused, next: 'plan again to slim' };
       }
+      for (const planned of plan.entries) results.push(slimOne(store, planned, { actor, note: reason, planDigest, globs: plan.globs, step }));
       const tarBytesFreed = results.reduce((sum, item) => sum + (item.tarBytesFreed ?? 0), 0);
       store.event('cleanup.archives-slimmed', { planDigest, flows: [...new Set(results.map(item => item.flowId))], tarBytesFreed, globs: plan.globs, actor, note: reason });
       return { status: 'slimmed', planDigest, archives: results.length, tarBytesFreed, slimmed: results, refused: plan.refused };

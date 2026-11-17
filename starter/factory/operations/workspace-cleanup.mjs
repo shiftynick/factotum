@@ -1,10 +1,10 @@
 import { cliCommand } from '../core/install-layout.mjs';
 import { execFileSync } from 'node:child_process';
 import { NO_AUTO_MAINTENANCE, NO_PLANTED_COMMANDS } from '../core/git-options.mjs';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { closeSync, copyFileSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { matchesGlob } from '../core/globs.mjs';
 import { assert, digest, now, note } from '../core/contracts.mjs';
 import { Store } from '../core/store.mjs';
@@ -96,7 +96,9 @@ export async function releaseDeliveredWorkspace({ root, stateDir, config, worksp
   assert(results?.merge?.merged === true || results?.['satisfied-record']?.proven === true, 'proven outcome required before cleanup');
   const remote = config.repository?.remote ?? 'origin';
   target ??= config.repository?.target;
-  await workspaceGit(root, ['fetch', remote, target]);
+  // The exact commit the remote's target points at now: a stale remote-tracking ref (for example
+  // under a custom remote.<name>.fetch) must never stand in for it.
+  const targetHead = await fetchTargetCommit(root, remote, target);
   await guard?.();
   // Operator decision (2026-11-15): normal cleanup still removes ignored files (usually
   // regenerable build output) but records what went, so nothing disappears unseen.
@@ -104,8 +106,20 @@ export async function releaseDeliveredWorkspace({ root, stateDir, config, worksp
   const mergeMethod = results.merge?.mergeMethod ?? config.repository?.mergeMethod ?? 'merge';
   const released = await (results.merge?.merged === true && mergeMethod !== 'merge'
     ? archiveAndRelease({ workspace, archiveDir: join(stateDir, 'archives', 'workspace-commits'), expectedHead: results.merge.expectedHead ?? mergeAuthorization?.identity.head })
-    : release({ workspace, preservation: { mergedInto: `${remote}/${target}` }, dryRun: false }));
+    : release({ workspace, preservation: { mergedInto: targetHead, target: `${remote}/${target}` }, dryRun: false }));
   return ignoredDeleted ? { ...released, ignoredDeleted } : released;
+}
+// Fetch the target branch into a factory-private ref, whatever remote.<name>.fetch maps, and
+// return the exact commit it points at. The ref is removed again; the commit's objects stay.
+export async function fetchTargetCommit(root, remote, target) {
+  assert(typeof target === 'string' && target, 'a target branch is required');
+  const source = target.startsWith('refs/') ? target : `refs/heads/${target}`, ref = `refs/factotum/fetched-targets/${randomUUID()}`;
+  await workspaceGit(root, ['fetch', '--no-tags', '--no-write-fetch-head', remote, `+${source}:${ref}`]);
+  try {
+    const head = (await workspaceGit(root, ['rev-parse', '--verify', `${ref}^{commit}`])).stdout.trim();
+    assert(/^[a-f\d]{40,64}$/i.test(head), `could not resolve the fetched ${remote}/${target}`);
+    return head;
+  } finally { await workspaceGit(root, ['update-ref', '-d', ref], { allowFailure: true }); }
 }
 // Ignored paths (directories collapsed) outside cleanup.excludeIgnored, bounded for evidence.
 const IGNORED_LIST_LIMIT = 100;
@@ -270,10 +284,10 @@ async function planCleanup(store, flowId) {
   }
 }
 
-// A per-project lock: a flow id, or 'archives' for archive-drop and archive-slim.
+// A per-project lock: a flow id, or 'archives' for cleanup restore, archive-drop and archive-slim.
 export async function exclusive(projectId, flowId) {
   const lock = createServer();
-  await new Promise((done, reject) => { lock.once('error', () => reject(new Error(flowId === 'archives' ? 'another archive-drop or archive-slim is running' : 'another cleanup of this flow is running'))); lock.listen(`\0factotum-cleanup-${projectId}-${flowId}`, done); });
+  await new Promise((done, reject) => { lock.once('error', () => reject(new Error(flowId === 'archives' ? 'another archive operation (cleanup restore, archive-drop or archive-slim) is running' : 'another cleanup of this flow is running'))); lock.listen(`\0factotum-cleanup-${projectId}-${flowId}`, done); });
   return () => new Promise(done => lock.close(done));
 }
 
@@ -377,6 +391,11 @@ export function verifyArchive(dir, manifest, { scratch = join(dir, 'verify') } =
 export function restoreArchive(dir, target, manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'))) {
   assert(!existsSync(target), 'restore target must not exist');
   mkdirSync(dirname(target), { recursive: true });
+  // A restore that fails partway leaves nothing behind that could pass for a complete one.
+  try { return restoreInto(dir, target, manifest); }
+  catch (error) { rmSync(target, { recursive: true, force: true }); throw error; }
+}
+function restoreInto(dir, target, manifest) {
   git(dirname(target), ['clone', '--quiet', '--no-checkout', join(dir, 'history.bundle'), target]);
   git(target, ['checkout', '--quiet', '-B', manifest.branch, manifest.head]);
   for (const name of readdirSync(target)) if (name !== '.git') rmSync(join(target, name), { recursive: true, force: true });
@@ -389,11 +408,36 @@ export function restoreArchive(dir, target, manifest = JSON.parse(readFileSync(j
   const excluded = manifest.excluded?.length ?? 0, slimmed = manifest.slimmedFrom ? excluded - (manifest.slimmedFrom.excludedBefore ?? 0) : 0;
   return { target, head: git(target, ['rev-parse', 'HEAD']), treeDigest: treeManifest(target).digest, indexDigest: digest(listing), excluded, ...(excluded ? { note: `${excluded} ignored paths matching cleanup.excludeIgnored (${archiveGlobs(manifest).join(', ')}) are not in this archive${slimmed > 0 ? ` (${slimmed} of them were removed afterwards by cleanup archive-slim)` : ''}; rerun the project's setup step to recreate them. manifest.json lists each with its digest.` } : {}) };
 }
-export function restoreFlowArchive(stateDir, flowId, target) {
+// cleanup restore: under the archives lock (so archive-slim and archive-drop cannot change the
+// archive meanwhile), verify the manifest and every payload file, restore, and require the restored
+// tree to be the one the manifest records. A failed restore removes its partial target.
+export async function restoreFlowArchive(stateDir, flowId, target) {
   const store = new Store(stateDir);
   try {
     const row = store.need('cleanup', flowId); assert(row.archive, 'no archive recorded for this flow');
     assert(!row.archiveDrop, `this flow's archive was dropped by ${row.archiveDrop?.actor} (cleanup archive-drop, ${row.archiveDrop?.status}); nothing is left to restore`);
-    return restoreArchive(row.archiveDir, target);
+    const unlock = await exclusive(store.meta('project').projectId, 'archives');
+    try {
+      assert(!existsSync(target), 'restore target must not exist');
+      const manifest = JSON.parse(readFileSync(join(row.archiveDir, 'manifest.json'), 'utf8')), { manifestDigest, ...body } = manifest;
+      assert(manifestDigest && digest(body) === manifestDigest, 'the archive manifest does not match its own digest');
+      for (const [name, file] of [['bundle', 'history.bundle'], ['tree', archiveTreeFile(manifest)], ['index', 'index'], ['objects', 'index-objects.pack']]) assert(sha256File(join(row.archiveDir, file)) === manifest.files[name], `archive ${file} does not match its manifest`);
+      const restored = restoreArchive(row.archiveDir, target, manifest);
+      if (restored.treeDigest !== manifest.treeDigest) { rmSync(target, { recursive: true, force: true }); throw new Error('the restored working tree differs from the archive manifest; the partial restore was removed'); }
+      return restored;
+    } finally { await unlock(); }
   } finally { store.close(); }
+}
+// Scratch space for restoring an archive to inspect it: a sibling of the archive directory, so on
+// the same filesystem, and never inside it. One archive operation at a time uses it (archives lock).
+export const archiveScratch = dir => join(dirname(dir), `.${basename(dir)}.scratch`);
+// Restore an archive into its scratch directory with only the archived tree's own ignore rules:
+// no info/exclude from a template and no global excludes file. Returns the restored path.
+export function inspectionRestore(dir, manifest) {
+  const scratch = archiveScratch(dir), restored = join(scratch, 'restore');
+  rmSync(scratch, { recursive: true, force: true }); mkdirSync(scratch, { mode: 0o700 });
+  restoreArchive(dir, restored, manifest);
+  mkdirSync(join(restored, '.git', 'info'), { recursive: true }); writeFileSync(join(restored, '.git', 'info', 'exclude'), '');
+  execFileSync('git', ['config', 'core.excludesFile', '/dev/null'], { cwd: restored, stdio: 'ignore' });
+  return restored;
 }

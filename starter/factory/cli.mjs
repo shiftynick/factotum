@@ -227,7 +227,7 @@ async function main() {
       const flowId = required('id');
       if (positionals[1] === 'plan') print(await cleanupPlan(required('state'), flowId));
       else if (positionals[1] === 'apply') print(await cleanupApply(required('state'), { flowId, planDigest: required('digest'), note: required('note'), actor: actor(), ...onBehalfOf() }));
-      else { assert(positionals[1] === 'restore', 'use cleanup plan, apply, restore, archive-drop or archive-slim'); print(restoreFlowArchive(required('state'), flowId, resolve(required('out')))); }
+      else { assert(positionals[1] === 'restore', 'use cleanup plan, apply, restore, archive-drop or archive-slim'); print(await restoreFlowArchive(required('state'), flowId, resolve(required('out')))); }
       break;
     }
     case 'workflow': {

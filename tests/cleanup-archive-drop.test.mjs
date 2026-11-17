@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { sandbox } from './helpers.mjs';
 import { commit, prepare } from '../starter/factory/adapters/workspace/index.mjs';
@@ -14,40 +14,53 @@ const git = (cwd, args) => execFileSync('git', ['-c', 'core.hooksPath=/dev/null'
 const sha256 = path => createHash('sha256').update(readFileSync(path)).digest('hex');
 const ignore = (path, line) => writeFileSync(git(path, ['rev-parse', '--path-format=absolute', '--git-path', 'info/exclude']), `${line}\n`, { flag: 'a' });
 
-// A project with a local bare remote. Each flow below is merged (or squashed) into main on the
-// remote, holds an unsaved ignored file, and is archived and released by cleanup plan/apply.
+// A project with a local bare remote. Each flow below commits a .gitignore for node_modules/ and
+// is merged (or squashed) into main on the remote. Its workspace then holds only an installed
+// dependency store, which no glob covered when it was archived (as on dev.95), so cleanup archived
+// it; afterwards the project commissions node_modules/**, which makes that store reproducible.
+// `unsaved` adds work that exists nowhere else.
+const GLOBS = ['node_modules/**'];
 function project(t) {
   const f = sandbox(t);
   git(f.root, ['branch', '-M', 'main']);
   const remote = join(f.base, 'remote.git');
   git(f.root, ['init', '-q', '--bare', remote]); git(f.root, ['remote', 'add', 'origin', remote]); git(f.root, ['push', '-q', '-u', 'origin', 'main']);
   f.store.setMeta('config', { ...f.store.meta('config', {}), repository: { remote: 'origin', target: 'main', mergeMethod: 'merge' } });
-  return f;
+  return { ...f, remote };
 }
-async function archivedFlow(f, flowId, { method = 'merge', state = 'completed', unmergedCommit = false, commitsBundle = false, tree = () => {} } = {}) {
+async function archivedFlow(f, flowId, { method = 'merge', state = 'completed', unmergedCommit = false, commitsBundle = false, unsaved = false, satisfied = null } = {}) {
   const workspace = await prepare({ root: f.root, stateDir: f.stateDir, projectId: f.project.projectId, flowId, baseRef: 'main' });
   const { head: _base, setupDigest, ...owned } = workspace;
-  writeFileSync(join(workspace.path, `${flowId}.txt`), `Fictional work for ${flowId}\n`);
+  writeFileSync(join(workspace.path, `${flowId}.txt`), `Fictional work for ${flowId}\n`); writeFileSync(join(workspace.path, '.gitignore'), 'node_modules/\n*.log\n');
   let { head } = await commit({ workspace, message: `Fictional ${flowId}` });
-  if (state === 'completed') {
+  if (state === 'completed' && !satisfied) {
     if (method === 'merge') git(f.root, ['merge', '-q', '--no-ff', '-m', `Merge ${flowId}`, workspace.branch]);
     else { git(f.root, ['merge', '-q', '--squash', workspace.branch]); git(f.root, ['commit', '-qm', `Squashed ${flowId}`]); }
     git(f.root, ['push', '-q', 'origin', 'main']);
   }
+  const provedHead = head;
   if (unmergedCommit) { writeFileSync(join(workspace.path, 'later.txt'), 'Committed after the merge\n'); ({ head } = await commit({ workspace, message: 'Fictional later work' })); }
   if (commitsBundle) {
     const dir = join(f.stateDir, 'archives', 'workspace-commits'), bundle = join(dir, `${flowId}.bundle`);
     mkdirSync(dir, { recursive: true }); git(workspace.path, ['bundle', 'create', bundle, workspace.branch]);
     writeFileSync(`${bundle}.json`, JSON.stringify({ version: 1, ownershipDigest: owned.ownershipDigest, head, archivePath: bundle, archiveDigest: sha256(bundle) }));
   }
-  ignore(workspace.path, 'notes.txt'); writeFileSync(join(workspace.path, 'notes.txt'), 'Unsaved fictional notes\n');
-  tree(workspace.path);
-  f.store.put('flow', { id: flowId, taskId: f.task.id, kind: 'change', state, step: 'done', target: 'main', workspace: owned, results: state === 'completed' ? { merge: { merged: true, mergeMethod: method, expectedHead: head } } : {} });
+  mkdirSync(join(workspace.path, 'node_modules/.pnpm/pkg@1.0.0'), { recursive: true }); writeFileSync(join(workspace.path, 'node_modules/.pnpm/pkg@1.0.0/index.js'), 'Reproducible dependency\n');
+  if (unsaved) {
+    writeFileSync(join(workspace.path, `${flowId}.txt`), 'UNSAVED MODIFICATION\n');
+    writeFileSync(join(workspace.path, 'untracked.txt'), 'UNSAVED UNTRACKED\n');
+    writeFileSync(join(workspace.path, 'staged.txt'), 'UNSAVED STAGED\n'); git(workspace.path, ['add', 'staged.txt']);
+    writeFileSync(join(workspace.path, 'debug.log'), 'Ignored, outside the globs\n');
+  }
+  const results = state !== 'completed' ? {} : satisfied ? { 'satisfied-record': { proven: true, head: satisfied === 'later' ? provedHead : head } } : { merge: { merged: true, mergeMethod: method, expectedHead: head } };
+  f.store.put('flow', { id: flowId, taskId: f.task.id, kind: 'change', state, step: 'done', target: 'main', workspace: owned, results });
+  f.store.setMeta('config', { ...f.store.meta('config'), cleanup: { excludeIgnored: [] } });
   const plan = await cleanupPlan(f.stateDir, flowId);
   if (state === 'completed') assert.equal(plan.mode, 'archive');
   const done = await cleanupApply(f.stateDir, { flowId, planDigest: plan.planDigest, note: 'Archive, then release' });
   assert.equal(done.status, 'released');
-  return { flowId, head, archiveDir: done.archiveDir, owned };
+  f.store.setMeta('config', { ...f.store.meta('config'), cleanup: { excludeIgnored: GLOBS } });
+  return { flowId, head, provedHead, archiveDir: done.archiveDir, owned };
 }
 const drop = (f, selection, plan, extra = {}) => archiveDropApply(f.stateDir, { ...selection, planDigest: plan.planDigest, note: 'Reclaim space from merged flows', actor: 'operator', ...extra });
 
@@ -73,7 +86,7 @@ test('archive-drop removes a merged flow\'s verified archive, records it, and ke
   assert.equal(row.archiveDrop.status, 'dropped'); assert.equal(row.archiveDrop.bytesFreed, plan.bytes); assert.equal(row.archiveDrop.actor, 'operator');
   const event = f.store.events(50).find(item => item.type === 'cleanup.archive-dropped');
   assert.deepEqual([event.payload.flowId, event.payload.bytes, event.payload.actor, event.payload.note, event.payload.dirs], ['merged', plan.bytes, 'operator', 'Reclaim space from merged flows', [merged.archiveDir]]);
-  assert.throws(() => restoreFlowArchive(f.stateDir, 'merged', join(f.base, 'restored')), /archive was dropped/);
+  await assert.rejects(restoreFlowArchive(f.stateDir, 'merged', join(f.base, 'restored')), /archive was dropped/);
   const again = await archiveDropPlan(f.stateDir, { flowIds: ['merged'] });
   assert.deepEqual(again.entries, []); assert.match(again.refused[0].reason, /already dropped/);
 });
@@ -91,7 +104,7 @@ test('archive-drop refuses failed flows, unproven merges, unreleased workspaces 
   assert.match(reasons.failed, /only copy of its unsaved work/);
   assert.match(reasons.unproven, /no proven merge/);
   assert.match(reasons.unreleased, /workspace is not released/);
-  assert.match(reasons.later, /is not reachable from the fetched origin\/main/);
+  assert.match(reasons.later, /is not reachable from origin\/main as fetched now/);
   assert.match(reasons.missing, /no such flow/);
   await assert.rejects(drop(f, { flowIds: ['failed'] }, await archiveDropPlan(f.stateDir, { flowIds: ['failed'] })), /drops no archive/);
   assert.ok(existsSync(failed.archiveDir));
@@ -167,4 +180,60 @@ test('a slimmed archive verifies for archive-drop, and a dropped archive cannot 
   await drop(f, { flowIds: ['merged'] }, plan);
   assert.equal(existsSync(merged.archiveDir), false);
   assert.match((await archiveSlimPlan(f.stateDir, { flowIds: ['merged'] })).refused[0].reason, /archive was dropped/);
+});
+
+test('archive-drop refuses an archive that holds work beyond its committed head, and names it', async t => {
+  const f = project(t), flow = await archivedFlow(f, 'unsaved', { unsaved: true });
+  const plan = await archiveDropPlan(f.stateDir, { flowIds: ['unsaved'] });
+  assert.deepEqual(plan.entries, []);
+  const { reason } = plan.refused[0];
+  for (const held of [/1 staged \(staged\.txt\)/, /1 modified or deleted \(unsaved\.txt\)/, /1 untracked \(untracked\.txt\)/, /1 ignored outside cleanup\.excludeIgnored \(debug\.log\)/, /cleanup archive-slim/]) assert.match(reason, held);
+  assert.doesNotMatch(reason, /node_modules/, 'the reproducible store is not unsaved work');
+  await assert.rejects(drop(f, { flowIds: ['unsaved'] }, plan), /drops no archive/);
+  assert.ok(existsSync(join(flow.archiveDir, 'tree.tar')));
+  assert.equal(existsSync(join(dirname(flow.archiveDir), `.${basename(flow.archiveDir)}.scratch`)), false, 'the inspection restore is removed');
+});
+
+test('archive-drop checks the target commit as fetched now, never a stale tracking ref, and binds it', async t => {
+  const f = project(t), flow = await archivedFlow(f, 'merged');
+  const baseline = git(f.root, ['rev-list', '--max-parents=0', 'main']);
+  const plan = await archiveDropPlan(f.stateDir, { flowIds: ['merged'] });
+  assert.equal(plan.entries[0].evidence.targetHead, git(f.remote, ['rev-parse', 'refs/heads/main']));
+  // The remote target moves backwards, and remote.origin.fetch no longer maps it.
+  git(f.root, ['fetch', '-q', 'origin']); const tracking = git(f.root, ['rev-parse', 'refs/remotes/origin/main']);
+  git(f.remote, ['update-ref', 'refs/heads/main', baseline]);
+  git(f.root, ['config', 'remote.origin.fetch', '+refs/heads/other:refs/remotes/origin/other']);
+  await assert.rejects(drop(f, { flowIds: ['merged'] }, plan), /changed since the archive-drop plan/);
+  const stale = await archiveDropPlan(f.stateDir, { flowIds: ['merged'] });
+  assert.deepEqual(stale.entries, []); assert.match(stale.refused[0].reason, new RegExp(`not reachable from origin/main as fetched now \\(${baseline}\\)`));
+  assert.equal(git(f.root, ['rev-parse', 'refs/remotes/origin/main']), tracking, 'the stale tracking ref still holds the merge');
+  assert.ok(existsSync(flow.archiveDir));
+  assert.equal(git(f.root, ['for-each-ref', 'refs/factotum/fetched-targets/']), '', 'no private fetch ref is left behind');
+});
+
+test('a satisfied record excuses only the head it proved', async t => {
+  const f = project(t);
+  await archivedFlow(f, 'satisfied-exact', { satisfied: 'exact' });
+  const later = await archivedFlow(f, 'satisfied-later', { satisfied: 'later', unmergedCommit: true });
+  const plan = await archiveDropPlan(f.stateDir, { flowIds: ['satisfied-exact', 'satisfied-later'] });
+  assert.deepEqual(plan.entries.map(entry => entry.flowId), ['satisfied-exact']);
+  assert.equal(plan.entries[0].evidence.check, 'archived head is the head the satisfied record proved');
+  assert.deepEqual(plan.refused.map(row => row.flowId), ['satisfied-later']);
+  assert.match(plan.refused[0].reason, new RegExp(`proved ${later.provedHead}, and the archived head ${later.head} is not that commit, not reachable from origin/main as fetched now`));
+});
+
+test('a drop stopped at each step converges on the next plan and apply', async t => {
+  for (const at of ['intent-recorded', 'removed']) {
+    const f = project(t), flow = await archivedFlow(f, `stop-${at}`), selection = { flowIds: [flow.flowId] };
+    const plan = await archiveDropPlan(f.stateDir, selection);
+    // Stopped partway through removing (one file gone), or after removing before the record.
+    const step = name => { if (name !== at) return; if (existsSync(flow.archiveDir)) rmSync(join(flow.archiveDir, 'tree.tar')); throw new Error(`stopped at ${name}`); };
+    await assert.rejects(drop(f, selection, plan, { step }), /stopped at/);
+    assert.equal(f.store.need('cleanup', flow.flowId).archiveDrop.status, 'dropping');
+    await assert.rejects(restoreFlowArchive(f.stateDir, flow.flowId, join(f.base, `restored-${at}`)), /archive was dropped/);
+    const next = await archiveDropPlan(f.stateDir, selection);
+    assert.equal(next.entries[0].resume, true, at);
+    await drop(f, selection, next);
+    assert.equal(existsSync(flow.archiveDir), false); assert.equal(f.store.need('cleanup', flow.flowId).archiveDrop.status, 'dropped');
+  }
 });

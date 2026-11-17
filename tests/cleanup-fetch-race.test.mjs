@@ -197,7 +197,7 @@ test('ignored unsaved files are archived by cleanup plan/apply and never removed
   assert.equal(done.status, 'released'); assert.match(done.archiveDir, /completed-workspaces/);
   assert.equal(existsSync(f.workspace.path), false);
   const restored = join(f.base, 'restored');
-  restoreFlowArchive(f.stateDir, f.flowId, restored);
+  await restoreFlowArchive(f.stateDir, f.flowId, restored);
   assert.equal(readFileSync(join(restored, 'private-notes.txt'), 'utf8'), 'Unsaved fictional notes\n');
   assert.equal(f.store.need('obligation', `${f.flowId}:cleanup`).status, 'passed');
 });
@@ -300,4 +300,22 @@ test('post-merge cleanup lists only ignored entries outside excludeIgnored, not 
   const result = await releaseDeliveredWorkspace({ root: project, stateDir, config: { repository: { remote: 'origin', target: 'main' }, cleanup: { excludeIgnored: ['node_modules/**', '**/node_modules/**'] } }, workspace: owned, target: 'main', results: { merge: { merged: true } } });
   assert.equal(existsSync(workspace.path), false);
   assert.deepEqual(result.ignoredDeleted, { count: 1, paths: ['apps/api/debug.log'] });
+});
+
+test('post-merge release checks the target commit as fetched now, never a stale tracking ref', async t => {
+  const root = mkdtempSync(join(tmpdir(), 'factotum-stale-')); t.after(() => rmSync(root, { recursive: true, force: true }));
+  const project = join(root, 'repo'), stateDir = join(root, 'state'); mkdirSync(project); mkdirSync(stateDir);
+  git(project, ['init', '-q']); git(project, ['-c', 'user.name=Fictional', '-c', 'user.email=f@example.invalid', 'commit', '-q', '--allow-empty', '-m', 'Fictional base']);
+  const { workspace, owned, remote } = await delivered(t, { root: project, stateDir });
+  // The tracking ref learns the merge; then the remote target is rewound and no longer mapped.
+  git(project, ['fetch', '-q', 'origin']); const before = git(remote, ['rev-parse', 'refs/heads/main^1']);
+  git(remote, ['update-ref', 'refs/heads/main', before]);
+  git(project, ['config', 'remote.origin.fetch', '+refs/heads/other:refs/remotes/origin/other']);
+  await assert.rejects(releaseDeliveredWorkspace({ root: project, stateDir, config: { repository: { remote: 'origin', target: 'main' } }, workspace: owned, target: 'main', results: { merge: { merged: true } } }), /verified merge or durable archive required/);
+  assert.ok(existsSync(workspace.path), 'the unmerged workspace is kept');
+  assert.equal(git(project, ['for-each-ref', 'refs/factotum/fetched-targets/']), '');
+  // With the target holding the merge again, the release records the exact commit it checked.
+  git(project, ['--git-dir', remote, 'update-ref', 'refs/heads/main', git(project, ['rev-parse', 'refs/remotes/origin/main'])]);
+  const released = await releaseDeliveredWorkspace({ root: project, stateDir, config: { repository: { remote: 'origin', target: 'main' } }, workspace: owned, target: 'main', results: { merge: { merged: true } } });
+  assert.equal(released.preservation.mergedInto, git(remote, ['rev-parse', 'refs/heads/main'])); assert.equal(released.preservation.target, 'origin/main');
 });
