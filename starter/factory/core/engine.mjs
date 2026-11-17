@@ -15,6 +15,7 @@ import { isPlanQuestion, planQuestionItem, planContentDigest } from './plan-ques
 import { isBuildQuestion, buildQuestionItem, recordCarriedQuestions, carriedQuestionsItem, overflowMarker, carriedOverflow } from './worker-questions.mjs';
 import {integrationQuestion} from '../workflows/integrations.mjs';
 import {recordReview,reviewEvidenceAcceptable} from './delivery-review.mjs';
+import { flowReviewBar } from './review-bar.mjs';
 import { effectiveRisk, mergeDecisionRole, strictReviewRequirement, recordRiskAssessment } from './risk.mjs';
 import { repositoryIdentity, repositoryIdentityOffThread, repositoryProbe } from './repository.mjs';
 import { actionSpecification, workingRoot, verifyDecision, verifySatisfiedDecision, followTarget } from '../workflows/actions.mjs';
@@ -22,7 +23,7 @@ import { adoptableResult, assertEvidence, isObservation, nodeContract, ownsStepS
 import { recordRetrospective, auditFindingsInTransaction, recordPushbackInTransaction } from '../operations/index.mjs';
 import { abandonUpkeepFlowInTransaction, closeLinkedTaskInTransaction, expireLapsedGrants, findingTasks, noteUncertainUpkeepFlowInTransaction, settleFlowFindingsInTransaction, supersedeOpenQuestions } from './project.mjs';
 import { UPKEEP_FLOW_DRAIN_STOP, UPKEEP_RETURN_CAUSES, afterProposingRunInTransaction, docsFollowUpEndedInTransaction, followUpPinCheck, noteFollowUpStepInTransaction, returnFollowUpInTransaction, isUpkeepFlowOfTask, tryDocsFollowUpInTransaction, upkeepFlowDecision } from '../operations/upkeep-tasks.mjs';
-import { attemptInvocations } from '../operations/usage-accounting.mjs';
+import { attemptInvocations, upkeepInvocationsOf } from '../operations/usage-accounting.mjs';
 import { requestFollowUpCloseInTransaction } from '../operations/upkeep-pr-close.mjs';
 import { endPresentationsForChange } from './communication.mjs';
 import { OPERATION_BOUNDARY, clearDecisionHold, decisionHolds, holdReason, markDecisionHold } from './decisions.mjs';
@@ -655,6 +656,12 @@ export class Engine {
     // limit never gets here: it is a blocked build and goes to the build question.
     const turnLimit = result?.turnLimit && typeof result.turnLimit === 'object' ? result.turnLimit : null;
     const turnLimitHold = !passed && !aborted && Boolean(turnLimit) && Boolean(contract.role);
+    // A plan review still contradictory after its correction, in a must-fix flow (review-must-fix
+    // design 6.4), stops the flow at plan review the same way: no edge is followed, so no plan is
+    // published and no plan visit is spent, and resume runs a fresh plan review of the same plan. A
+    // must-fix flow exists only in test fixtures until the enabling release; no other flow is held.
+    const protocolFailure = contract.operation === 'provider.planReview' && result?.protocolFailure && typeof result.protocolFailure === 'object' && !Array.isArray(result.protocolFailure) ? result.protocolFailure : null;
+    const protocolHold = !passed && !aborted && Boolean(protocolFailure) && flowReviewBar(flow) === 'must-fix';
     // A failed trusted command carries how it ended and the tail of its output (bounded, sanitised).
     const failure = !contract.operation && !passed && !aborted ? commandFailure(attemptDir(s, attempt), receipt, knownSecrets(s.meta('config', {}))) : null;
     s.tx(() => {
@@ -671,6 +678,16 @@ export class Engine {
       if (failure) { existing.failure = failure; existing.reason ??= failure.summary; existing.notice = commandFailureNotice(failure); }
       if (clean && correctionHold) existing.reason = reviewCorrectionHold ? 'unchanged candidate after review required revision' : 'unchanged candidate after fast checks failed';
       if (turnLimit && contract.role) { existing.classification = 'turn-limit'; existing.turnLimit = turnLimit; existing.reason ??= `provider turn limit: ${turnLimitText(turnLimit)}`; }
+      if (protocolHold) {
+        existing.classification = 'protocol-failure'; existing.protocolFailure = protocolFailure; existing.reason ??= 'plan review protocol failure';
+        // The failed review's strict assessments stay with the flow, so a resume keeps the escalation.
+        // Only an assessment is recorded: no result, no route and no evidence of the failed review.
+        for (const [index, row] of (Array.isArray(protocolFailure.riskAssessments) ? protocolFailure.riskAssessments : []).slice(0, 2).entries()) {
+          if (row?.assessment?.level !== 'strict') continue;
+          recordRiskAssessment(current, contract.binding ?? attempt.step, { identity: row.identity ?? null, result: { riskAssessment: row.assessment } }, `${attempt.id}:protocol-failure-${index + 1}`);
+          s.event('risk.assessed', { flowId, attemptId: attempt.id, step: attempt.step, level: effectiveRisk(s.need('task', current.taskId), current), assessment: row.assessment });
+        }
+      }
       existing.settledAt = now(); existing.outputIdentity = outputIdentity;
       // Knowledge upkeep's maintained invocation totals (design 4.5): while upkeep is not off, the
       // attempt's invocations are added to the day's row here, and the attempt records that it was
@@ -678,7 +695,7 @@ export class Engine {
       countAttemptInvocationsInTransaction(s, existing, current);
       // An upkeep follow-up counts its own model invocations, whatever the mode: at
       // upkeep.budget.maxFlowInvocations it is ended at its next step boundary (6.6, 7.6).
-      if (isUpkeepFlowOfTask(current)) current.upkeepInvocations = (current.upkeepInvocations ?? 0) + attemptInvocations(existing).length;
+      if (isUpkeepFlowOfTask(current)) current.upkeepInvocations = (current.upkeepInvocations ?? 0) + upkeepInvocationsOf(attemptInvocations(existing)).length;
       // Why a commit, integration, publication or merge of a follow-up failed, when that is the target
       // moving under it (stale or base-moved): an ending it causes returns its candidates.
       noteFollowUpStepInTransaction(current, { operation: contract.operation, passed, aborted, actionResult: receipt.actionResult, attemptId: attempt.id });
@@ -686,7 +703,7 @@ export class Engine {
       if (receipt.actionResult) recordAttemptLimits(s, existing, receipt.actionResult, receipt.endedAt);
       let carriedDropped = 0;
       // A turn-limit failure has no result worth keeping: the step's earlier result (a plan, a review) stays as it was.
-      if (result && !turnLimitHold) {
+      if (result && !turnLimitHold && !protocolHold) {
         current.results ??= {};
         if (ownsStepSlot(attempt.step, contract.operation)) current.results[attempt.step] = result;
         if (contract.binding) current.results[contract.binding] = result;
@@ -805,6 +822,13 @@ export class Engine {
       const next = passed ? node.resultEdges?.[result?.route] ?? node.next : aborted ? attempt.step : node.onFailure;
       // The routed outcome rides with the event, so an event list never shows a turn-limited or failed step as passed (dev.86, J3).
       s.event('attempt.settled', { attemptId: attempt.id, passed, ...(existing.outcome ? { outcome: existing.outcome } : {}), costMicros: receipt.costMicros });
+      if (protocolHold) {
+        current.resumeStep = attempt.step;
+        s.event('flow.protocol-failure-held', { flowId, attemptId: attempt.id, step: attempt.step, contradictions: protocolFailure.contradictions ?? null });
+        if (current.stopRequested) s.put('flow', current);
+        else stopFlow(s, current, attemptNotice(existing) || `The plan review returned a contradictory result twice. Resume runs a fresh plan review of step ${attempt.step}.`);
+        return;
+      }
       if (turnLimitHold) {
         current.resumeStep = attempt.step;
         s.event('flow.turn-limit-held', { flowId, attemptId: attempt.id, step: attempt.step, role: turnLimit.role ?? contract.role, provider: turnLimit.provider ?? null, turns: turnLimit.turns ?? null, maxTurns: turnLimit.maxTurns ?? null, costUsd: turnLimit.costUsd ?? null });

@@ -25,6 +25,10 @@ const attest = { fullDiffInspected: true, threatModelReviewed: true, stopConditi
 const finding = (severity, message, extra = {}) => ({ severity, file: 'records.txt', line: 1, message, ...extra });
 // A change review result in today's shape. `extra` may carry must-fix fields for a shadow run.
 export const changeReview = (verdict, findings, { strict = false, prior = [] } = {}) => ({ verdict, summary: `Fictional ${verdict} review`, findings, riskAssessment: strict ? strictAssessment : ordinaryAssessment, strictReview: strict ? attest : { fullDiffInspected: true, threatModelReviewed: false, stopConditionsReviewed: false }, scopeSummary: 'The entire fictional change', priorFindingsDisposition: prior, learningsChecked: [] });
+// The scenarios' task acceptance, and a purpose assessment (must-fix design 5.2) that lists
+// `acceptance` exactly, with every criterion met and no silent wrong answer.
+export const SCENARIO_ACCEPTANCE = Object.freeze(['Each record is read once', 'The reader reports a missing file']);
+export const purposeOf = (acceptance, extra = {}) => ({ outcome: 'met', acceptance: acceptance.map(criterion => ({ criterion, status: 'met', evidence: [] })), silentWrongAnswer: { answer: 'no', how: '', settle: '', evidence: [] }, ...extra });
 const planReview = (verdict, findings, assessment = ordinaryAssessment) => ({ verdict, summary: `Fictional plan ${verdict}`, findings, riskAssessment: assessment });
 
 // The scenarios. Each step names its operation, the scripted results it returns in order and,
@@ -90,7 +94,7 @@ async function runScenario(dir, scenario, options) {
   const baseHead = repositoryIdentity(root).head;
   if (!scenario.satisfied) commit(root, 'records.txt', 'fictional baseline\nfirst candidate\n', 'First candidate');
   const config = { mode: 'rehearsal', repository: { slug: 'fictional/demo', account: 'fictional', target: 'main' }, providers: { planner: { provider: 'codex', model: 'fictional-planner' }, builder: { provider: 'codex', model: 'fictional-builder' }, reviewer: { provider: 'claude', model: 'fictional-reviewer' } }, policy: { reviewProtocol: scenario.protocol, ...scenario.policy, ...options.policy }, context: { files: [], maxChars: 1000 } };
-  const task = { id: 'task-1', title: 'Fictional record reader', outcome: 'Fictional records are read once', acceptance: ['Each record is read once', 'The reader reports a missing file'], risk: scenario.risk, revision: 'r1' };
+  const task = { id: 'task-1', title: 'Fictional record reader', outcome: 'Fictional records are read once', acceptance: [...SCENARIO_ACCEPTANCE], risk: scenario.risk, revision: 'r1' };
   const flow = { taskSnapshot: task, reviewHistory: [], results: { source: { head: baseHead }, plan: { result: { summary: 'Pinned fictional plan', files: ['records.txt'], checks: [], risks: [] } } }, riskAssessments: [], effectiveRisk: scenario.risk === 'strict' ? 'strict' : 'ordinary', reviewProtocol: scenario.protocol, completionMode: scenario.satisfied ? 'already-satisfied' : 'merge' };
   const captured = [];
   for (const [index, step] of scenario.steps.entries()) {

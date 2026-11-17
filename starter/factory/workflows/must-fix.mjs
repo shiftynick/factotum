@@ -1,23 +1,28 @@
-// The must-fix test, slice 1 (docs/designs/review-must-fix.md 4, 5, 11 and 14.2): factory finding
-// ids, citation validation, the derivation of section 4.3 and the shadow route, version v1.
+// The must-fix test (docs/designs/review-must-fix.md 4, 5, 10, 11 and 14.2). Slice 1: factory
+// finding ids, citation validation and the derivation of section 4.3. Slice 2: the purpose block and
+// assessment (10), purpose synthesis (4.3 rule 2), the fail-closed protocol checks (5.4) and the
+// shadow route, version v2.
 //
 // Nothing here routes a flow. A shadow flow's review records what the must-fix bar would have done
 // beside the route today's severity bar took (workflows/dispatch.mjs). A severity flow never calls
-// into this file.
+// into this file. A flow pinned to `must-fix` exists only in test fixtures until the enabling
+// release (core/review-bar.mjs); there the dispatcher acts on the protocol checks.
 //
-// What shadow route v1 can and cannot estimate (design 14.2). It is the per-finding derivation of
-// 4.3 with citation validation, on the review that actually ran, and nothing more: no purpose
-// synthesis (an unmet criterion or a silent wrong answer adds no must-fix finding, so v1 understates
-// blocking), no protocol-failure check, no ledger (earlier findings are not judged, so later-round
+// What shadow route v2 can and cannot estimate (design 14.2). It is the per-finding derivation of
+// 4.3 with citation validation, purpose synthesis (an unmet outcome or criterion, or a silent wrong
+// answer, that no must-fix finding covers adds one) and the protocol checks with their one
+// correction review, on the review that actually ran. It has no ledger (earlier findings are not
+// judged, an omitted judgement and a `fixOf` naming no ledger entry are not checked, and later-round
 // behaviour and the cap are not shown), no confirmation of a reviewer's exclusion (so no exclusion is
-// ever `supported`) and no builder deferral. It is for schema and prompt health only and is never
-// used to decide enabling.
+// ever `supported`) and no builder deferral. It measures the purpose catch rate; it is never used to
+// decide enabling (only v3 may be, 14.2).
 import { digest } from '../core/contracts.mjs';
 import { validateSchema, MUST_FIX_FINDING_SCHEMA } from '../adapters/providers/index.mjs';
 import { MUST_FIX_SCHEMA_VERSION } from '../core/review-bar.mjs';
 
-export const SHADOW_ROUTE_VERSION = 'v1';
+export const SHADOW_ROUTE_VERSION = 'v2';
 export const SHADOW_V1_OMITS = Object.freeze(['purpose-synthesis', 'protocol-failure', 'ledger', 'exclusion-confirmation', 'deferral', 'cap']);
+export const SHADOW_V2_OMITS = Object.freeze(['ledger', 'exclusion-confirmation', 'deferral', 'cap']);
 export const PROTECTED_CLASSES = Object.freeze(['security', 'data-loss', 'spending', 'check-trust']);
 export const CONTRADICTING = Object.freeze(['not-found', 'stale']);
 const KIND_RANK = { 'follow-up': 0, 'operator-item': 1, 'must-fix': 2 };
@@ -29,8 +34,10 @@ const collapse = text => String(text).replace(/\s+/gu, ' ').trim();
 export const findingId = (round, index, prefix = 'R') => `${prefix}${round}.${index + 1}`;
 // Every finding of a flow's review history with its id, derived from the row's position on read, so
 // rows written before ids existed need no migration (5.5). Their findings are `legacy`.
+// A finding's bar is read from the finding itself: a shadow row's derived fields may describe a
+// protocol correction's findings rather than the recorded ones (mustFix.basis).
 export function reviewFindingIds(flow) {
-  return (flow?.reviewHistory ?? []).map((row, position) => ({ round: position + 1, attemptId: row.attemptId ?? null, step: row.step ?? null, findings: (row.result?.findings ?? []).map((finding, index) => ({ id: findingId(position + 1, index), bar: row.mustFix?.findings?.[index]?.bar ?? 'legacy', severity: finding?.severity ?? null, message: finding?.message ?? null })) }));
+  return (flow?.reviewHistory ?? []).map((row, position) => ({ round: position + 1, attemptId: row.attemptId ?? null, step: row.step ?? null, findings: (row.result?.findings ?? []).map((finding, index) => ({ id: findingId(position + 1, index), bar: mustFixShaped(finding) ? 'must-fix' : 'legacy', severity: finding?.severity ?? null, message: finding?.message ?? null })) }));
 }
 
 // A finding in the must-fix shape (5.1). One without it (an old adapter, a scripted provider, a
@@ -136,7 +143,10 @@ export function deriveFinding(finding, context = {}) {
 }
 
 // Rule 2 (10.3): an unmet outcome or criterion, or a possible silent wrong answer, that no must-fix
-// finding covers adds one. `purpose` is the purpose assessment of 5.2 (slice 2); shadow v1 has none.
+// finding covers adds one. `purpose` is the purpose assessment of 5.2. Outcome `partly` or
+// `unverified`, an `unverified` criterion and an `unknown` silent answer name no scenario to fix, so
+// they never start a builder round; they go to the decision guard and the strict acknowledgement
+// list (12.5, 7.4).
 function purposeFindings(purpose, derived) {
   if (!purpose) return [];
   const mustFix = derived.filter(row => row.kind === 'must-fix'), added = [];
@@ -157,8 +167,9 @@ export function deriveReview(findings, { round, prefix = 'R', purpose = null, ..
   return { risk, escalated, findings: derived.map((row, index) => ({ id: findingId(round, index, prefix), ...row })) };
 }
 
-// The route the must-fix bar would have taken on this review (6.1, 7.3), version v1.
-// `review`: { strict, incomplete, bounded, phase, satisfied } as today's routing computed them.
+// The route the must-fix bar would have taken on this review (6.1, 7.3) without the protocol checks:
+// version v1, and the part of v2 after them. `review`: { strict, incomplete, bounded, phase,
+// satisfied } as today's routing computed them.
 export function shadowRouteV1(derived, { strict, incomplete = false, bounded = false, phase = 'full', satisfied = false }) {
   const mustFix = derived.some(row => row.kind === 'must-fix'), items = derived.some(row => row.kind !== 'must-fix');
   const pick = (route, disposition) => ({ route, disposition });
@@ -181,22 +192,99 @@ export function shadowRouteV1(derived, { strict, incomplete = false, bounded = f
 // be an advisory note carried into the build brief.
 export const shadowPlanRouteV1 = derived => derived.some(row => row.kind === 'must-fix') ? { route: 'revise', disposition: 'correct' } : { route: 'pass', disposition: derived.length ? 'accepted-with-plan-notes' : 'accepted' };
 
-// The shadow record of one review: the derived fields of every finding and shadowRoute v1, beside
-// the route the review actually took. `actual` is today's { route, disposition }.
-// `schemaFallback`: 'legacy' when the reviewer's result was valid only against today's schema.
-export function shadowRecord({ derivation, route, actual, verdict, schema = MUST_FIX_SCHEMA_VERSION, round, prefix = 'R', schemaFallback = null }) {
-  const blocking = ['revise', 'adjudicate', 'park'].includes(route.route);
+// Version v2 (14.2): a protocol failure (5.4) comes first, before the legacy fallback, the strict
+// checks and every other route, whatever the review reports. A change review parks; the satisfied
+// review, whose only other route is revise, revises (6.5); a plan review has no park edge, so it
+// stops at plan review without following any edge (6.4), recorded as the route `stop`.
+export function shadowRouteV2(derived, review, { failure = false } = {}) {
+  if (failure) return review.plan ? { route: 'stop', disposition: 'protocol-failure' } : { route: review.satisfied ? 'revise' : 'park', disposition: 'protocol-failure' };
+  return review.plan ? shadowPlanRouteV1(derived) : shadowRouteV1(derived, review);
+}
+
+// The derived fields of one review (5.3), recorded on the review and its history row.
+// `basis`: whose findings were derived, the original result or its protocol correction's.
+// `protocol`: the protocol checks (5.4): the original result's contradictions, the correction
+// review when one ran ({ contradictions } or { error }), and whether it failed.
+export function mustFixRecord({ derivation, schema = MUST_FIX_SCHEMA_VERSION, round, prefix = 'R', schemaFallback = null, basis = 'original', protocol = null, purpose = null }) {
+  return { schema, ...(schemaFallback ? { schemaFallback } : {}), round, idPrefix: prefix, basis, risk: derivation.risk, escalated: derivation.escalated, findings: derivation.findings, counts: Object.fromEntries(['must-fix', 'operator-item', 'follow-up'].map(kind => [kind, derivation.findings.filter(row => row.kind === kind).length])), legacy: derivation.findings.filter(row => row.bar === 'legacy').length, purpose, protocol };
+}
+// The shadow record of one review: the derived fields and shadowRoute v2, beside the route the
+// review actually took. `actual` is today's { route, disposition }.
+export function shadowRecord({ route, actual, verdict, ...fields }) {
+  const blocking = ['revise', 'adjudicate', 'park', 'stop'].includes(route.route);
   return {
-    mustFix: { schema, ...(schemaFallback ? { schemaFallback } : {}), round, idPrefix: prefix, risk: derivation.risk, escalated: derivation.escalated, findings: derivation.findings, counts: Object.fromEntries(['must-fix', 'operator-item', 'follow-up'].map(kind => [kind, derivation.findings.filter(row => row.kind === kind).length])), legacy: derivation.findings.filter(row => row.bar === 'legacy').length },
-    shadowRoute: { version: SHADOW_ROUTE_VERSION, estimate: true, omits: SHADOW_V1_OMITS, route: route.route, disposition: route.disposition, actualRoute: actual.route ?? null, actualDisposition: actual.disposition ?? null, differs: route.route !== actual.route, verdictOverridden: (verdict === 'revise') !== blocking },
+    mustFix: mustFixRecord(fields),
+    shadowRoute: { version: SHADOW_ROUTE_VERSION, estimate: true, omits: SHADOW_V2_OMITS, route: route.route, disposition: route.disposition, actualRoute: actual.route ?? null, actualDisposition: actual.disposition ?? null, differs: route.route !== actual.route, verdictOverridden: (verdict === 'revise') !== blocking },
   };
+}
+
+// ---- Purpose first (10) and the protocol checks (5.4) ----
+
+const quoted = text => JSON.stringify(String(text).length > 160 ? `${String(text).slice(0, 157)}...` : String(text));
+// The contradictions in one result, as factory sentences; empty when it passes every check. A result
+// with no purpose assessment (one valid only against today's schema, 5.5) is contradictory.
+// Checked here: the purpose assessment is present; it lists each acceptance line of the task exactly
+// as often as the task does, and nothing else; a `yes` silent answer comes with at least one finding
+// marked `silent`. An entry matches a criterion by its exact text with surrounding whitespace
+// trimmed, nothing more. Entries that differ only in surrounding whitespace from each other are
+// ambiguous, and so is a trimmed text that names two task lines differing only in surrounding
+// whitespace unless the entry gives one of them exactly. The ledger checks (`fixOf` names a ledger
+// entry, every awaiting entry is judged, a `relevance` for every builder citation) need the ledger
+// and come with it.
+export function protocolContradictions(result, task) {
+  const purpose = result?.purpose;
+  if (!purpose || typeof purpose !== 'object' || !Array.isArray(purpose.acceptance)) return ['the purpose assessment is missing'];
+  const out = [], acceptance = Array.isArray(task?.acceptance) ? task.acceptance : [], listed = purpose.acceptance.map(row => typeof row?.criterion === 'string' ? row.criterion : '');
+  const key = text => String(text).trim(), group = list => { const map = new Map(); for (const text of list) { const k = key(text); map.set(k, [...(map.get(k) ?? []), text]); } return map; };
+  const expected = group(acceptance), found = group(listed);
+  for (const [k, entries] of found) {
+    const forms = new Set(entries), lines = new Set(expected.get(k) ?? []);
+    if (lines.size > 1) { for (const form of forms) if (!lines.has(form)) out.push(`purpose.acceptance lists ${quoted(form)}, which matches ${lines.size} acceptance criteria that differ only in surrounding whitespace`); }
+    else if (forms.size > 1) out.push(`purpose.acceptance lists ${quoted(k)} in ${forms.size} forms that differ only in surrounding whitespace`);
+  }
+  for (const [index, criterion] of acceptance.entries()) {
+    if (acceptance.indexOf(criterion) !== index) continue;
+    // Lines that differ only in whitespace are counted by exact text; any other line by its trimmed text.
+    const exact = new Set(expected.get(key(criterion))).size > 1, want = exact ? acceptance.filter(text => text === criterion).length : expected.get(key(criterion)).length;
+    if (!exact && acceptance.findIndex(text => key(text) === key(criterion)) !== index) continue;
+    const have = exact ? listed.filter(text => text === criterion).length : (found.get(key(criterion)) ?? []).length;
+    if (!have) out.push(`purpose.acceptance omits criterion ${index + 1}, ${quoted(criterion)}`);
+    else if (have !== want) out.push(`purpose.acceptance lists criterion ${index + 1}, ${quoted(criterion)}, ${have} times instead of ${want === 1 ? 'once' : `${want} times`}`);
+  }
+  for (const k of found.keys()) if (!expected.has(k)) out.push(`purpose.acceptance lists ${quoted(found.get(k)[0])}, which is not an acceptance criterion of this task`);
+  if (purpose.silentWrongAnswer?.answer === 'yes' && !(result.findings ?? []).some(finding => finding?.silent === true)) out.push('purpose.silentWrongAnswer is yes, but no finding is marked silent');
+  return out;
+}
+// What the purpose assessment said, kept with the derived fields: whether the task has an outcome
+// (a task without one is labelled, 10.1), the outcome, and the criteria that are not met or not verified.
+export function purposeSummary(result, task) {
+  const purpose = result?.purpose, outcomeRecorded = typeof task?.outcome === 'string' && task.outcome.trim() !== '';
+  if (!purpose || typeof purpose !== 'object') return { outcomeRecorded, assessed: false };
+  const criteria = status => (purpose.acceptance ?? []).filter(row => row?.status === status).map(row => row.criterion);
+  return { outcomeRecorded, assessed: true, outcome: purpose.outcome ?? null, notMet: criteria('not-met'), unverified: criteria('unverified'), silentWrongAnswer: purpose.silentWrongAnswer?.answer ?? null };
+}
+// The correction review's instruction (5.4): the contradiction stated, then a fresh look.
+export const protocolCorrectionPrompt = (contradictions, original) => `\nA previous fresh review returned a result that fails the factory's protocol checks: ${JSON.stringify(contradictions)}. Its result was: ${JSON.stringify(original ?? null)}. Independently re-examine the same work from the start. Answer the purpose questions in full: list every acceptance criterion exactly once, by its exact text, and if a silent wrong answer is possible report at least one finding with silent: true. Do not assume the previous verdict was right.`;
+
+// The purpose block (10.1), put before the material under review so the reviewer answers it first:
+// the outcome verbatim, or a label when the task has none; each criterion, numbered; for a change
+// review, the reviewed plan's summary, checks and risks; and the protected classes. Declared
+// environment facts follow with the must-fix fields. The ledger entries awaiting judgement join it
+// with the ledger.
+export function purposeBlock({ task, plan = null, subject }) {
+  const outcome = typeof task?.outcome === 'string' && task.outcome.trim() ? `Outcome: ${JSON.stringify(task.outcome)}` : 'Outcome: none recorded for this task. Judge the outcome by its title and acceptance criteria.';
+  const criteria = (task?.acceptance ?? []).map((criterion, index) => `${index + 1}. ${JSON.stringify(criterion)}`).join('\n') || '(none)';
+  const reviewed = subject === 'change' ? `\nReviewed plan: ${JSON.stringify({ summary: plan?.summary ?? null, checks: plan?.checks ?? [], risks: plan?.risks ?? [] })}` : '';
+  return `Purpose first. Answer these two questions in purpose before you look for defects.\n${outcome}\nAcceptance criteria:\n${criteria}${reviewed}\nProtected classes: security (access control, authentication, secrets, trust boundaries, injection), data-loss (loss or corruption of saved data, destructive operations, migrations that cannot be undone), spending (money or metered usage spent without authority or beyond a limit), check-trust (anything that can make a check, a review or other evidence report a pass that is not true, or attach evidence to the wrong candidate).\n1. Does ${subject === 'plan' ? 'the plan, once built, do' : 'the change do'} what its task says? Report purpose.outcome (met, partly, not-met or unverified) and purpose.acceptance: one entry for each criterion above, exactly once, with its exact text (without the number), a status (met, not-met or unverified) and up to 4 evidence citations. unverified is honest when you cannot run code.\n2. Can it give a wrong answer silently? Report purpose.silentWrongAnswer: answer no; yes, with how, and then report at least one finding with silent: true; or unknown, with settle saying what would settle it; and up to 4 evidence citations. The usual forms: a check that passes without running what it claims to, results attached to the wrong candidate or head, stale inputs read as current, an error swallowed into a default value, a fallback that hides a failure.`;
 }
 
 // The must-fix questions a shadow review is asked (5.1, 11), appended to today's prompt, which is
 // otherwise unchanged. `records`: this flow's records a reviewer may cite, as citationStatus reads them.
-export function mustFixGuidance({ subject, facts = [], records = [] }) {
+// `enforced`: a must-fix flow (test fixtures only until the enabling release), where they are acted on.
+export function mustFixGuidance({ subject, facts = [], records = [], enforced = false }) {
   const where = subject === 'plan' ? 'the current code' : 'the reviewed candidate';
-  return `\nMust-fix fields (a shadow trial: they are recorded beside this review and do not change how it is routed; keep verdict, severity and every other field exactly as you would without them). For every finding also report: scenario, the concrete inputs, environment and state, the path taken and the wrong result; reachable, with status shown (cited evidence shows the scenario can happen in this project's real setup), unknown (you cannot tell) or not-here (evidence shows it cannot happen here), up to 4 evidence citations, and coverage, how the evidence taken together covers the complete scenario; purposeImpact: outcome (it breaks what the task is for), security, data-loss, spending or check-trust (anything that can make a check, review or other evidence report a pass that is not true, or attach evidence to the wrong candidate), or none; silent: true when the wrong result comes with no error and no failing check; origin: new-code, in-fix (in code an earlier round's fix added) or missed (in code an earlier round reviewed without reporting it); fixOf: null. Each citation has kind, ref, quote, head, check, result and covers (which part of the scenario it covers, and how). file: ref is a repository path and quote the exact text it relies on, at ${where}. environment: ref is the id of a declared environment fact. record: ref is the id of one of this flow's records, with head, check and result exactly as recorded. reasoning: ref "-". Unused values are null, or "" for quote. The factory checks every citation: a quote not in the file, or a record for another candidate, contradicts the claim, and shown without a validated citation is read as unknown. A citation that exists does not by itself show that it covers the scenario. Declared environment facts: ${JSON.stringify(facts)}. Records of this flow: ${JSON.stringify(records)}.`;
+  const trial = enforced ? 'the factory derives from them which findings must be fixed, and checks the purpose assessment: a result that contradicts itself is reviewed again, and a second contradiction stops for the operator' : 'a shadow trial: they are recorded beside this review and do not change how it is routed; keep verdict, severity and every other field exactly as you would without them';
+  return `\nMust-fix fields (${trial}). For every finding also report: scenario, the concrete inputs, environment and state, the path taken and the wrong result; reachable, with status shown (cited evidence shows the scenario can happen in this project's real setup), unknown (you cannot tell) or not-here (evidence shows it cannot happen here), up to 4 evidence citations, and coverage, how the evidence taken together covers the complete scenario; purposeImpact: outcome (it breaks what the task is for), security, data-loss, spending or check-trust (anything that can make a check, review or other evidence report a pass that is not true, or attach evidence to the wrong candidate), or none; silent: true when the wrong result comes with no error and no failing check; origin: new-code, in-fix (in code an earlier round's fix added) or missed (in code an earlier round reviewed without reporting it); fixOf: null. Each citation has kind, ref, quote, head, check, result and covers (which part of the scenario it covers, and how). file: ref is a repository path and quote the exact text it relies on, at ${where}. environment: ref is the id of a declared environment fact. record: ref is the id of one of this flow's records, with head, check and result exactly as recorded. reasoning: ref "-". Unused values are null, or "" for quote. The factory checks every citation: a quote not in the file, or a record for another candidate, contradicts the claim, and shown without a validated citation is read as unknown. A citation that exists does not by itself show that it covers the scenario. Declared environment facts: ${JSON.stringify(facts)}. Records of this flow: ${JSON.stringify(records)}.`;
 }
 
 // The records of a flow a shadow review may cite (11.2): its settled attempts, newest last, each

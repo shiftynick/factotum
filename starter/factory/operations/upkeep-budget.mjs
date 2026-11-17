@@ -16,7 +16,7 @@
 import { assert, id } from '../core/contracts.mjs';
 import { isUpkeepFlow, upkeepMode } from '../core/upkeep-config.mjs';
 import { hasUpkeepMarker } from '../core/upkeep-namespace.mjs';
-import { attemptInvocations, projectUsage } from './usage-accounting.mjs';
+import { attemptInvocations, projectUsage, upkeepInvocationsOf } from './usage-accounting.mjs';
 import { addToUpkeepDayInTransaction, putUpkeepRunInTransaction, upkeepDay, upkeepDayId, upkeepRun } from './upkeep-records.mjs';
 
 const iso = ms => new Date(ms).toISOString();
@@ -79,8 +79,10 @@ export const upkeepAttributed = flow => isUpkeepFlow(flow) || hasUpkeepMarker(fl
 // upkeep off nothing is read or written beyond the configuration in hand.
 export function countAttemptInvocationsInTransaction(store, attempt, flow, { config = store.meta('config', {}), nowMs = Date.now() } = {}) {
   if (attempt.invocationsCounted || upkeepMode(config) === 'off') return null;
-  const count = attemptInvocations(attempt).length, upkeep = upkeepAttributed(flow), day = upkeepDayId(nowMs);
-  attempt.invocationsCounted = { day, count, upkeep };
-  if (count) addToUpkeepDayInTransaction(store, day, { counters: { invocations: count, ...(upkeep ? { upkeepInvocations: count } : {}) } });
+  // A shadow review's correction call counts as an invocation, never as upkeep's (usage-accounting.mjs).
+  const invocations = attemptInvocations(attempt), count = invocations.length, upkeep = upkeepAttributed(flow), day = upkeepDayId(nowMs);
+  const upkeepCount = upkeep ? upkeepInvocationsOf(invocations).length : 0;
+  attempt.invocationsCounted = { day, count, upkeep, ...(upkeep && upkeepCount !== count ? { upkeepCount } : {}) };
+  if (count) addToUpkeepDayInTransaction(store, day, { counters: { invocations: count, ...(upkeepCount ? { upkeepInvocations: upkeepCount } : {}) } });
   return attempt.invocationsCounted;
 }
