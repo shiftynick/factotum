@@ -70,7 +70,9 @@ test('I5d: references to the Factotum reference name docs and headings that exis
 
 const TEMPLATES = ['starter/project/integrations/t3-notifications.example.md', 'starter/project/integrations/t3-triage.example.md'];
 const NOTE = /<!-- template note: start -->\n[\s\S]*?<!-- template note: end -->\n\n?/;
-const OPTIONAL = /<!-- optional: ([a-z-]+) -->\n([\s\S]*?)<!-- end optional -->\n/g;
+// An optional block runs from its marker line through the next end marker line; markers may be
+// indented to sit inside a list item, and a section may have several blocks (dev.96).
+const OPTIONAL = /^[ \t]*<!-- optional: ([a-z-]+) -->\n([\s\S]*?)^[ \t]*<!-- end optional -->\n/gm;
 const PLACEHOLDER = /\[\[([a-z0-9]+(?:-[a-z0-9]+)*)\]\]/g;
 // The text left in a project's copy: the note deleted, each optional section kept or deleted, the markers removed.
 function fill(text, keep) {
@@ -86,7 +88,7 @@ for (const path of TEMPLATES) {
     assert.ok(used.size >= 5, `placeholders used: ${[...used]}`);
     assert.deepEqual([...used].filter(name => !listed.has(name)), [], 'every placeholder used is listed, so filling in the list replaces them all');
     assert.deepEqual([...listed].filter(name => !used.has(name)), [], 'every listed placeholder is used');
-    const sections = [...text.matchAll(OPTIONAL)].map(match => match[1]);
+    const sections = new Set([...text.matchAll(OPTIONAL)].map(match => match[1]));
     for (const name of sections) assert.match(note, new RegExp(`\`optional: ${name}\``), `the note says when to keep ${name}`);
     for (const keep of [() => true, () => false]) {
       const copy = fill(text, keep);
@@ -104,12 +106,54 @@ for (const path of TEMPLATES) {
   });
 }
 
+// dev.96: an adopter with no triage proxy and no ask route deleted those sections as the note says,
+// and about eight references to them were left behind (the TRIAGE shorthand, "After binding",
+// "Standing down and resuming", the proxy keys of the state file, the ask-prompt exception, the
+// handoff's presentation step). Every reference now sits in a block of its section. Delete each
+// section by the note's own rule, one at a time and all at once, and check that nothing left names
+// the deleted material: the headings, bold lead terms and shorthands defined in its blocks, and the
+// words that only that material uses.
+const SECTION_TERMS = {
+  'triage-proxy': [/proxy/i, /triage/i, /\bTRIAGE\b/, /forward/i, /After binding/, /Standing down/i, /stood down/i, /triage(?:Timer|Digest)/],
+  'ask-prompt': [/ask prompt/i, /\bask presentations?\b/i, /presentation/i, /inbox\.(?:un)?present\b/, /when-to-ask/],
+  'issue-mirrors': [/mirror/i],
+};
+function definedNames(body) {
+  const quoted = [...body.matchAll(/^#+ (.+)$/gm), ...body.matchAll(/^[ \t]*(?:[-*] |\d+\. )?\*\*([^*\n]+?)[.:]?\*\*/gm)].map(match => match[1].trim());
+  const shorthands = [...body.matchAll(/^[ \t]*- `([A-Z][A-Z_]+)` =/gm)].map(match => match[1]);
+  return { quoted, shorthands };
+}
+for (const path of TEMPLATES) {
+  test(`dev.96: deleting an optional section of ${path.split('/').at(-1)} by its template note leaves no reference to it`, () => {
+    const text = read(join(ROOT, path)), blocks = [...text.matchAll(OPTIONAL)];
+    const sections = [...new Set(blocks.map(match => match[1]))];
+    if (path.endsWith('t3-notifications.example.md')) assert.deepEqual(sections.sort(), ['ask-prompt', 'issue-mirrors', 'triage-proxy']);
+    assert.deepEqual(sections.filter(name => !SECTION_TERMS[name]), [], 'every optional section has its terms listed here');
+    const problems = [];
+    for (const deleted of [...sections.map(name => [name]), sections]) {
+      const copy = fill(text, name => !deleted.includes(name));
+      for (const name of deleted) {
+        const body = blocks.filter(match => match[1] === name).map(match => match[2]).join('\n');
+        const { quoted, shorthands } = definedNames(body);
+        for (const term of quoted) if (copy.includes(`"${term}"`) || copy.includes(`“${term}”`)) problems.push(`${deleted}: "${term}" is left`);
+        for (const term of shorthands) if (new RegExp(`\\b${term}\\b`).test(copy)) problems.push(`${deleted}: shorthand ${term} is left`);
+        for (const term of SECTION_TERMS[name]) {
+          assert.match(body, term, `${name}: the term ${term} is used in the section, so the check is not empty`);
+          const left = copy.match(term);
+          if (left) problems.push(`${deleted}: ${term} is left: …${copy.slice(Math.max(0, left.index - 60), left.index + 60)}…`);
+        }
+      }
+    }
+    assert.deepEqual(problems, []);
+  });
+}
+
 test('I5d: the handling guide has a successor section with every takeover step, and the outgoing thread passes what it needs', () => {
   const text = read(join(ROOT, TEMPLATES[0]));
   const section = text.slice(text.indexOf('## Taking over as successor'), text.indexOf('## Every notification'));
   assert.ok(section.length > 200, 'the section exists before the per-notification rules');
   for (const step of [/\*\*Read state\.\*\* .*status STATE --compact > \[\[private-config-dir\]\]\/t3-takeover\.json/, /never print it into this thread/, /\*\*Bind this thread\.\*\*/, /\*\*Update the private state file\*\*/, /\*\*Check the binding\.\*\* `CLI status STATE --inbox/, /`project\.session\.sessionId` must be this thread's ID/,
-    /do not call `schedule_task`/, /TRIAGE --forwards --since <the handoff forward's time, from the summary>/, /whose `forwardTo` is not this thread's ID/, /\*\*Without a proxy:\*\* move the webhook/])
+    /do not call `schedule_task`/, /TRIAGE --forwards --since <the handoff forward's time, from the summary>/, /whose `forwardTo` is not this thread's ID/, /\*\*The webhook\.\*\* Move it to this thread with `schedule_task/])
     assert.match(section, step);
   const handoff = text.slice(text.indexOf('- **Hand off to a fresh orchestrator session**'), text.indexOf('If now is the wrong moment'));
   assert.match(handoff, /the handoff question's inbox ID/);
