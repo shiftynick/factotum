@@ -71,6 +71,51 @@ Planner and builder results include `departures`, `unverified`, `pushback` and b
 
 An optional repository issue profile publishes lifecycle labels/comments for admission, review, completion and stop. Reviewed plans use one marked issue comment, reconciled to the latest reviewed plan. Stop synchronization uses a durable, configuration-granted outbox job; it does not perform network writes inside the stop transaction. Revoked configuration prevents a stale job from dispatching. Failed publication retains an operator obligation. GitHub comment updates and issue state changes still have read/write races because the API does not provide the factory's canonical compare-and-swap semantics.
 
+## Review bar: severity and shadow
+
+`policy.reviewBar` chooses the test a review's findings are held to ([must-fix review design](designs/review-must-fix.md)).
+
+- **`severity`** (the default) is the review described above. A severity flow gets the same schemas, prompts, routing, stored results and strict requirement as before the setting existed.
+- **`shadow`** asks the reviewer the must-fix questions as well, and records what the must-fix bar would have done. **It changes no route:** the flow follows the severity route, the builder is briefed as today, and the recorded estimate is never acted on.
+- **`must-fix`** is refused by configuration validation with "not available in this release". It becomes available only in the release that also ships the finding ledger, the strict-work changes, the decision guard and the console evidence.
+
+```json
+{
+  "policy": {
+    "reviewBar": "shadow",
+    "review": {
+      "environment": [
+        { "id": "single-host", "fact": "Each account runs the factory on one host." }
+      ]
+    }
+  }
+}
+```
+
+**What a shadow review asks.** Plan and change reviews use the must-fix schema (version `must-fix-1`): every finding keeps `severity`, `file`, `line` and `message`, and adds a concrete `scenario`; `reachable` (`shown`, `unknown` or `not-here`, with up to four citations and a `coverage` statement); `purposeImpact` (`outcome`, one of the protected classes `security`, `data-loss`, `spending` or `check-trust`, or `none`); `silent`; `origin`; and `fixOf`. Each citation is a `file` quote, an `environment` fact id, a `record` of this flow (an attempt id, with the head, check and result as recorded) or `reasoning`, and says what part of the scenario it covers. The prompt is today's prompt with these questions after it.
+
+**What the factory records.** On the review result and its review-history row:
+
+- `mustFix`: each finding's factory id (`R<round>.<index>` for change reviews, where the round is the review's position in the flow's history; `P<visit>.<index>` for plan reviews), its kind (`must-fix`, `operator-item` or `follow-up`) and reason, how each citation validated, the support status of an exclusion, any downgrade of `shown`, and a claim digest. A finding without the new fields (from a project's own adapter, a scripted provider, or a recorded result) is a `legacy` finding and counts as must-fix, today's meaning. Rows written before ids existed get ids from their position when read; nothing is migrated.
+- `shadowRoute`: the route must-fix would have taken, the route actually taken, and whether they differ, with `version: "v1"` and `estimate: true`.
+
+**Citations are validated, not trusted.** A `file` quote must appear in that file at the reviewed head (whitespace collapsed); absolute paths and `..` are refused. An `environment` citation must name a fact the flow pinned. A `record` must be one of this flow's attempts, produced for the cited head, which must be the reviewed head, and the cited check must have the cited result. A quote that is not there, or a record for another candidate, contradicts the claim. A `shown` finding without a validated citation is read as `unknown`. Validation says only that the cited thing exists; a reviewer's own `not-here` stays `unconfirmed` until someone else confirms it.
+
+**What shadow route v1 can and cannot estimate.** It applies the per-finding test and citation validation to the review that actually ran. It does not add a finding for an unmet criterion or a silent wrong answer (so it understates blocking), does not check the protocol, judges no earlier finding, never confirms an exclusion, has no builder deferral and no cap. It cannot show what later rounds would have done, because under must-fix the builder would have acted differently. Use it for schema and prompt health only, never to decide whether to enable must-fix.
+
+**Settings.**
+
+| Setting | Values | Default | Read by shadow v1 |
+| --- | --- | --- | --- |
+| `policy.reviewBar` | `severity`, `shadow` | `severity` | Yes |
+| `policy.review.environment` | up to 40 `{ id, fact }`, each fact at most 300 characters | none | Yes: `environment` citations |
+| `policy.review.strictFollowups` | boolean | `false` | Yes: with it off, every finding in strict work counts as must-fix, as today |
+| `policy.review.mustFixRounds` | 1 to 11, at most `maxBuildRounds` − 1 and at most `ordinaryReviewRounds` (checked when set, and for every shadow project) | 3 | Pinned only |
+| `policy.review.inFixEvidenceFrom` | 2 to 12 | 3 | Pinned only |
+| `policy.review.maxFollowupsPerFlow` | 1 to 50 | 20 | Pinned only |
+
+`policy.reviewBar`, `policy.review.strictFollowups` and `policy.review.environment` are authority: on a migrated project only the operator may change them. None of these is a live setting. Change them with `config update`, which waits until no change or document flow is running, then run doctor. Each flow pins its bar when it starts, and a shadow flow also pins the other review settings, a copy of the environment facts and its schema versions, so a running flow never changes bar. `policy.deferLowFindings` and `policy.ordinaryFollowupAfter` keep routing shadow flows, since their routes are severity routes.
+
 ## Durable observation waits
 
 An installed workflow may use a `wait` node instead of holding an external process open:
