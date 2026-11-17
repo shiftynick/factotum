@@ -2,6 +2,21 @@
 
 Date: 2026-10-22. Target: one trusted Linux account, local project sockets, GitHub, and subscription-backed Codex/Claude CLIs. This record separates executed observations from adapter contracts and installation prerequisites. "The main thread" and "the parent" below mean the coordinating agent session; see [how the change records were written](changes/README.md#how-these-records-were-written).
 
+## Review bar shadow release, 2026-11-17
+
+Dev.98 passed **1,891 tests, zero failures and one skip**, plus both fictional process-evaluation projects and the shared console (`npm run eval`).
+
+- **Manifest:** `a85902c550a5453f5f64269041d9d735fa9f45ea11d8bef50e2b596c9244b2c3`.
+- **Payload:** `f9300f3427d357ccca4bed5db07cc334b7791b301f616e960685c398f099f849`.
+- **Source:** built from clean commit `6fa140fc8c5062db9abd0a60353b9b3121501fd0`, with no test files in the payload.
+- **Install check:** the release's own CLI adopted it at the root and under a prefix. `adopt status` was clean and authenticated in both.
+- **Severity identity:** a golden captured on dev.97's code and reproduced independently matches dispatcher prompts, provider schemas, results, routes, review history and strict-requirement digests.
+
+**Not qualified:**
+- shadow mode with real models on a real project;
+- intents, events, effects and console output as a whole under severity (outside the golden);
+- live acceptance of a capture candidate.
+
 ## Cleanup archive release, 2026-11-17
 
 Dev.97 passed **1,868 tests, zero failures and one skip**, plus both fictional process-evaluation projects and the shared console (`npm run eval`).
