@@ -56,6 +56,11 @@ const ledgerJudgements = { type:'array', items:LEDGER_JUDGEMENT_SCHEMA };
 export const SHADOW_LEDGER_CHANGE_REVIEW_SCHEMA = object({ ...MUST_FIX_CHANGE_REVIEW_SCHEMA.properties, ledger:ledgerJudgements });
 const { priorFindingsDisposition: _replacedByLedger, ...enforcedChangeReview } = SHADOW_LEDGER_CHANGE_REVIEW_SCHEMA.properties;
 export const MUST_FIX_LEDGER_CHANGE_REVIEW_SCHEMA = object(enforcedChangeReview);
+// The builder's disposition of each must-fix item in its correction brief (design 9.1), build schema
+// must-fix-build-1: `fixed`, or `deferred` once, with a reason, evidence and how the evidence covers the
+// complete scenario. Only a must-fix flow's builder (test fixtures until the enabling release) gets it.
+export const FINDING_DISPOSITION_SCHEMA = object({ id:bounded(1,40), disposition:{ enum:['fixed','deferred'] }, reason:{ type:['string','null'], enum:['cant-happen-here','not-worth-mechanism',null] }, evidence:citations, coverage:bounded(0,1200), note:bounded(0,1200) });
+export const MUST_FIX_BUILD_SCHEMA = object({ ...DELIVERY_BUILD_SCHEMA.properties, findingDispositions:{ type:'array', maxItems:60, items:FINDING_DISPOSITION_SCHEMA } });
 // The upkeep role (knowledge upkeep's assessment) always passes its own schema; it is read-only like a reviewer.
 const schemas = { planner:PLAN_SCHEMA, builder:BUILD_SCHEMA, reviewer:REVIEW_SCHEMA, auditor:REVIEW_SCHEMA, reader:REVIEW_SCHEMA, scoreboardOwner:REVIEW_SCHEMA, upkeep:REVIEW_SCHEMA };
 // The model family of a provider, as the adapter records it on every result.

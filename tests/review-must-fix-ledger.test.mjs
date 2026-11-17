@@ -52,7 +52,7 @@ function reviewRounds(t, { bar = 'shadow', risk = 'ordinary', review = {} } = {}
   const intent = (provider, reviewBar) => {
     const config = { mode: 'rehearsal', repository: { slug: 'fictional/demo', account: 'fictional', target: 'main' }, providers: { reviewer: { provider, model: 'fictional' } }, policy: { reviewProtocol: 'fresh-full' }, context: { files: [], maxChars: 1000 } };
     const step = flow.reviewHistory.length ? 'delta-review' : 'review';
-    return { cwd: root, timeoutMs: 600000, attemptId: `attempt-${flow.reviewHistory.length + 1}`, action: { operation: 'provider.review', step, binding: step, task, config, risk: { level: risk }, reviewHistory: flow.reviewHistory, reviewProtocol: 'fresh-full', results: flow.results, context: { files: [], digest: 'fictional-context' }, artifactDir: join(base, `artifacts-${flow.reviewHistory.length + 1}-${reviewBar}`), projectId: 'project-1', flowId: 'flow-1', ...(reviewBar === 'severity' ? {} : { reviewBar, reviewPolicy: pinned.reviewPolicy, reviewRecords: [] }) } };
+    return { cwd: root, timeoutMs: 600000, attemptId: `attempt-${flow.reviewHistory.length + 1}`, action: { operation: 'provider.review', step, binding: step, task, config, risk: { level: risk }, reviewHistory: flow.reviewHistory, reviewProtocol: 'fresh-full', results: flow.results, context: { files: [], digest: 'fictional-context' }, artifactDir: join(base, `artifacts-${flow.reviewHistory.length + 1}-${reviewBar}`), projectId: 'project-1', flowId: 'flow-1', ...(reviewBar === 'severity' ? {} : { reviewBar, reviewPolicy: pinned.reviewPolicy, reviewRecords: [] }), ...(reviewBar === 'must-fix' ? { mustFixBudget: { revise: { fits: true } } } : {}) } };
   };
   let edits = 0;
   // One round: a new candidate, then the review. `results`: the scripted answers in order.
@@ -64,8 +64,9 @@ function reviewRounds(t, { bar = 'shadow', risk = 'ordinary', review = {} } = {}
     const review = await runAction(reviewed, { ...options, providerInvoke: scripted(structuredClone(results), provider, calls) });
     const step = flow.reviewHistory.length ? 'delta-review' : 'review';
     flow.results.review = review; recordReview(flow, step, review, `attempt-${flow.reviewHistory.length + 1}`);
-    // A must-fix fixture acts on the protocol checks only (slice 2); everything else is today's route.
-    if (!(bar === 'must-fix' && review.disposition === 'protocol-failure')) assert.deepEqual([review.route, review.disposition ?? null], [severity.route, severity.disposition ?? null], `round ${flow.reviewHistory.length}: the actual route is today's`);
+    // A shadow flow's actual route is today's. A must-fix fixture routes by the must-fix bar (slice 4).
+    if (bar === 'shadow') assert.deepEqual([review.route, review.disposition ?? null], [severity.route, severity.disposition ?? null], `round ${flow.reviewHistory.length}: the actual route is today's`);
+    else assert.deepEqual([review.route, review.disposition], [review.mustFix.enforcement.route, review.mustFix.enforcement.disposition], `round ${flow.reviewHistory.length}: the must-fix route`);
     return review;
   }
   const entry = id => computeReviewLedger(flow).entries.find(row => row.id === id);
@@ -283,12 +284,13 @@ test('purpose entries are settled by the next purpose assessment; an unchanged c
 
 // ---- Through the engine ----
 
-// A rehearsal flow with two change reviews: `review` (revise to `again`) and `again`, each parking to a question.
+// A rehearsal flow with two change reviews: `review` (revise to `again`) and `again`, each parking to a
+// question; `gate` is the merge question, so `review` has a correction cycle (design 9.5).
 async function twoReviews(t, bar, { reviewer = 'claude' } = {}) {
   const f = sandbox(t);
   // The reference review timeout, so ledger preparation has time to read the changed paths.
   const effect = (operation, next, edges) => ({ kind: 'effect', action: { operation }, timeoutMs: 600000, next, onFailure: 'failed', preserveInput: true, evidence: 'review', resultEdges: edges });
-  const workflow = { version: 1, start: 'review', nodes: { review: effect('provider.review', 'gate', { pass: 'gate', revise: 'again', defer: 'gate', park: 'review-question' }), again: effect('provider.review', 'gate', { pass: 'gate', revise: 'gate', defer: 'gate', park: 'review-question' }), gate: { kind: 'end', outcome: 'completed' }, 'review-question': { kind: 'question', role: 'operator', question: 'Fictional park question', answers: { stop: 'failed' } }, failed: { kind: 'end', outcome: 'failed' } } };
+  const workflow = { version: 1, start: 'review', nodes: { review: effect('provider.review', 'gate', { pass: 'gate', revise: 'again', defer: 'gate', park: 'review-question' }), again: effect('provider.review', 'gate', { pass: 'gate', revise: 'gate', defer: 'gate', park: 'review-question' }), gate: { kind: 'question', role: 'operator', question: 'Fictional merge question', mergeDecision: true, answers: { stop: 'done' } }, done: { kind: 'end', outcome: 'completed' }, 'review-question': { kind: 'question', role: 'operator', question: 'Fictional park question', answers: { stop: 'failed' } }, failed: { kind: 'end', outcome: 'failed' } } };
   f.store.setMeta('workflow', workflow); f.store.setMeta('workflowDigest', digest(workflow));
   f.store.setMeta('config', { mode: 'rehearsal', repository: { slug: 'fictional/demo', account: 'fictional', target: 'main' }, providers: { reviewer: { provider: reviewer, model: 'fictional' } }, policy: { planning: false, ...(bar === 'severity' ? {} : { reviewBar: 'shadow', review: { environment: FACTS } }) }, context: { files: [], maxChars: 1000 } });
   f.command('task.put', { task: { id: f.task.id, title: 'Fictional reader', acceptance: ACCEPTANCE, risk: 'ordinary' } });

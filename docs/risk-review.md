@@ -77,7 +77,7 @@ An optional repository issue profile publishes lifecycle labels/comments for adm
 
 - **`severity`** (the default) is the review described above. A golden capture taken before the setting existed shows that a severity flow's review prompts, provider schemas, dispatcher results and routes, review history and strict-requirement digest are unchanged; the only known differences are that a new flow records `reviewBar: "severity"` and the settings view lists the bar.
 - **`shadow`** asks the reviewer the must-fix questions as well, and records what the must-fix bar would have done. **It changes no route:** the flow follows the severity route, the builder is briefed as today, and the recorded estimate is never acted on.
-- **`must-fix`** is refused by configuration validation with "not available in this release". It becomes available only in the release that also ships the finding ledger, the strict-work changes, the decision guard and the console evidence. Until then its enforcement code is exercised only by test fixtures that pin a flow to it directly; from dev.99 that code acts on the protocol checks below, and from dev.100 it also writes `priorFindingsDisposition` from the ledger.
+- **`must-fix`** is refused by configuration validation with "not available in this release". It becomes available only in the release that also ships the finding ledger, the strict-work changes, the decision guard and the console evidence. Until then its enforcement code is exercised only by test fixtures that pin a flow to it directly; from dev.99 that code acts on the protocol checks below, from dev.100 it also writes `priorFindingsDisposition` from the ledger, and from dev.101 it routes, defers and caps as described under [must-fix enforcement](#must-fix-enforcement-fixtures-only).
 
 ```json
 {
@@ -137,6 +137,47 @@ In a shadow flow the correction review runs **only for the estimate**: the actua
 
 **Shadow flows from dev.99.** A flow keeps the change review schema version it pinned. A shadow flow started on dev.99 is refused by the executor check after the upgrade, as every unfinished flow is, so drain before upgrading. The only exception is a task flow waiting at a question with no attempt, which an upgrade carries over: it keeps `must-fix-2`, its schema, prompt and shadow route v2, and stores no ledger. Its estimates are v2 and must not be used to decide enabling.
 
+### Must-fix enforcement (fixtures only)
+
+From dev.101 a flow pinned to `must-fix` routes by the must-fix bar ([design](designs/review-must-fix.md) sections 6 and 9). Configuration validation still refuses `policy.reviewBar: must-fix`, so only test fixtures that pin a flow to it directly reach this code; severity and shadow flows are unchanged.
+
+**Route order.** After deriving each finding's kind and reading the ledger after the review, a must-fix change review takes the first route that applies:
+
+| # | Condition | Route |
+| --- | --- | --- |
+| 1 | A second contradictory result | `park` (`protocol-failure`); a satisfied review `revise` |
+| 2 | Strict attestations or risk assessment incomplete | `revise`, or `park` in a final phase |
+| 3 | An open must-fix item and the cap reached | `park` (`must-fix-cap`) |
+| 4 | An open must-fix item | `revise`; strict bounded-delta final phase `adjudicate`; ordinary final phase `park`, as today |
+| 5 | A strict full phase under bounded-delta | `delta` (never `defer`, so the delta review cannot be skipped) |
+| 6 | Operator items or follow-ups not yet recorded | `defer` |
+| 7 | Nothing open | `pass` |
+
+Every route that would send the change back (`revise`, from rows 2 and 4) is first checked against the budget: when one more correction cycle does not fit, the review routes `park` with disposition `budget`, below the cap too. An open must-fix item is a new must-fix finding, a fix judged `fix-incomplete`, a deferral awaiting judgement or rejected (`contested`), or one the operator required. The reviewer's verdict is kept and shown; `mustFix.enforcement` records the route, its reason, whether it was a must-fix send-back, the cap and the budget, and `verdictOverridden`. `policy.deferLowFindings` and `policy.ordinaryFollowupAfter` have no effect on a must-fix flow.
+
+**The cap and the budget (9.5).** `policy.review.mustFixRounds` (default 3) bounds the reviews that route `revise` for must-fix items. The initial build is build visit 1, so validation requires `mustFixRounds` ≤ `maxBuildRounds` − 1: with the defaults (4 and 3) the review after the third correction parks. The **correction cycle** of a review node is the path from its `revise` edge back to a review node through the first edge of each step (build, commit, integrate, the fast check when configured, publish, review), plus the path from that review along `pass` edges to the merge question. Before routing `revise` the review checks that every bounded step on the cycle has a visit left (its bound plus extensions, minus its visits) and that the remaining transitions cover the cycle and the path to the merge question. Visits spent elsewhere count: a build-question `retry` that used a build visit makes the review park with reason `budget` one round earlier. Commissioning refuses `must-fix` for a graph whose change review node lacks a `defer` or `park` edge or a correction cycle.
+
+**One more round.** At `review-question`, `send_back` with its note grants exactly one further must-fix send-back (`flow.mustFixAllowance`, recorded with the answer) and is that send-back: today's mechanism extends each exhausted visit bound by one and adds 12 transitions, the builder runs once more, and the next review that still has an open must-fix item parks again instead of attempting a build visit that is not available. Strict review nodes are not extended by `send_back`, so a must-fix `send_back` is checked first: when the correction cycle would still not fit, it is refused with the reason, and the operator can stop, or replan where supported (a new plan cycle with fresh budgets).
+
+**What the builder is shown (6.3).** In place of the previous review, the correction brief lists only the open must-fix items: id, scenario, reachability evidence with the validation of each citation, purpose impact, and for a fix judged incomplete or a rejected deferral the reviewer's judgement and evidence, and whether the item may be deferred. Operator items and follow-ups are listed by id and one line under "not required in this flow". Strict work without `strictFollowups` keeps "every finding requires resolution" and has no deferral; otherwise "every must-fix item requires a disposition". Non-must-fix plan-review findings reach the builder as advisory plan notes: in a must-fix flow, plan review routes `revise` only for a must-fix plan finding (6.4).
+
+**Builder deferral (9.1 to 9.3).** The builder returns `findingDispositions` (build schema `must-fix-build-1`): `fixed`, or `deferred` once with reason `cant-happen-here` (at least one citation that is not reasoning, and stated coverage) or `not-worth-mechanism` (outcome findings in ordinary work only). A missing entry is read as fixed. A deferral the factory refuses (a second deferral, a contested item or one the operator required, a reason not allowed, missing evidence, strict work without `strictFollowups`) makes the build `blocked`, so it reaches the operator through the build question. The builder's citations are validated at the reviewed candidate, which contains the build's output; a contradicted one voids the deferral and the item stays open. The next reviewer judges each deferral, marking each builder citation `covers`, `partial` or `irrelevant` (a `deferral-accepted` without one relevance entry per builder citation is a protocol contradiction):
+
+| Builder's citations | Judgement | Result |
+| --- | --- | --- |
+| at least one validated and marked `covers`, none contradicted | `deferral-accepted` with coverage | supported: a follow-up, or an operator item where the class requires it (a strict protected class: the operator's alone) |
+| validated, but none marked `covers`, or coverage empty | `deferral-accepted` | existence-only: an operator item (`unsupported-exclusion`) |
+| none validated | `deferral-accepted` | unsupported: an operator item |
+| any | `deferral-rejected` with a validated citation | `contested`: must-fix, no further deferral |
+| supported (validated, none contradicted, coverage stated) | `deferral-rejected`, reasoning only | an operator item (`disputed`), no further round |
+| not supported | `deferral-rejected`, reasoning only | `contested` |
+
+In strict work a protected-class finding whose deferral is not supported stays must-fix (`contested`), as the must-fix test requires. When every open must-fix item has a valid deferral and the builder changed nothing, the unchanged candidate is reviewed again instead of stopping, once per finding, and that review is told it judges only the deferrals.
+
+**Rows and the follow-up issue (6.2).** When a must-fix review settles, the engine writes a `finding` row with source `review` for each operator item and follow-up, in the same transaction, keyed by the flow and ledger id: at most `policy.review.maxFollowupsPerFlow` per flow, with the overflow counted on the flow. Rows are created `unapproved`, the finding lifecycle's only start; an operator item's row also carries `needs: operator`, and only the operator may accept, decline, resolve or reopen it. On `defer`, `forge.followup` accepts the route at either risk level when no must-fix item is open at the reviewed identity, and its one unapproved issue lists each row with its id, kind and reason, evidence status and scenario. An upkeep-origin flow records rows only.
+
+**Operator dispositions.** `flow.disposeFinding {flowId, findingId, disposition, note, expectedVersion}` settles one ledger entry while the flow waits at a question or is stopped: `operator-accepted` (it stops blocking and becomes a follow-up the operator accepted) or `operator-required` (an open must-fix item that can no longer be deferred). `expectedVersion` is the entry's `version` as read. Protected-class items and every `operator-accepted` are the operator's alone; on a recorded instruction the orchestrator may record `operator-required` on an outcome item in ordinary work, and nothing else.
+
 **Settings.**
 
 | Setting | Values | Default | Read by the shadow |
@@ -144,9 +185,9 @@ In a shadow flow the correction review runs **only for the estimate**: the actua
 | `policy.reviewBar` | `severity`, `shadow` | `severity` | Yes |
 | `policy.review.environment` | up to 40 `{ id, fact }`, each fact at most 300 characters | none | Yes: `environment` citations |
 | `policy.review.strictFollowups` | boolean | `false` | Yes: with it off, every finding in strict work counts as must-fix, as today |
-| `policy.review.mustFixRounds` | 1 to 11, at most `maxBuildRounds` − 1 and at most `ordinaryReviewRounds` (checked when set, and for every shadow project) | 3 | Pinned only |
+| `policy.review.mustFixRounds` | 1 to 11, at most `maxBuildRounds` − 1 and at most `ordinaryReviewRounds` (checked when set, and for every shadow project) | 3 | Pinned only (the must-fix cap, fixtures only) |
 | `policy.review.inFixEvidenceFrom` | 2 to 12 | 3 | Yes, from dev.100: the in-fix rule |
-| `policy.review.maxFollowupsPerFlow` | 1 to 50 | 20 | Pinned only |
+| `policy.review.maxFollowupsPerFlow` | 1 to 50 | 20 | Pinned only (must-fix review rows, fixtures only) |
 
 `policy.reviewBar`, `policy.review.strictFollowups` and `policy.review.environment` are authority: on a migrated project only the operator may change them. None of these is a live setting. Change them with `config update`, which waits until no change or document flow is running, then run doctor. Each flow pins its bar when it starts, and a shadow flow also pins the other review settings, a copy of the environment facts and its schema versions, so a running flow never changes bar. Review phase routing reads the flow's pinned `reviewProtocol`. `policy.deferLowFindings` and `policy.ordinaryFollowupAfter` keep routing shadow flows, since their routes are severity routes.
 

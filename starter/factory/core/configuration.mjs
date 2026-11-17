@@ -4,6 +4,7 @@ import {sourceSettings} from '../operations/source-config.mjs';
 import { assertNoReservedNamespace } from './upkeep-namespace.mjs';
 import { validateUpkeepConfig } from './upkeep-config.mjs';
 import { validateReviewPolicy } from './review-bar.mjs';
+import { assertMustFixGraph } from './must-fix-budget.mjs';
 import { assertGlob } from './globs.mjs';
 import {lifecycleEnabled} from '../operations/source-adapter.mjs';
 import {validateModelCoauthor} from '../operations/attribution.mjs';
@@ -220,6 +221,7 @@ export function validateConfig(input = {}) {
   assert(['operator','orchestrator'].includes(policy.strictDecisionRole??'operator'),'invalid strict decision role');
   assert(['operator','orchestrator'].includes(policy.mergeDecisionRole??'operator'),'invalid merge decision role');
   validateWorkflow(changeWorkflow(config));
+  if(policy.reviewBar==='must-fix')assertMustFixGraph('reference',changeWorkflow(config));
   validateStepModelShape(config.stepModels);
   // With a catalog, step models are checked against the compiled project graphs at commissioning.
   if(!config.workflows)validateStepModels(config,withBuiltinModelGraphs(config,{standard:changeWorkflow(config)}));

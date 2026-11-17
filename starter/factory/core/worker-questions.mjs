@@ -196,6 +196,8 @@ export function buildQuestionItem(flow, node) {
   const sandbox = !implemented && build?.provider !== 'claude' && sandboxBlocked([summary, ...all, ...unverified]);
   const head = !build ? 'The builder’s result is not available; inspect the retained build attempt.'
     : sandbox ? `The builder is blocked by a failure inside Codex's sandbox (it reports EPERM or an operation not permitted). On some hosts that sandbox refuses part of process handling, so the project's own checks fail there; the factory's fast checks and gate run outside it and decide. To use no further build round on it, answer retry with a note telling the builder to treat that failure as environmental and return implemented, or stop and start the task again with the builder on Claude (task.models). ${n ? `It also asks ${plural}.` : ''}`.trim()
+    // A must-fix flow's refused deferral (review-must-fix design 9.1): the build question is where it reaches the operator.
+    : Array.isArray(build.deferralRefusals) && build.deferralRefusals.length ? `The factory refused the builder's deferral: ${boundedText(build.deferralRefusals.map(row => `${row.id} ${row.refusal}`).join('; '), SUMMARY_CHARS)}. Nothing was committed or reviewed yet. Settle the finding with flow.disposeFinding, or give the builder guidance with flow.note, then retry; or stop.`
     : implemented ? `The builder reports the work implemented, but asks ${plural} it cannot settle on its own. Nothing was committed or reviewed yet.`
     : n ? `The builder is blocked and asks ${plural}.` : 'The builder is blocked and asked no question; its summary below says why.';
   const answers = Object.keys(node.answers);

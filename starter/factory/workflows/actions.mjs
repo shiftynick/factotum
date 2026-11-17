@@ -22,6 +22,7 @@ import { learningsSettings } from '../core/upkeep-config.mjs';
 import { LEARNING_BOUNDARY_OPERATIONS, LEARNING_ROLES, learningSelection, pinnedLearningItems, readLearningStore, selectLearnings } from '../operations/learnings.mjs';
 import { flowReviewBar } from '../core/review-bar.mjs';
 import { citableRecords, CITABLE_RECORD_LIMIT } from './must-fix.mjs';
+import { cycleBudget } from '../core/must-fix-budget.mjs';
 
 export function workingRoot(store, flow) {
   if (flow.workspace?.path) {
@@ -178,6 +179,11 @@ export function actionSpecification(store, flow, node, artifactDir) {
   // (workflows/must-fix.mjs). A severity flow's intent is exactly what it was before the bar existed.
   // Attempts are stored without their intent, so each citable one is read whole.
   if (['provider.review', 'provider.planReview'].includes(operation) && flowReviewBar(flow) !== 'severity') Object.assign(input, { reviewBar: flowReviewBar(flow), reviewPolicy: flow.reviewPolicy ?? null, reviewRecords: citableRecords(store.by('attempt', 'flowId', flow.id).filter(row => ['passed', 'failed'].includes(row.status)).slice(-CITABLE_RECORD_LIMIT).map(row => store.need('attempt', row.id))), ...(operation === 'provider.planReview' ? { reviewRound: flow.visits?.[flow.step] ?? 1 } : {}) });
+  // A must-fix flow (test fixtures until the enabling release; review-must-fix design 6, 9): the
+  // builder and the follow-up step read the ledger too, every review step also reads the operator's
+  // dispositions, and a change review reads its cap allowance and whether one more correction cycle
+  // fits the flow's bounds (9.5). A severity or shadow flow's intent is unchanged.
+  if (flowReviewBar(flow) === 'must-fix' && ['provider.review', 'provider.planReview', 'provider.build', 'forge.followup'].includes(operation)) Object.assign(input, { reviewBar: 'must-fix', reviewPolicy: flow.reviewPolicy ?? null, operatorFindingDispositions: flow.operatorFindingDispositions ?? [], ...(operation === 'forge.followup' ? { reviewLedger: flow.reviewLedger ?? null } : {}), ...(operation === 'provider.review' ? { mustFixAllowance: flow.mustFixAllowance ?? 0, mustFixBudget: { revise: cycleBudget(flow, node.resultEdges?.revise ?? null) } } : {}) });
   if (LEARNING_ROLES[operation] && flow.kind !== 'maintenance') { const learnings = learningsForStep(flow, task, operation, cwd, config, upkeepSuspensions(store).learnings ?? upkeepSuspensions(store).all ?? null); if (learnings) input.learnings = learnings; }
   if (modelRole(flow.step, node, config) && flow.modelRoutes) {
     assert(Object.hasOwn(flow.modelRoutes, flow.step), 'model step has no pinned route; start a new flow for the changed workflow');

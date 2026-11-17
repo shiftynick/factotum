@@ -16,6 +16,8 @@ import { isBuildQuestion, buildQuestionItem, recordCarriedQuestions, carriedQues
 import {integrationQuestion} from '../workflows/integrations.mjs';
 import {recordReview,reviewEvidenceAcceptable} from './delivery-review.mjs';
 import { computeReviewLedger } from '../workflows/review-ledger.mjs';
+import { deferralExemption } from '../workflows/must-fix-enforcement.mjs';
+import { recordReviewRowsInTransaction } from '../operations/review-rows.mjs';
 import { flowKeepsLedger, flowReviewBar } from './review-bar.mjs';
 import { effectiveRisk, mergeDecisionRole, strictReviewRequirement, recordRiskAssessment } from './risk.mjs';
 import { repositoryIdentity, repositoryIdentityOffThread, repositoryProbe } from './repository.mjs';
@@ -643,7 +645,10 @@ export class Engine {
     const previousReview = attempt.intent.action?.results?.review, previousFast = attempt.intent.action?.results?.['fast-check'];
     // A replan since that review that changed what the plan says (not how it was produced) supersedes its verdict: the unchanged candidate is reviewed again, against the new plan (dev.88 M3).
     const reviewReplanned = flow.reviewReplanned?.reviewDigest === digest(previousReview ?? null) && flow.reviewReplanned.planDigest !== planContentDigest(attempt.intent.action?.results?.plan ?? null);
-    const reviewCorrectionHold = contract.operation === 'provider.build' && result?.route === 'implemented' && previousReview?.route === 'revise' && previousReview.identity?.head && previousReview.identity?.treeDigest && digest(previousReview.identity) === digest(attempt.intent.inputIdentity) && unchanged && !reviewReplanned;
+    // A must-fix flow whose builder deferred every open must-fix item (review-must-fix design 9.2): the
+    // unchanged candidate is reviewed again, for the deferrals only, at most once per finding.
+    const deferralExempt = contract.operation === 'provider.build' && result?.route === 'implemented' && previousReview?.route === 'revise' && unchanged && flowReviewBar(flow) === 'must-fix' ? deferralExemption(flow.reviewLedger, result.result?.findingDispositions, flow.deferralExemptions ?? []) : null;
+    const reviewCorrectionHold = contract.operation === 'provider.build' && result?.route === 'implemented' && previousReview?.route === 'revise' && previousReview.identity?.head && previousReview.identity?.treeDigest && digest(previousReview.identity) === digest(attempt.intent.inputIdentity) && unchanged && !reviewReplanned && !deferralExempt;
     // The same for a fast-check failure on exactly the candidate this build started from.
     const fastCorrectionHold = contract.operation === 'provider.build' && result?.route === 'implemented' && previousFast?.route === 'fail' && previousFast.inputIdentity?.head && previousFast.inputIdentity?.treeDigest && digest(previousFast.inputIdentity) === digest(attempt.intent.inputIdentity) && unchanged;
     const correctionHold = reviewCorrectionHold || fastCorrectionHold;
@@ -711,7 +716,10 @@ export class Engine {
         if(passed&&attempt.intent.action?.operation==='provider.review'){current.results.review=result;recordReview(current,contract.binding??attempt.step,result,attempt.id);
           // A ledger flow's review ledger (review-must-fix design 8.1): derived from the history, stored with it.
           // It is a record: a history it cannot read is stored as the error and never fails the settlement.
-          if(flowKeepsLedger(current)){try{current.reviewLedger=computeReviewLedger(current);}catch(error){current.reviewLedger={error:String(error?.message??error).slice(0,300)};}}}
+          if(flowKeepsLedger(current)){try{current.reviewLedger=computeReviewLedger(current);}catch(error){current.reviewLedger={error:String(error?.message??error).slice(0,300)};}
+            // A must-fix flow's operator items and follow-ups become rows in this transaction (design 6.2).
+            if(flowReviewBar(current)==='must-fix'&&!current.reviewLedger.error)recordReviewRowsInTransaction(s,current);}}
+        if(passed&&deferralExempt){current.deferralExemptions=[...(current.deferralExemptions??[]),...deferralExempt];s.event('flow.deferral-review',{flowId,attemptId:attempt.id,step:attempt.step,findings:deferralExempt});}
         // Learnings the result cites (learningsApplied, learningsChecked), when they are in the
         // selection this attempt was given: each counted once per flow (knowledge-upkeep design 11.3).
         // dev.92, P4: and which role cited what, per attempt, for the flow page and status --flow.

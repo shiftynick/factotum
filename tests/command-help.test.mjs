@@ -6,7 +6,7 @@ import { sandbox } from './helpers.mjs';
 
 test('every command has help, and help covers only real commands', () => {
   const source = readFileSync(new URL('../starter/factory/core/project.mjs', import.meta.url), 'utf8');
-  const cases = new Set([...source.matchAll(/case '([a-z.]+)'/g)].map(m => m[1]));
+  const cases = new Set([...source.matchAll(/case '([a-zA-Z.]+)'/g)].map(m => m[1]));
   assert.deepEqual([...cases].filter(c => !COMMANDS[c]), [], 'commands without help');
   assert.deepEqual(Object.keys(COMMANDS).filter(c => !cases.has(c)), [], 'help for commands that do not exist');
   assert.match(commandHelp('task.approve').text, /revision \(required\)/);

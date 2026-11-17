@@ -91,7 +91,7 @@ function candidate(t, { bar = 'must-fix', outcome = null, step = 'review', risk 
   writeFileSync(join(root, 'input.txt'), 'fictional candidate text\n'); git(['add', '.']); git(['commit', '-qm', 'Fictional candidate']);
   const head = repositoryIdentity(root).head, config = { mode: 'rehearsal', repository: { slug: 'fictional/demo', account: 'fictional', target: 'main' }, providers: { reviewer: { provider: 'claude', model: 'fictional' } }, policy: {}, context: { files: [], maxChars: 1000 } };
   const task = { id: 'task-1', title: 'Fictional reader', ...(outcome ? { outcome } : {}), acceptance: ACCEPTANCE, risk };
-  const action = { operation: 'provider.review', step, binding: step, task, config, risk: { level: risk }, reviewHistory: [], results: { source: { head }, plan: { result: { summary: 'Pinned fictional plan', files: [], checks: [], risks: [] } } }, context: { files: [], digest: 'fictional-context' }, artifactDir: join(base, 'artifacts'), projectId: 'project-1', flowId: 'flow-1', ...(bar === 'severity' ? {} : { reviewBar: bar, reviewPolicy: pinnedPolicy, reviewRecords: [] }) };
+  const action = { operation: 'provider.review', step, binding: step, task, config, risk: { level: risk }, reviewHistory: [], results: { source: { head }, plan: { result: { summary: 'Pinned fictional plan', files: [], checks: [], risks: [] } } }, context: { files: [], digest: 'fictional-context' }, artifactDir: join(base, 'artifacts'), projectId: 'project-1', flowId: 'flow-1', ...(bar === 'severity' ? {} : { reviewBar: bar, reviewPolicy: pinnedPolicy, reviewRecords: [] }), ...(bar === 'must-fix' ? { mustFixBudget: { revise: { fits: true } } } : {}) };
   return { intent: { cwd: root, timeoutMs: 60000, action }, head };
 }
 
@@ -351,7 +351,9 @@ test('review fix 2: a correction never lowers the strict escalation of the resul
   const review = await runAction(f.attempt.intent, { providerInvoke: scripted([changeResult({ purpose: omitsSecond(), strict: true }), changeResult()]) });
   f.engine.settle('flow-1', f.attempt, receipt(review));
   const flow = f.store.need('flow', 'flow-1');
-  assert.deepEqual([flow.step, flow.effectiveRisk, flow.evidence.review], ['gate', 'strict', undefined], 'no review evidence for a strict review that did not pass');
+  // This fixture graph's revise edge leads to an end, not back to a review: there is no correction cycle,
+  // so the must-fix review parks with reason budget instead of revising (design 9.5, slice 4).
+  assert.deepEqual([flow.step, flow.effectiveRisk, flow.evidence.review, flow.reviewHistory[0].mustFix.enforcement.reason], ['review-question', 'strict', undefined, 'budget'], 'no review evidence for a strict review that did not pass');
 });
 
 test('review fix 3: a plan protocol-failure hold keeps the failed review\'s strict escalation, so resume reviews as strict work', async t => {
