@@ -7,7 +7,7 @@ import { NO_PLANTED_COMMANDS } from '../core/git-options.mjs';
 import { Store } from '../core/store.mjs';
 import { operatorAuthority, validateOnBehalfOf } from '../core/delegation.mjs';
 import { git as workspaceGit } from '../adapters/workspace/index.mjs';
-import { cleanupArchiveName, exclusive, provenOutcome, repositoryScope } from './workspace-cleanup.mjs';
+import { archiveTreeFile, cleanupArchiveName, exclusive, provenOutcome, repositoryScope } from './workspace-cleanup.mjs';
 
 // cleanup archive-drop: the operator removes the cleanup archives of flows whose outcome is
 // proven, to reclaim disk space. plan (reads the state, fetches each target) -> apply (operator
@@ -22,7 +22,7 @@ import { cleanupArchiveName, exclusive, provenOutcome, repositoryScope } from '.
 // archives/workspace-commits/ is never touched. Only the flow's own directories under
 // archives/failed-workspaces/ and archives/completed-workspaces/ are removed.
 const ARCHIVE_KINDS = ['failed-workspaces', 'completed-workspaces'];
-const PAYLOAD = { bundle: 'history.bundle', tree: 'tree.tar', index: 'index', objects: 'index-objects.pack' };
+const PAYLOAD = { bundle: 'history.bundle', index: 'index', objects: 'index-objects.pack' };
 const sha256Stream = path => new Promise((done, fail) => { const hash = createHash('sha256'); createReadStream(path).on('error', fail).on('data', chunk => hash.update(chunk)).on('end', () => done(hash.digest('hex'))); });
 const gitSync = (cwd, args) => execFileSync('git', [...NO_PLANTED_COMMANDS, '-c', 'core.hooksPath=/dev/null', ...args], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 120000 }).trim();
 class Refused extends Error {}
@@ -56,7 +56,8 @@ async function verifiedArchive(dir, { flowId, head, manifestDigest }) {
   if (manifestDigest && recorded !== manifestDigest) refuse(`${dir}/manifest.json is not the archive the cleanup recorded`);
   if (manifest.flowId !== flowId || manifest.head !== head) refuse(`${dir} is not this flow's archive of ${head}`);
   const files = await archiveFiles(dir);
-  for (const [key, name] of Object.entries(PAYLOAD)) if (files.find(file => file.path === name)?.sha256 !== manifest.files?.[key]) refuse(`${dir}/${name} does not match the archive manifest`);
+  let tree; try { tree = archiveTreeFile(manifest); } catch (error) { refuse(`${dir}: ${error.message}`); }
+  for (const [key, name] of Object.entries({ ...PAYLOAD, tree })) if (files.find(file => file.path === name)?.sha256 !== manifest.files?.[key]) refuse(`${dir}/${name} does not match the archive manifest`);
   return { dir, manifestDigest: recorded, files, bytes: files.reduce((sum, file) => sum + file.bytes, 0) };
 }
 // The flow's archive directories: its recorded one and anything at its name under either kind.
@@ -162,7 +163,8 @@ export async function archiveDropApply(stateDir, { flowIds = [], completed = fal
     // Operator only: cleanup.archive-drop is not in DELEGABLE, so no policy can delegate it.
     operatorAuthority(store, { operation: 'cleanup.archive-drop', actor, onBehalfOf });
     note(reason);
-    const unlock = await exclusive(store.meta('project').projectId, 'archive-drop');
+    // One lock for every operation that rewrites or removes archives (archive-drop, archive-slim).
+    const unlock = await exclusive(store.meta('project').projectId, 'archives');
     try {
       const plan = await planArchiveDrop(store, { flowIds, completed });
       assert(plan.planDigest === planDigest, 'the archives or their eligibility changed since the archive-drop plan; review a new plan');

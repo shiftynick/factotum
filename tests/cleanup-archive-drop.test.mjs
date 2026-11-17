@@ -8,6 +8,7 @@ import { sandbox } from './helpers.mjs';
 import { commit, prepare } from '../starter/factory/adapters/workspace/index.mjs';
 import { cleanupApply, cleanupPlan, restoreFlowArchive } from '../starter/factory/operations/workspace-cleanup.mjs';
 import { archiveDropApply, archiveDropPlan } from '../starter/factory/operations/cleanup-archive-drop.mjs';
+import { archiveSlimApply, archiveSlimPlan } from '../starter/factory/operations/cleanup-archive-slim.mjs';
 
 const git = (cwd, args) => execFileSync('git', ['-c', 'core.hooksPath=/dev/null', ...args], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 const sha256 = path => createHash('sha256').update(readFileSync(path)).digest('hex');
@@ -23,7 +24,7 @@ function project(t) {
   f.store.setMeta('config', { ...f.store.meta('config', {}), repository: { remote: 'origin', target: 'main', mergeMethod: 'merge' } });
   return f;
 }
-async function archivedFlow(f, flowId, { method = 'merge', state = 'completed', unmergedCommit = false, commitsBundle = false } = {}) {
+async function archivedFlow(f, flowId, { method = 'merge', state = 'completed', unmergedCommit = false, commitsBundle = false, tree = () => {} } = {}) {
   const workspace = await prepare({ root: f.root, stateDir: f.stateDir, projectId: f.project.projectId, flowId, baseRef: 'main' });
   const { head: _base, setupDigest, ...owned } = workspace;
   writeFileSync(join(workspace.path, `${flowId}.txt`), `Fictional work for ${flowId}\n`);
@@ -40,6 +41,7 @@ async function archivedFlow(f, flowId, { method = 'merge', state = 'completed', 
     writeFileSync(`${bundle}.json`, JSON.stringify({ version: 1, ownershipDigest: owned.ownershipDigest, head, archivePath: bundle, archiveDigest: sha256(bundle) }));
   }
   ignore(workspace.path, 'notes.txt'); writeFileSync(join(workspace.path, 'notes.txt'), 'Unsaved fictional notes\n');
+  tree(workspace.path);
   f.store.put('flow', { id: flowId, taskId: f.task.id, kind: 'change', state, step: 'done', target: 'main', workspace: owned, results: state === 'completed' ? { merge: { merged: true, mergeMethod: method, expectedHead: head } } : {} });
   const plan = await cleanupPlan(f.stateDir, flowId);
   if (state === 'completed') assert.equal(plan.mode, 'archive');
@@ -151,4 +153,18 @@ test('an apply interrupted while removing is finished by the next plan and apply
   assert.equal(plan.entries[0].resume, true);
   await drop(f, { flowIds: ['merged'] }, plan);
   assert.equal(existsSync(merged.archiveDir), false); assert.equal(f.store.need('cleanup', 'merged').archiveDrop.status, 'dropped');
+});
+
+test('a slimmed archive verifies for archive-drop, and a dropped archive cannot be slimmed', async t => {
+  const f = project(t);
+  const merged = await archivedFlow(f, 'merged', { tree: path => { writeFileSync(join(path, '.gitignore'), 'node_modules/\n'); mkdirSync(join(path, 'node_modules/.pnpm/x'), { recursive: true }); writeFileSync(join(path, 'node_modules/.pnpm/x/i.js'), 'reproducible\n'); } });
+  f.store.setMeta('config', { ...f.store.meta('config'), cleanup: { excludeIgnored: ['node_modules/**'] } });
+  const slimPlan = await archiveSlimPlan(f.stateDir, { flowIds: ['merged'] });
+  assert.equal(slimPlan.entries[0].removed.files, 1);
+  await archiveSlimApply(f.stateDir, { flowIds: ['merged'], planDigest: slimPlan.planDigest, note: 'Slim first', actor: 'operator' });
+  const plan = await archiveDropPlan(f.stateDir, { flowIds: ['merged'] });
+  assert.deepEqual(plan.refused, []); assert.ok(plan.entries[0].archives[0].files.some(file => /^tree-[0-9a-f]{16}\.tar$/.test(file.path)));
+  await drop(f, { flowIds: ['merged'] }, plan);
+  assert.equal(existsSync(merged.archiveDir), false);
+  assert.match((await archiveSlimPlan(f.stateDir, { flowIds: ['merged'] })).refused[0].reason, /archive was dropped/);
 });

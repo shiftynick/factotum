@@ -2,7 +2,7 @@ import { cliCommand } from '../core/install-layout.mjs';
 import { execFileSync } from 'node:child_process';
 import { NO_AUTO_MAINTENANCE, NO_PLANTED_COMMANDS } from '../core/git-options.mjs';
 import { createHash } from 'node:crypto';
-import { closeSync, copyFileSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, copyFileSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { dirname, join } from 'node:path';
 import { matchesGlob } from '../core/globs.mjs';
@@ -22,7 +22,26 @@ import { operatorAuthority, validateOnBehalfOf } from '../core/delegation.mjs';
 // one with changed, untracked or ignored files (other than ignored files matching
 // cleanup.excludeIgnored) is archived like a failed flow's.
 const DEFAULT_MAX_BYTES = 2 * 1024 ** 3;
-const sha256File = path => createHash('sha256').update(readFileSync(path)).digest('hex');
+// Hashed in chunks: an archive's tar can exceed what one read returns.
+const HASH_BUFFER = Buffer.allocUnsafe(4 * 1024 * 1024);
+export function sha256File(path) {
+  const hash = createHash('sha256'), fd = openSync(path, 'r');
+  try { for (let read; (read = readSync(fd, HASH_BUFFER, 0, HASH_BUFFER.length, null)) > 0;) hash.update(HASH_BUFFER.subarray(0, read)); } finally { closeSync(fd); }
+  return hash.digest('hex');
+}
+// The working-tree tar an archive manifest names: tree.tar, or the tree-<digest>.tar that
+// cleanup archive-slim wrote in its place.
+export function archiveTreeFile(manifest) {
+  const name = manifest.treeFile ?? 'tree.tar';
+  assert(/^tree(-[0-9a-f]{16})?\.tar$/.test(name), `archive manifest names an unexpected tree file ${name}`);
+  return name;
+}
+// Every glob that left paths out of an archive: at archiving, then at each archive-slim.
+function archiveGlobs(manifest) {
+  const globs = [...(manifest.excludeIgnored ?? [])];
+  for (let slim = manifest.slimmedFrom; slim; slim = slim.previous) for (const glob of slim.globs ?? []) if (!globs.includes(glob)) globs.push(glob);
+  return globs;
+}
 const git = (cwd, args) => execFileSync('git', [...NO_AUTO_MAINTENANCE, ...NO_PLANTED_COMMANDS, '-c', 'core.hooksPath=/dev/null', ...args], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024, timeout: 600000 }).trim();
 // Objects the index references (including conflict stages); staged content may
 // exist in no commit, so the bundle alone would not carry it.
@@ -251,9 +270,10 @@ async function planCleanup(store, flowId) {
   }
 }
 
+// A per-project lock: a flow id, or 'archives' for archive-drop and archive-slim.
 export async function exclusive(projectId, flowId) {
   const lock = createServer();
-  await new Promise((done, reject) => { lock.once('error', () => reject(new Error('another cleanup of this flow is running'))); lock.listen(`\0factotum-cleanup-${projectId}-${flowId}`, done); });
+  await new Promise((done, reject) => { lock.once('error', () => reject(new Error(flowId === 'archives' ? 'another archive-drop or archive-slim is running' : 'another cleanup of this flow is running'))); lock.listen(`\0factotum-cleanup-${projectId}-${flowId}`, done); });
   return () => new Promise(done => lock.close(done));
 }
 
@@ -340,9 +360,11 @@ export function archiveWorkspace(path, dir, plan) {
   const { excluded, ...summary } = manifest;
   return { ...summary, excludedEntries: excluded.length, manifestDigest: digest(manifest) };
 }
-function verifyArchive(dir, manifest) {
-  for (const [name, file] of [['bundle', 'history.bundle'], ['tree', 'tree.tar'], ['index', 'index'], ['objects', 'index-objects.pack']]) assert(sha256File(join(dir, file)) === manifest.files[name], `archive ${file} does not match its manifest`);
-  const scratch = join(dir, 'verify'); rmSync(scratch, { recursive: true, force: true });
+// Every payload file matches the manifest, and a fresh restore reproduces its tree and index.
+// scratch: where to restore (default <dir>/verify); it is removed afterwards.
+export function verifyArchive(dir, manifest, { scratch = join(dir, 'verify') } = {}) {
+  for (const [name, file] of [['bundle', 'history.bundle'], ['tree', archiveTreeFile(manifest)], ['index', 'index'], ['objects', 'index-objects.pack']]) assert(sha256File(join(dir, file)) === manifest.files[name], `archive ${file} does not match its manifest`);
+  rmSync(scratch, { recursive: true, force: true });
   try {
     const restored = restoreArchive(dir, scratch, manifest);
     assert(restored.treeDigest === manifest.treeDigest, 'restored working tree differs from the workspace');
@@ -358,13 +380,14 @@ export function restoreArchive(dir, target, manifest = JSON.parse(readFileSync(j
   git(dirname(target), ['clone', '--quiet', '--no-checkout', join(dir, 'history.bundle'), target]);
   git(target, ['checkout', '--quiet', '-B', manifest.branch, manifest.head]);
   for (const name of readdirSync(target)) if (name !== '.git') rmSync(join(target, name), { recursive: true, force: true });
-  execFileSync('tar', ['--extract', '--file', join(dir, 'tree.tar'), '--same-permissions', '-C', target], { stdio: ['ignore', 'pipe', 'pipe'], timeout: 600000 });
+  execFileSync('tar', ['--extract', '--file', join(dir, archiveTreeFile(manifest)), '--same-permissions', '-C', target], { stdio: ['ignore', 'pipe', 'pipe'], timeout: 600000 });
   execFileSync('git', [...NO_AUTO_MAINTENANCE, '-c', 'core.hooksPath=/dev/null', 'unpack-objects', '-q'], { cwd: target, input: readFileSync(join(dir, 'index-objects.pack')), timeout: 600000 });
   copyFileSync(join(dir, 'index'), join(target, '.git', 'index'));
   const listing = indexListing(target), missing = execFileSync('git', ['-c', 'core.hooksPath=/dev/null', 'cat-file', '--batch-check'], { cwd: target, input: indexObjects(listing).join('\n') + '\n', encoding: 'utf8' }).split('\n').filter(line => line.endsWith(' missing'));
   assert(!missing.length, `restored index references missing objects: ${missing.slice(0, 3).join(', ')}`);
-  const excluded = manifest.excluded?.length ?? 0;
-  return { target, head: git(target, ['rev-parse', 'HEAD']), treeDigest: treeManifest(target).digest, indexDigest: digest(listing), excluded, ...(excluded ? { note: `${excluded} ignored paths matching cleanup.excludeIgnored (${manifest.excludeIgnored.join(', ')}) were not archived; rerun the project's setup step to recreate them. manifest.json lists each with its digest.` } : {}) };
+  // Paths left out when archiving and paths cleanup archive-slim removed later are listed alike.
+  const excluded = manifest.excluded?.length ?? 0, slimmed = manifest.slimmedFrom ? excluded - (manifest.slimmedFrom.excludedBefore ?? 0) : 0;
+  return { target, head: git(target, ['rev-parse', 'HEAD']), treeDigest: treeManifest(target).digest, indexDigest: digest(listing), excluded, ...(excluded ? { note: `${excluded} ignored paths matching cleanup.excludeIgnored (${archiveGlobs(manifest).join(', ')}) are not in this archive${slimmed > 0 ? ` (${slimmed} of them were removed afterwards by cleanup archive-slim)` : ''}; rerun the project's setup step to recreate them. manifest.json lists each with its digest.` } : {}) };
 }
 export function restoreFlowArchive(stateDir, flowId, target) {
   const store = new Store(stateDir);

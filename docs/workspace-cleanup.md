@@ -95,7 +95,34 @@ node factory/cli.mjs cleanup restore --state <state> --id <flowId> --out <new di
 
 This creates a standalone repository at the archived head, with the exact working tree and index. Nothing is restored into the project checkout.
 
-Archives live in private project state and are included in backups. They are not deleted automatically; the operator can drop those of merged flows, as described next. Automatic cleanup of failed flows is not offered; each cleanup is an operator decision. Only a completed flow's own failed cleanup step is retried automatically.
+Archives live in private project state and are included in backups. They are not deleted automatically; the operator can slim any of them and drop those of merged flows, as described next. Automatic cleanup of failed flows is not offered; each cleanup is an operator decision. Only a completed flow's own failed cleanup step is retried automatically.
+
+## Slimming existing archives
+
+Archives written before a glob covered some reproducible output, such as those from dev.96 and earlier whose globs missed paths starting with a dot, can be rewritten without it. This works for any cleanup archive, a failed flow's or a completed flow's, and keeps the flow's work restorable:
+
+```sh
+node factory/cli.mjs cleanup archive-slim plan --state <state> (--id <flowId> ... | --all)
+node factory/cli.mjs cleanup archive-slim apply --state <state> (--id <flowId> ... | --all) --actor operator --digest <planDigest> --note "<why>"
+```
+
+A path is removed from an archive only if `cleanup apply` would leave it out today under the project's current `cleanup.excludeIgnored` globs. The plan restores each archive into a scratch directory beside it (`archives/<kind>/.<id>.slim/`, on the same filesystem) and judges each path there: it must match a glob **and** Git must report it ignored, using only the archived tree's own `.gitignore` files and the archived index (not the project's `.git/info/exclude` or a global excludes file). Commits, tracked, modified, staged and untracked files, and ignored files that match no glob, are kept. The history bundle, index and index objects are not rewritten.
+
+For each archive the plan lists the current and new file counts and bytes, the bytes freed, the globs, a sample of the removed paths (the top of each removed directory) and the current manifest digest. One `planDigest` covers every archive in the selection. Archives with nothing to remove are listed under `unchanged`; refused ones (no archive, a dropped archive, an unfinished cleanup, a manifest that does not verify) under `refused`.
+
+Apply is operator only and cannot be delegated. Under the same lock as `archive-drop`, it plans again and refuses if the digest differs. Then, one archive at a time, it:
+
+1. restores the archive into its scratch directory again and requires the same result as the plan;
+2. writes the slim tar as `tree-<digest>.tar` beside the old tar and removes the scratch restore;
+3. writes `manifest.slim.json`: the same manifest with the new tree digest and tar, the removed entries appended to `excluded` with their sizes and digests, and `slimmedFrom` (the old manifest digest and tar, the globs, how many entries and bytes went, when, by whom, the note and the plan digest);
+4. restores the new archive into scratch space and requires the slim tree and the same index;
+5. renames `manifest.slim.json` over `manifest.json`. This is the one commit point: before it the old manifest and tar are complete, and after it the new manifest names the new tar, which is complete;
+6. updates the cleanup record (its `archive` summary and an `archiveSlims` history) and records the event `cleanup.archive-slimmed`;
+7. removes the old tar.
+
+The run ends with `cleanup.archives-slimmed`. If apply is interrupted, the next plan lists the archive with `pending`: files the current manifest does not name (removed, which rolls back an uncommitted slim or finishes a committed one) and, after a commit, a store record still to update. Its apply finishes that before anything else. A stale scratch directory is simply replaced.
+
+The plan restores each archive once and apply twice more, one archive at a time, so allow for the time and for free space of one restored archive and its new tar on the archives' filesystem. `cleanup restore` works on a slimmed archive and says that the removed paths, like excluded ones, must be recreated by the project's setup step.
 
 ## Dropping the archives of merged flows
 

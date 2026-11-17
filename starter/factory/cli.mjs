@@ -13,6 +13,7 @@ import { consoleUnit, installUnit, projectUnit, uninstallUnit, unitName } from '
 import { prepareUpgrade, mergeUpgrade, activateUpgrade, recoverUpgrade, drainReasons } from './operations/upgrade-apply.mjs';
 import { cleanupPlan, cleanupApply, restoreFlowArchive } from './operations/workspace-cleanup.mjs';
 import { archiveDropPlan, archiveDropApply } from './operations/cleanup-archive-drop.mjs';
+import { archiveSlimPlan, archiveSlimApply } from './operations/cleanup-archive-slim.mjs';
 import { validateConfig } from './core/configuration.mjs';
 import { cliCommand } from './core/install-layout.mjs';
 import { uid, assert, digest, fileDigest } from './core/contracts.mjs';
@@ -40,7 +41,7 @@ const OPTIONS = {
   operation: { type: 'string' }, payload: { type: 'string' }, file: { type: 'string' }, id: { type: 'string' },
   actor: { type: 'string' }, out: { type: 'string' }, from: { type: 'string' }, project: { type: 'string' },
   inbox: { type: 'string' }, flow: { type: 'string' }, task: { type: 'string' }, compact: { type: 'boolean', default: false },
-  completed: { type: 'boolean', default: false },
+  completed: { type: 'boolean', default: false }, all: { type: 'boolean', default: false },
 };
 // A missing, ambiguous or unexpected option value is a usage error: say which option and print the
 // subcommand's usage (exit 2), never a stack trace.
@@ -215,17 +216,18 @@ async function main() {
     case 'cleanup': {
       // Preserved cleanup of a failed or abandoned flow's workspace, or a completed flow's whose cleanup failed: plan, apply (operator), restore.
       // archive-drop: remove the archives of proven, released flows (operator only); --id repeats.
-      if (positionals[1] === 'archive-drop') {
+      // archive-slim: rewrite archives without what cleanup.excludeIgnored now excludes (operator only).
+      if (['archive-drop', 'archive-slim'].includes(positionals[1])) {
         const flowIds = parseArgs({ args: process.argv.slice(2), allowPositionals: true, allowNegative: true, options: { ...OPTIONS, id: { type: 'string', multiple: true } } }).values.id ?? [];
-        const selection = { flowIds, completed: values.completed };
-        if (positionals[2] === 'plan') print(await archiveDropPlan(required('state'), selection));
-        else { assert(positionals[2] === 'apply', 'use cleanup archive-drop plan or apply'); print(await archiveDropApply(required('state'), { ...selection, planDigest: required('digest'), note: required('note'), actor: actor(), ...onBehalfOf() })); }
+        const [plan, apply, selection] = positionals[1] === 'archive-drop' ? [archiveDropPlan, archiveDropApply, { flowIds, completed: values.completed }] : [archiveSlimPlan, archiveSlimApply, { flowIds, all: values.all }];
+        if (positionals[2] === 'plan') print(await plan(required('state'), selection));
+        else { assert(positionals[2] === 'apply', `use cleanup ${positionals[1]} plan or apply`); print(await apply(required('state'), { ...selection, planDigest: required('digest'), note: required('note'), actor: actor(), ...onBehalfOf() })); }
         break;
       }
       const flowId = required('id');
       if (positionals[1] === 'plan') print(await cleanupPlan(required('state'), flowId));
       else if (positionals[1] === 'apply') print(await cleanupApply(required('state'), { flowId, planDigest: required('digest'), note: required('note'), actor: actor(), ...onBehalfOf() }));
-      else { assert(positionals[1] === 'restore', 'use cleanup plan, apply, restore or archive-drop'); print(restoreFlowArchive(required('state'), flowId, resolve(required('out')))); }
+      else { assert(positionals[1] === 'restore', 'use cleanup plan, apply, restore, archive-drop or archive-slim'); print(restoreFlowArchive(required('state'), flowId, resolve(required('out')))); }
       break;
     }
     case 'workflow': {
@@ -302,7 +304,7 @@ async function main() {
       else { assert(positionals[1] === 'status', 'use layout status, migrate or inline'); print(layoutStatus(required('state'))); }
       break;
     }
-    default: console.log(`Factotum 0.2 — reference implementation\n\nCommands: release build, adopt install/plan/update/status/cleanup, init, doctor, workflow export/list, service install/uninstall project|console, cleanup plan/apply/restore/archive-drop, import-task, reconcile, config update/show, maintenance enqueue, serve, status, command, console, register, unregister, backup, restore, authority preview/migrate/status, layout status/migrate/inline, launch, retention plan/apply, upgrade apply/stage/activate\nAdd --help after any command (and its action) for its usage and options, e.g. config update --help.\nSee README.md and docs/running.md for the evaluated path.\nAll state paths must be explicit and outside project checkouts.`);
+    default: console.log(`Factotum 0.2 — reference implementation\n\nCommands: release build, adopt install/plan/update/status/cleanup, init, doctor, workflow export/list, service install/uninstall project|console, cleanup plan/apply/restore/archive-drop/archive-slim, import-task, reconcile, config update/show, maintenance enqueue, serve, status, command, console, register, unregister, backup, restore, authority preview/migrate/status, layout status/migrate/inline, launch, retention plan/apply, upgrade apply/stage/activate\nAdd --help after any command (and its action) for its usage and options, e.g. config update --help.\nSee README.md and docs/running.md for the evaluated path.\nAll state paths must be explicit and outside project checkouts.`);
   }
 }
 function installationDigest(root) {
