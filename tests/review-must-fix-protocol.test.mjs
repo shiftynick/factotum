@@ -15,7 +15,7 @@ import { repositoryIdentity } from '../starter/factory/core/repository.mjs';
 import { runAction } from '../starter/factory/workflows/dispatch.mjs';
 import { changeWorkflow } from '../starter/factory/core/configuration.mjs';
 import { pinnedReviewSettings } from '../starter/factory/core/review-bar.mjs';
-import { protocolContradictions, purposeBlock, purposeSummary, shadowRouteV1, shadowRouteV2, SHADOW_V2_OMITS } from '../starter/factory/workflows/must-fix.mjs';
+import { protocolContradictions, purposeBlock, purposeSummary, shadowRouteV1, shadowRouteV2, SHADOW_V3_OMITS } from '../starter/factory/workflows/must-fix.mjs';
 import { SHADOW_REVIEW_CALL, upkeepInvocationsOf } from '../starter/factory/operations/usage-accounting.mjs';
 import { countAttemptInvocationsInTransaction } from '../starter/factory/operations/upkeep-budget.mjs';
 import { upkeepDay, upkeepDayId } from '../starter/factory/operations/upkeep-records.mjs';
@@ -132,14 +132,14 @@ test('must-fix fixture: protocol failure takes precedence over the legacy fallba
   assert.deepEqual([satisfied.route, satisfied.disposition], ['revise', 'protocol-failure']);
 });
 
-test('shadow: the protocol failure is recorded as shadowRoute v2 and the actual route is today\'s, decided by the original result', async t => {
+test('shadow: the protocol failure is recorded as shadowRoute v3 and the actual route is today\'s, decided by the original result', async t => {
   const calls = [];
   const review = await runAction(candidate(t, { bar: 'shadow' }).intent, { providerInvoke: scripted([changeResult({ purpose: omitsSecond() }), changeResult({ verdict: 'revise', findings: [finding('outcome', 'unknown')], purpose: omitsSecond() })], calls) });
   assert.equal(calls.length, 2); assert.equal(calls[1].legacySchema, calls[0].legacySchema, 'the correction review accepts the same shapes');
   assert.deepEqual([review.route, review.disposition], ['pass', 'accepted'], 'the severity route of the original result');
   assert.deepEqual(review.result, changeResult({ purpose: omitsSecond() }), 'the reviewed result is the original one');
   assert.equal(review.protocolCorrections, undefined, 'nothing of the shadow\'s correction is on the actual review');
-  assert.deepEqual(review.shadowRoute, { version: 'v2', estimate: true, omits: [...SHADOW_V2_OMITS], route: 'park', disposition: 'protocol-failure', actualRoute: 'pass', actualDisposition: 'accepted', differs: true, verdictOverridden: false }, 'the correction\'s verdict, revise, agrees with a park');
+  assert.deepEqual(review.shadowRoute, { version: 'v3', estimate: true, omits: [...SHADOW_V3_OMITS], route: 'park', disposition: 'protocol-failure', actualRoute: 'pass', actualDisposition: 'accepted', differs: true, verdictOverridden: false }, 'the correction\'s verdict, revise, agrees with a park');
   assert.equal(review.mustFix.basis, 'correction'); assert.equal(review.mustFix.protocol.failure, true);
   assert.deepEqual(review.mustFix.protocol.correction.result.findings.map(row => row.message), ['A outcome unknown finding'], 'the correction\'s result is kept with the estimate');
   // A valid correction: the estimate is derived from it, and the actual route is still the original's.
@@ -315,7 +315,7 @@ test('review fix 1: the shadow correction review is skipped when too little of t
   const review = await runAction(intent, { providerInvoke: scripted([changeResult({ purpose: omitsSecond() }), changeResult()], calls) });
   assert.equal(calls.length, 1, 'no correction review was started');
   assert.deepEqual([review.route, review.disposition], ['pass', 'accepted']);
-  assert.deepEqual(review.shadowRoute, { version: 'v2', estimate: true, skipped: 'deadline', actualRoute: 'pass', actualDisposition: 'accepted' });
+  assert.deepEqual(review.shadowRoute, { version: 'v3', estimate: true, skipped: 'deadline', actualRoute: 'pass', actualDisposition: 'accepted' });
   assert.deepEqual([review.mustFix.basis, review.mustFix.protocol.correction, review.mustFix.protocol.failure], ['original', { skipped: 'deadline' }, null]);
 });
 

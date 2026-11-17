@@ -44,9 +44,23 @@ const mustFixFindings = { type:'array', items:MUST_FIX_FINDING_SCHEMA };
 export const PURPOSE_SCHEMA = object({ outcome:{ enum:['met','partly','not-met','unverified'] }, acceptance:{ type:'array', items:object({ criterion:reportText, status:{ enum:['met','not-met','unverified'] }, evidence:citations }) }, silentWrongAnswer:object({ answer:{ enum:['no','yes','unknown'] }, how:bounded(0,1200), settle:bounded(0,600), evidence:citations }) });
 export const MUST_FIX_PLAN_REVIEW_SCHEMA = object({ ...RISK_REVIEW_SCHEMA.properties, findings:mustFixFindings, purpose:PURPOSE_SCHEMA });
 export const MUST_FIX_CHANGE_REVIEW_SCHEMA = object({ ...CHANGE_REVIEW_SCHEMA.properties, findings:mustFixFindings, purpose:PURPOSE_SCHEMA });
+// The reviewer's judgements of earlier findings (5.2), schema version must-fix-3: one per ledger entry
+// awaiting judgement, by its factory id. `sameScenario` is for fix-incomplete only; `coverage` for
+// deferral-accepted and exclusion-confirmed; `relevance` is one entry per builder citation of a
+// deferral. A shadow change review keeps today's priorFindingsDisposition beside it, because today's
+// routing reads that field and the shadow must not change the route; a must-fix change review has
+// the ledger instead, and the factory writes priorFindingsDisposition from it (workflows/review-ledger.mjs).
+export const LEDGER_JUDGEMENTS = Object.freeze(['fix-holds','fix-incomplete','deferral-accepted','deferral-rejected','exclusion-confirmed','exclusion-rejected']);
+export const LEDGER_JUDGEMENT_SCHEMA = object({ id:bounded(1,40), judgement:{ enum:[...LEDGER_JUDGEMENTS] }, sameScenario:{ type:'boolean' }, coverage:bounded(0,1200), relevance:{ type:'array', maxItems:4, items:{ enum:['covers','partial','irrelevant'] } }, evidence:citations });
+const ledgerJudgements = { type:'array', items:LEDGER_JUDGEMENT_SCHEMA };
+export const SHADOW_LEDGER_CHANGE_REVIEW_SCHEMA = object({ ...MUST_FIX_CHANGE_REVIEW_SCHEMA.properties, ledger:ledgerJudgements });
+const { priorFindingsDisposition: _replacedByLedger, ...enforcedChangeReview } = SHADOW_LEDGER_CHANGE_REVIEW_SCHEMA.properties;
+export const MUST_FIX_LEDGER_CHANGE_REVIEW_SCHEMA = object(enforcedChangeReview);
 // The upkeep role (knowledge upkeep's assessment) always passes its own schema; it is read-only like a reviewer.
 const schemas = { planner:PLAN_SCHEMA, builder:BUILD_SCHEMA, reviewer:REVIEW_SCHEMA, auditor:REVIEW_SCHEMA, reader:REVIEW_SCHEMA, scoreboardOwner:REVIEW_SCHEMA, upkeep:REVIEW_SCHEMA };
-const family = provider => provider === 'codex' ? 'openai' : 'anthropic';
+// The model family of a provider, as the adapter records it on every result.
+export const providerFamily = provider => provider === 'codex' ? 'openai' : 'anthropic';
+const family = providerFamily;
 const envKeys = ['HOME','PATH','USER','LOGNAME','SHELL','LANG','LC_ALL','TMPDIR','XDG_CONFIG_HOME','XDG_DATA_HOME','CODEX_HOME','CLAUDE_CONFIG_DIR'];
 export function subscriptionEnvironment(source=process.env) {
   return { ...Object.fromEntries(envKeys.filter(k => source[k]).map(k => [k,source[k]])), NO_COLOR:'1', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:'1', CLAUDE_CODE_DISABLE_AUTO_MEMORY:'1' };
