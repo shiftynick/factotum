@@ -2,6 +2,7 @@ import { prepareGitInvocation } from '../github/git.mjs';
 import { retryRefLockedFetch } from '../../core/git-options.mjs';
 import { VerifiedObjects, assertNoHistoryRewrites } from '../../core/verified-git.mjs';
 import { adoptionRefNames } from '../../core/adoption-ref-names.mjs';
+import { hiddenIndexChanges } from '../../core/index-flags.mjs';
 import { spawn } from 'node:child_process';
 import { createReadStream, readFileSync, readdirSync } from 'node:fs';
 import { mkdir, readFile, rename, realpath, lstat, access, open, rm } from 'node:fs/promises';
@@ -231,9 +232,11 @@ export async function inspect({ workspace }) {
   const branch = await value(manifest.path, ['symbolic-ref', '--short', 'HEAD']);
   assert(branch === manifest.branch, 'owned worktree branch changed');
   const status = await value(manifest.path, ['status', '--porcelain=v1', '--untracked-files=all']);
+  // Changes behind assume-unchanged or skip-worktree flags are invisible to status but are work.
+  const hidden = hiddenIndexChanges(manifest.path);
   const upstream = await git(manifest.path, ['rev-parse', '--verify', '@{upstream}'], { allowFailure: true });
   const unpushed = upstream.code !== 0 || (await value(manifest.path, ['rev-list', '--count', '@{upstream}..HEAD'])) !== '0';
-  return { owned: true, head, branch, dirty: !!status, status, unpushed, setupState: manifest.setupState, leases: manifest.leases || [] };
+  return { owned: true, head, branch, dirty: !!status || hidden.length > 0, status, ...(hidden.length ? { hiddenByIndexFlags: hidden } : {}), unpushed, setupState: manifest.setupState, leases: manifest.leases || [] };
 }
 
 export async function commit({ workspace, message, paths = ['.'] }) {

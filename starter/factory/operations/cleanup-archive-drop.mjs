@@ -4,6 +4,7 @@ import { createReadStream, existsSync, lstatSync, readFileSync, readdirSync, rmS
 import { basename, dirname, join } from 'node:path';
 import { assert, digest, now, note } from '../core/contracts.mjs';
 import { NO_PLANTED_COMMANDS } from '../core/git-options.mjs';
+import { hiddenIndexChanges } from '../core/index-flags.mjs';
 import { Store } from '../core/store.mjs';
 import { operatorAuthority, validateOnBehalfOf } from '../core/delegation.mjs';
 import { archiveScratch, archiveTreeFile, cleanupArchiveName, exclusive, fetchTargetCommit, ignoredExcluder, inspectionRestore, provenOutcome, repositoryScope } from './workspace-cleanup.mjs';
@@ -123,7 +124,8 @@ function unsavedWork(dir, manifest, globs) {
   try {
     const restored = inspectionRestore(dir, manifest), exclude = ignoredExcluder(restored, globs);
     const status = execFileSync('git', [...NO_PLANTED_COMMANDS, '-c', 'core.hooksPath=/dev/null', 'status', '--porcelain=v1', '-z', '--no-renames', '--ignored=matching', '--untracked-files=all'], { cwd: restored, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 256 * 1024 * 1024, timeout: 600000 });
-    const found = { staged: [], 'modified or deleted': [], untracked: [], 'ignored outside cleanup.excludeIgnored': [] };
+    // The archived index keeps its assume-unchanged and skip-worktree flags, which hide changes from status.
+    const found = { staged: [], 'modified or deleted': [], 'hidden by index flags': hiddenIndexChanges(restored), untracked: [], 'ignored outside cleanup.excludeIgnored': [] };
     for (const record of status.split('\0').filter(Boolean)) {
       const code = record.slice(0, 2), path = record.slice(3).replace(/\/$/, '');
       if (code === '??') found.untracked.push(path);
