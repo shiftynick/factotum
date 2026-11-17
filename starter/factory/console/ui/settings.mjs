@@ -39,6 +39,7 @@ const GROUPS = [
     ['followTarget', 'Follow main', 'When main moves under a running change (a direct commit), carry on if no planned path changed, or replan with a fresh budget if one did. Off: the flow stops for a replan.', 'boolean'],
     ['maxBuildRounds', 'Build rounds', 'Most build and review rounds per flow.', 'count'],
     ['reviewProtocol', 'Review protocol', 'fresh-full: every review is a full review. bounded-delta: full, then delta, then final reviews.', 'text'],
+    ['reviewBar', 'Review bar', 'severity (the default): findings are routed by severity, as always. shadow: reviews also answer the must-fix questions, and each records what the must-fix bar would have done; routing is unchanged. Only you can change it.', 'text'],
     ['ordinaryReviewRounds', 'Ordinary review rounds', 'Ordinary-risk reviews before the final review applies.', 'count'],
     ['ordinaryFollowupAfter', 'Follow-ups after round', 'From this review round on, medium and low findings can become follow-up issues.', 'count'],
     ['deferLowFindings', 'Defer low findings', 'An ordinary review that passes with only low findings finishes, and the findings become follow-ups.', 'boolean'],

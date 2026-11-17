@@ -3,6 +3,7 @@ import { validateHandoffSettings } from '../operations/orchestrator-session.mjs'
 import {sourceSettings} from '../operations/source-config.mjs';
 import { assertNoReservedNamespace } from './upkeep-namespace.mjs';
 import { validateUpkeepConfig } from './upkeep-config.mjs';
+import { validateReviewPolicy } from './review-bar.mjs';
 import { assertGlob } from './globs.mjs';
 import {lifecycleEnabled} from '../operations/source-adapter.mjs';
 import {validateModelCoauthor} from '../operations/attribution.mjs';
@@ -150,6 +151,8 @@ export function validateConfig(input = {}) {
   // Knowledge upkeep (core/upkeep-config.mjs): the optional upkeep and learnings blocks. No reference
   // graph reads them, so the compiled graphs and their digests are the same with or without them.
   validateUpkeepConfig(config);
+  // The review bar and its settings (core/review-bar.mjs), in every mode: must-fix is refused in this release.
+  validateReviewPolicy(config);
   if (!config.mode || config.mode === 'rehearsal') return config;
   sourceSettings(config);
   // The upkeep: task namespace is the factory's (core/upkeep-namespace.mjs): no source may import into it.

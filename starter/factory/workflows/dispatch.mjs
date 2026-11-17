@@ -27,14 +27,15 @@ import { atomicJSON, assert, digest, now } from '../core/contracts.mjs';
 import { repositoryIdentity } from '../core/repository.mjs';
 import {modelCoauthorTrailer} from '../operations/attribution.mjs';
 import {defaultMaxTurns, resolveProviderSpec} from '../adapters/providers/routes.mjs';
-import { invoke, turnLimitText, RISK_PLAN_SCHEMA, DELIVERY_BUILD_SCHEMA, RISK_REVIEW_SCHEMA, CHANGE_REVIEW_SCHEMA } from '../adapters/providers/index.mjs';
+import { invoke, turnLimitText, RISK_PLAN_SCHEMA, DELIVERY_BUILD_SCHEMA, RISK_REVIEW_SCHEMA, CHANGE_REVIEW_SCHEMA, MUST_FIX_PLAN_REVIEW_SCHEMA, MUST_FIX_CHANGE_REVIEW_SCHEMA } from '../adapters/providers/index.mjs';
+import { citedPaths, deriveReview, mustFixGuidance, shadowPlanRouteV1, shadowRecord, shadowRouteV1, SHADOW_ROUTE_VERSION } from './must-fix.mjs';
 import { createGitHub } from '../adapters/github/index.mjs';
 import { ForgeError, forgeErrorDetails } from '../adapters/github/errors.mjs';
 import * as workspaceAdapter from '../adapters/workspace/index.mjs';
 import { releaseDeliveredWorkspace } from '../operations/workspace-cleanup.mjs';
 import { HostResources, resourceRequest, contextManifest, describeHolders } from '../operations/index.mjs';
-import {reviewPhase,reviewDisposition} from '../core/delivery-review.mjs';
-import { assessmentComplete, verifyStrictDecision } from '../core/risk.mjs';
+import {reviewPhase,reviewDisposition,boundedReview} from '../core/delivery-review.mjs';
+import { assessmentComplete, effectiveRisk, verifyStrictDecision } from '../core/risk.mjs';
 import { boundedText } from '../core/text.mjs';
 import { assumptionsOf, carriedQuestionsBrief } from '../core/worker-questions.mjs';
 import { processIdentity } from '../core/process-identity.mjs';
@@ -73,6 +74,31 @@ export async function observeMergeTarget({ cwd, remote, target, base, scope, tim
 // repositories that work today. `enforceTimeout: true` makes one call's timeout real (the remote
 // head reads, which are small and whose callers can do without the answer or fail the same way).
 const exec = (binary,args,options) => binary === 'git' ? workspaceAdapter.git(options.cwd,args,options.enforceTimeout?{timeoutMs:options.timeout}:{}) : rawExec(binary,args,options);
+
+// A shadow flow's review (workflows/must-fix.mjs). The context its citations are validated in: the
+// reviewed head, each cited file's text at that head (null when it is not a file there; a file that
+// cannot be read is left out, so its citation is not checkable), the flow's pinned environment facts
+// and the records it may cite.
+const CITED_FILE_BYTES = 4 * 1024 * 1024;
+async function citationContext(a, cwd, result) {
+  const claimHead = result.identity?.head ?? repositoryIdentity(cwd).head, files = new Map();
+  for (const path of citedPaths(result.result.findings).slice(0, 40)) {
+    try {
+      const entry = (await exec('git', [...NO_PLANTED_COMMANDS, 'ls-tree', '-l', '-z', claimHead, '--', path], { cwd, timeout: 10000 })).stdout.split('\0').find(Boolean);
+      const [meta, listed] = entry ? entry.split('\t') : [], [, type, object, size] = meta ? meta.trim().split(/\s+/) : [];
+      if (!entry || listed !== path || type !== 'blob') { files.set(path, null); continue; }
+      if (Number(size) <= CITED_FILE_BYTES) files.set(path, (await exec('git', [...NO_PLANTED_COMMANDS, 'cat-file', 'blob', object], { cwd, timeout: 10000 })).stdout);
+    } catch { /* not read: the citation stays not checkable */ }
+  }
+  return { claimHead, files, facts: new Set((a.reviewPolicy?.environment ?? []).map(fact => fact.id)), records: new Map((a.reviewRecords ?? []).map(record => [record.id, record])) };
+}
+// The shadow never changes how a review ends: if deriving it fails, the failure is recorded as its outcome.
+async function shadowOutcome(derive) {
+  try { return await derive(); }
+  catch (error) { return { shadowRoute: { version: SHADOW_ROUTE_VERSION, estimate: true, error: String(error?.message ?? error).slice(0, 300) } }; }
+}
+// The strict plan check's own finding, in the must-fix shape for a shadow flow: a check-trust finding (design 6.4).
+const strictPlanShadowFields = () => ({ scenario: 'A strict plan without a concrete threat model and explicit stop conditions gives the builder and later reviews nothing to hold the change to, so a review could pass work whose risks were never stated.', reachable: { status: 'unknown', evidence: [], coverage: '' }, purposeImpact: 'check-trust', silent: true, origin: 'new-code', fixOf: null });
 
 // Wait (bounded) for the shared heavy-work permit under this attempt's contained identity.
 // The lease stays with the supervisor's cgroup; close() only closes the coordinator handle.
@@ -475,17 +501,22 @@ async function runScopedAction(intent, { signal, providerInvoke=invoke, accounti
       return { ...result, targetBase, contextManifest: contextManifest(a.context), route: result.result.status === 'ready' && !result.result.questions.length && ((a.risk?.level !== 'strict' && result.result.riskAssessment.level !== 'strict') || assessmentComplete(result.result.riskAssessment)) ? 'ready' : 'blocked' };
     }
     case 'provider.planReview': {
-      const prompt=`${brief}\nReview this proposed plan against actual code and acceptance. Do not implement it. Plan: ${JSON.stringify(a.results.plan?.result)}\nA pass verdict REQUIRES findings:[]. Findings contain only concrete defects or omissions that block accepting this plan. Optional observations, suggestions and nonblocking concerns belong in summary, never findings. ${reviewScopeGuidance(a.task, 'plan')}${carriedQuestionsBrief(a.carriedQuestions, 'reviewer', a.carriedOverflow)} Return revise if any blocking finding remains.`;
-      let result=await provider('reviewer',prompt,RISK_REVIEW_SCHEMA);
+      // A shadow flow asks the must-fix questions with its own schema (workflows/must-fix.mjs).
+      const shadow=a.reviewBar==='shadow',planSchema=shadow?MUST_FIX_PLAN_REVIEW_SCHEMA:RISK_REVIEW_SCHEMA;
+      const prompt=`${brief}\nReview this proposed plan against actual code and acceptance. Do not implement it. Plan: ${JSON.stringify(a.results.plan?.result)}\nA pass verdict REQUIRES findings:[]. Findings contain only concrete defects or omissions that block accepting this plan. Optional observations, suggestions and nonblocking concerns belong in summary, never findings. ${reviewScopeGuidance(a.task, 'plan')}${carriedQuestionsBrief(a.carriedQuestions, 'reviewer', a.carriedOverflow)} Return revise if any blocking finding remains.${shadow?mustFixGuidance({subject:'plan',facts:a.reviewPolicy?.environment??[],records:a.reviewRecords??[]}):''}`;
+      let result=await provider('reviewer',prompt,planSchema);
       const protocolCorrections=[],bound=config.policy?.planReviewProtocolCorrections??1;assert(Number.isSafeInteger(bound)&&bound>=0&&bound<=1,'invalid plan review protocol correction bound');
       for(let correction=0;correction<bound&&result.result.verdict==='pass'&&result.result.findings.length;correction++){
         const original=result,artifactName=`provider-protocol-correction-${correction+1}`;
         protocolCorrections.push({reason:'pass-with-findings',original,originalArtifact:correction===0?'provider':`provider-protocol-correction-${correction}`,correctionArtifact:artifactName});
-        result=await provider('reviewer',`${prompt}\nA previous fresh review returned an internally contradictory pass with findings: ${JSON.stringify(original.result)}. Independently re-examine the same plan and code. Decide whether these are blocking defects or nonblocking observations. Do not assume the plan passes: return revise with concrete blocking findings, or pass with findings:[] and put observations in summary. Preserve any strict risk escalation.`,RISK_REVIEW_SCHEMA,undefined,artifactName);
+        result=await provider('reviewer',`${prompt}\nA previous fresh review returned an internally contradictory pass with findings: ${JSON.stringify(original.result)}. Independently re-examine the same plan and code. Decide whether these are blocking defects or nonblocking observations. Do not assume the plan passes: return revise with concrete blocking findings, or pass with findings:[] and put observations in summary. Preserve any strict risk escalation.`,planSchema,undefined,artifactName);
       }
       const strict=a.risk?.level==='strict'||result.result.riskAssessment.level==='strict'||protocolCorrections.some(row=>row.original.result.riskAssessment.level==='strict');
-      if(strict&&!assessmentComplete(result.result.riskAssessment)){result.result.verdict='revise';result.result.findings.push({severity:'high',file:'',line:0,message:'Strict plan review requires a concrete threat model and explicit stop conditions.'});}
-      return {...result,protocolCorrections,route:result.result.verdict==='pass'&&result.result.findings.length===0?'pass':'revise'};
+      // In a shadow flow the factory's own finding is a check-trust finding (design 6.4) in the must-fix shape.
+      if(strict&&!assessmentComplete(result.result.riskAssessment)){result.result.verdict='revise';result.result.findings.push({severity:'high',file:'',line:0,message:'Strict plan review requires a concrete threat model and explicit stop conditions.',...(shadow?strictPlanShadowFields():{})});}
+      const planReviewed={...result,protocolCorrections,route:result.result.verdict==='pass'&&result.result.findings.length===0?'pass':'revise'};
+      if(!shadow)return planReviewed;
+      return {...planReviewed,...await shadowOutcome(async()=>{const round=a.reviewRound??1,derivation=deriveReview(result.result.findings,{round,prefix:'P',risk:strict?'strict':'ordinary',strictFollowups:a.reviewPolicy?.strictFollowups===true,...await citationContext(a,cwd,result)});return shadowRecord({derivation,route:shadowPlanRouteV1(derivation.findings),actual:planReviewed,verdict:result.result.verdict,round,prefix:'P'});})};
     }
     case 'workspace.prepare': {
       // The worktree usually exists already (source verification creates it); fill in any
@@ -616,9 +647,18 @@ async function runScopedAction(intent, { signal, providerInvoke=invoke, accounti
       // Declared task paths against the whole change (not only a delta), so scope is judged every round.
       const scopePaths=declaredPaths(a.task),changeBase=a.results.integrate?.base??a.results.source?.head??workspace?.base??baseHead;
       let outside=[];if(scopePaths.length){try{outside=outOfScope((await exec('git',['diff','--name-only','-z','--no-renames',`${changeBase}...HEAD`,'--'],{cwd,timeout:10000,maxBuffer:4*1024*1024})).stdout.split('\0').filter(Boolean),scopePaths);}catch{outside=null;}}
-      const result=await provider('reviewer',`${brief}\nIndependently review exact candidate ${repositoryIdentity(cwd).head}. Review phase: ${phase}. Full/ordinary reviews inspect the entire change; delta/final reviews inspect commits since ${baseHead}, resolve each previous finding, and inspect affected surrounding code. This is a fresh session. Do not edit files or run code. For strict work document the threat model and stop conditions and attest strictReview. fullDiffInspected means the entire assigned review scope was inspected (the full diff for full review, every delta commit for delta/final); name that scope in scopeSummary. For an already satisfied task inspect current implementation against acceptance even when the diff is empty. Report priorFindingsDisposition for every finding in the immediately previous review; finding must exactly equal its previous message, with concrete evidence for the disposition. Prior reviews: ${JSON.stringify(a.reviewHistory??[])}. Trusted diff:\n${diff}\nBuilder report: ${JSON.stringify(a.results.build?.result??null)}. Report substantive defects and unmet acceptance, duplicated helpers, misplaced/unused code and oversized files; do not invent hardening outside the threat model. ${reviewScopeGuidance(a.task, 'change')}${carriedQuestionsBrief(a.carriedQuestions, 'reviewer', a.carriedOverflow)}${fastCheckReviewGuidance(config, a.results['fast-check'], repositoryIdentity(cwd))}${scopeReviewGuidance(scopePaths,outside,reviewedPlanScope(a.results))}\nReturn pass only when no substantive findings remain.`,CHANGE_REVIEW_SCHEMA);
+      // A shadow flow asks the must-fix questions (workflows/must-fix.mjs); earlier reviews reach the reviewer without the factory's derived fields.
+      const shadow=a.reviewBar==='shadow';
+      const result=await provider('reviewer',`${brief}\nIndependently review exact candidate ${repositoryIdentity(cwd).head}. Review phase: ${phase}. Full/ordinary reviews inspect the entire change; delta/final reviews inspect commits since ${baseHead}, resolve each previous finding, and inspect affected surrounding code. This is a fresh session. Do not edit files or run code. For strict work document the threat model and stop conditions and attest strictReview. fullDiffInspected means the entire assigned review scope was inspected (the full diff for full review, every delta commit for delta/final); name that scope in scopeSummary. For an already satisfied task inspect current implementation against acceptance even when the diff is empty. Report priorFindingsDisposition for every finding in the immediately previous review; finding must exactly equal its previous message, with concrete evidence for the disposition. Prior reviews: ${JSON.stringify(shadow?(a.reviewHistory??[]).map(({mustFix,shadowRoute,...row})=>row):a.reviewHistory??[])}. Trusted diff:\n${diff}\nBuilder report: ${JSON.stringify(a.results.build?.result??null)}. Report substantive defects and unmet acceptance, duplicated helpers, misplaced/unused code and oversized files; do not invent hardening outside the threat model. ${reviewScopeGuidance(a.task, 'change')}${carriedQuestionsBrief(a.carriedQuestions, 'reviewer', a.carriedOverflow)}${fastCheckReviewGuidance(config, a.results['fast-check'], repositoryIdentity(cwd))}${scopeReviewGuidance(scopePaths,outside,reviewedPlanScope(a.results))}\nReturn pass only when no substantive findings remain.${shadow?mustFixGuidance({subject:'change',facts:a.reviewPolicy?.environment??[],records:a.reviewRecords??[]}):''}`,shadow?MUST_FIX_CHANGE_REVIEW_SCHEMA:CHANGE_REVIEW_SCHEMA);
       const classified={...result,phase,baseHead,...(scopePaths.length?{scope:{paths:scopePaths,outside:outside?.slice(0,200)??null,outsideCount:outside?.length??null}}:{}),...reviewDisposition((a.binding??a.step)==='satisfied-review'?{...config,policy:{...config.policy,reviewProtocol:'fresh-full'}}:config,a.task,{...a,effectiveRisk:a.risk.level},result,phase)};
       if((a.binding??a.step)==='satisfied-review'&&!['pass'].includes(classified.route))classified.route='revise';
+      // Shadow v1: what the must-fix bar would have done, recorded beside the route taken; never acted on.
+      if(shadow)Object.assign(classified,await shadowOutcome(async()=>{
+        const satisfied=(a.binding??a.step)==='satisfied-review',round=(a.reviewHistory?.length??0)+1,strict=effectiveRisk(a.task,{...a,effectiveRisk:a.risk.level,results:{...(a.results??{}),review:result}})==='strict';
+        const incomplete=!assessmentComplete(result.result.riskAssessment)||!['fullDiffInspected','threatModelReviewed','stopConditionsReviewed'].every(key=>result.result.strictReview?.[key]===true);
+        const derivation=deriveReview(result.result.findings,{round,risk:strict?'strict':'ordinary',strictFollowups:a.reviewPolicy?.strictFollowups===true,...await citationContext(a,cwd,result)});
+        return shadowRecord({derivation,route:shadowRouteV1(derivation.findings,{strict:strict||derivation.escalated,incomplete:strict&&incomplete,bounded:!satisfied&&boundedReview(config),phase,satisfied}),actual:classified,verdict:result.result.verdict,round});
+      }));
       // Same-family review is allowed. Record the pairing so it stays visible in evidence.
       const builder=a.results.build;
       return {...classified,independence:builder?(builder.family&&result.family&&builder.family===result.family?'same-family':'different-family'):'external-author-unknown-manual-decision-required',...(builder?{pairing:{builder:{provider:builder.provider??null,model:builder.model??null,family:builder.family??null},reviewer:{provider:result.provider??null,model:result.model??null,family:result.family??null}}}:{})};
