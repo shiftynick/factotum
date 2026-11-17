@@ -183,10 +183,11 @@ export const shadowPlanRouteV1 = derived => derived.some(row => row.kind === 'mu
 
 // The shadow record of one review: the derived fields of every finding and shadowRoute v1, beside
 // the route the review actually took. `actual` is today's { route, disposition }.
-export function shadowRecord({ derivation, route, actual, verdict, schema = MUST_FIX_SCHEMA_VERSION, round, prefix = 'R' }) {
+// `schemaFallback`: 'legacy' when the reviewer's result was valid only against today's schema.
+export function shadowRecord({ derivation, route, actual, verdict, schema = MUST_FIX_SCHEMA_VERSION, round, prefix = 'R', schemaFallback = null }) {
   const blocking = ['revise', 'adjudicate', 'park'].includes(route.route);
   return {
-    mustFix: { schema, round, idPrefix: prefix, risk: derivation.risk, escalated: derivation.escalated, findings: derivation.findings, counts: Object.fromEntries(['must-fix', 'operator-item', 'follow-up'].map(kind => [kind, derivation.findings.filter(row => row.kind === kind).length])), legacy: derivation.findings.filter(row => row.bar === 'legacy').length },
+    mustFix: { schema, ...(schemaFallback ? { schemaFallback } : {}), round, idPrefix: prefix, risk: derivation.risk, escalated: derivation.escalated, findings: derivation.findings, counts: Object.fromEntries(['must-fix', 'operator-item', 'follow-up'].map(kind => [kind, derivation.findings.filter(row => row.kind === kind).length])), legacy: derivation.findings.filter(row => row.bar === 'legacy').length },
     shadowRoute: { version: SHADOW_ROUTE_VERSION, estimate: true, omits: SHADOW_V1_OMITS, route: route.route, disposition: route.disposition, actualRoute: actual.route ?? null, actualDisposition: actual.disposition ?? null, differs: route.route !== actual.route, verdictOverridden: (verdict === 'revise') !== blocking },
   };
 }

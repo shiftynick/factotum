@@ -397,3 +397,71 @@ test('a shadow derivation that fails is recorded as the shadow outcome and never
   assert.equal(steps[0].result.mustFix, undefined);
   assert.deepEqual(shadow['fresh-full-ordinary'].reviewHistory[0].shadowRoute, steps[0].result.shadowRoute, 'the history row keeps the failed estimate');
 });
+
+// Review findings on slice 1: a shadow review of a fixed one-commit repository, run through the dispatcher.
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { createProviderAdapter } from '../starter/factory/adapters/providers/index.mjs';
+function shadowCandidate(t, policy = { reviewBar: 'shadow' }) {
+  const base = mkdtempSync(join(tmpdir(), 'fct-mf-')), root = join(base, 'repo'); t.after(() => rmSync(base, { recursive: true, force: true }));
+  execFileSync('mkdir', ['-p', root]);
+  const git = (args, input) => execFileSync('git', args, { cwd: root, input, encoding: 'utf8' }).trim();
+  git(['init', '-q']); git(['config', 'user.name', 'Fictional Evaluator']); git(['config', 'user.email', 'fixture@example.invalid']);
+  writeFileSync(join(root, 'input.txt'), 'real candidate text\n'); git(['add', '.']); git(['commit', '-qm', 'Fictional candidate']);
+  const head = repositoryIdentity(root).head, config = { mode: 'rehearsal', repository: { slug: 'fictional/demo', account: 'fictional', target: 'main' }, providers: { reviewer: { provider: 'claude', model: 'fictional' } }, policy, context: { files: [], maxChars: 1000 } };
+  const action = { operation: 'provider.review', step: 'review', binding: 'review', task: { id: 'task-1', title: 'Fictional task', acceptance: ['Correct'], risk: 'ordinary' }, config, risk: { level: 'ordinary' }, reviewHistory: [], results: { source: { head } }, context: { files: [], digest: 'fictional-context' }, artifactDir: join(base, 'artifacts'), projectId: 'project-1', flowId: 'flow-1', ...pinnedReviewSettings(config), reviewRecords: [] };
+  return { base, root, git, head, config, action, intent: { cwd: root, timeoutMs: 60000, action } };
+}
+const severityOnly = { verdict: 'revise', summary: 'Fictional severity-only review', findings: [{ severity: 'high', file: 'input.txt', line: 1, message: 'Concrete defect' }], riskAssessment: { level: 'ordinary', rationale: 'Bounded', threatModel: [], stopConditions: [] }, strictReview: { fullDiffInspected: true, threatModelReviewed: false, stopConditionsReviewed: false }, scopeSummary: 'All', priorFindingsDisposition: [], learningsChecked: [] };
+// A provider adapter whose Claude process prints `output` as its structured result; it records the schema it was asked for.
+function scriptedClaude(output, asked) {
+  const help = '--ignore-user-config --ignore-rules --disable --skip-git-repo-check --output-schema --json --model --config --safe-mode --setting-sources --disable-slash-commands --strict-mcp-config --mcp-config --json-schema --tools --restricted --permission-mode --permission-prompts';
+  return createProviderAdapter({ transport: async (binary, args) => {
+    if (args.includes('--json-schema')) asked.push(JSON.parse(args[args.indexOf('--json-schema') + 1]));
+    return { code: 0, stderr: '', stdout: args.includes('--version') ? '2.1.323' : args.includes('--help') ? help : args.includes('status') ? JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', subscriptionType: 'max' }) : JSON.stringify({ type: 'result', subtype: 'success', session_id: 'fictional-session', usage: { input_tokens: 1, output_tokens: 1 }, structured_output: output }) };
+  } });
+}
+
+test('review fix 1: a shadow review accepts a severity-only result through the real adapter and reads it as legacy', async t => {
+  const f = shadowCandidate(t), asked = [];
+  const adapter = scriptedClaude(structuredClone(severityOnly), asked);
+  const review = await runAction(f.intent, { providerInvoke: adapter.invoke });
+  assert.deepEqual(asked, [MUST_FIX_CHANGE_REVIEW_SCHEMA], 'the model is still asked for the full must-fix schema');
+  assert.equal(review.schemaFallback, 'legacy');
+  assert.equal(review.route, 'revise', 'the severity route');
+  assert.deepEqual(review.mustFix.findings.map(row => [row.id, row.bar, row.kind, row.reason]), [['R1.1', 'legacy', 'must-fix', 'legacy-severity']]);
+  assert.equal(review.mustFix.schemaFallback, 'legacy');
+  assert.equal(review.shadowRoute.route, 'revise');
+  // A result valid against neither schema is still refused, as any malformed result is.
+  const mixed = { ...severityOnly, findings: [...severityOnly.findings, finding('outcome', 'unknown')] };
+  await assert.rejects(runAction(f.intent, { providerInvoke: scriptedClaude(mixed, []).invoke }), error => error.code === 'INVALID_RESULT');
+  await assert.rejects(runAction(f.intent, { providerInvoke: scriptedClaude({ ...severityOnly, verdict: 'maybe' }, []).invoke }), error => error.code === 'INVALID_RESULT');
+  // A severity flow asks for today's schema and is offered no fallback.
+  const specs = [], severityFlow = shadowCandidate(t, {});
+  await runAction(severityFlow.intent, { providerInvoke: async spec => { specs.push(spec); return scriptedClaude(structuredClone(severityOnly), []).invoke(spec); } });
+  assert.equal(specs[0].schema, CHANGE_REVIEW_SCHEMA); assert.equal(Object.hasOwn(specs[0], 'legacySchema'), false);
+});
+
+test('review fix 2: file citations are read from verified objects, so a replacement ref cannot make a quote validate', async t => {
+  const f = shadowCandidate(t);
+  const original = f.git(['rev-parse', 'HEAD:input.txt']), forged = f.git(['hash-object', '-w', '--stdin'], 'FORGED QUOTE NOT IN CANDIDATE\n');
+  f.git(['replace', original, forged]);
+  assert.equal(f.git(['cat-file', 'blob', 'HEAD:input.txt']), 'FORGED QUOTE NOT IN CANDIDATE', 'plain Git now shows the forged blob');
+  const quoting = quote => ({ ...severityOnly, findings: [{ ...finding('outcome', 'shown', [fileCite(quote, 'input.txt')]), severity: 'high', file: 'input.txt', line: 1, message: 'Concrete defect' }] });
+  const run = async quote => (await runAction(f.intent, { providerInvoke: async () => ({ provider: 'claude', model: 'fictional', family: 'anthropic', result: quoting(quote) }) })).mustFix.findings[0];
+  const forgedRow = await run('FORGED QUOTE NOT IN CANDIDATE');
+  assert.deepEqual([forgedRow.citations, forgedRow.reachable.read, forgedRow.downgraded, forgedRow.kind], [['not-found'], 'unknown', 'contradicted', 'operator-item']);
+  const realRow = await run('real candidate text');
+  assert.deepEqual([realRow.citations, realRow.reachable.read, realRow.kind], [['validated'], 'shown', 'must-fix']);
+});
+
+test('review fix 3: phase routing reads the flow\'s pinned review protocol, not the current configuration', async t => {
+  const f = shadowCandidate(t, { reviewBar: 'shadow', reviewProtocol: 'fresh-full' });
+  const reply = async () => ({ provider: 'claude', model: 'fictional', family: 'anthropic', result: { ...severityOnly, verdict: 'pass', findings: [] } });
+  const pinned = await runAction({ ...f.intent, action: { ...f.action, reviewProtocol: 'bounded-delta' } }, { providerInvoke: reply });
+  assert.equal(pinned.phase, 'ordinary', 'the pinned bounded-delta protocol');
+  const fresh = await runAction({ ...f.intent, action: { ...f.action, reviewProtocol: 'fresh-full', config: { ...f.config, policy: { ...f.config.policy, reviewProtocol: 'bounded-delta' } } } }, { providerInvoke: reply });
+  assert.equal(fresh.phase, 'full', 'the pinned fresh-full protocol');
+  const unpinned = await runAction({ ...f.intent, action: { ...f.action, config: { ...f.config, policy: { ...f.config.policy, reviewProtocol: 'bounded-delta' } } } }, { providerInvoke: reply });
+  assert.equal(unpinned.phase, 'ordinary', 'a flow without a pin reads the configuration, as before');
+});

@@ -124,6 +124,7 @@ function checkSpec(spec) {
   if (spec.role!=='builder' && spec.sessionId) throw new ProviderError('Independent planner/reviewer must use a fresh session');
   if (spec.maxTurns!==undefined && (!Number.isSafeInteger(spec.maxTurns)||spec.maxTurns<1)) throw new ProviderError('maxTurns must be a positive integer');
   validateSchemaDefinition(spec.schema||schemas[spec.role]);
+  if (spec.legacySchema!==undefined) validateSchemaDefinition(spec.legacySchema);
   if (spec.sessionId && !/^[0-9a-f-]{36}$/i.test(spec.sessionId)) throw new ProviderError('Invalid session ID');
   if (spec.role!=='builder' && spec.readOnly===false) throw new ProviderError('Planner/reviewer require read-only permissions');
   if (spec.suppressWorktreeInstructions!==undefined && typeof spec.suppressWorktreeInstructions!=='boolean') throw new ProviderError('suppressWorktreeInstructions must be boolean');
@@ -380,8 +381,11 @@ export function createProviderAdapter({ transport=runProcess, environment=proces
       }
       if(typeof sessionId!=='string'||!sessionId || !usage || typeof usage!=='object' || Array.isArray(usage)) throw new Error('Session or usage receipt missing');
       if(spec.sessionId && sessionId!==spec.sessionId) throw new Error('Provider resumed a different session');
-      validateSchema(result,schema);
-      const normalized={...accountingResult,...(limits.length?{limits}:{}),provider:spec.provider,model:spec.model,...(spec.effort?{effort:spec.effort}:{}),family:family(spec.provider),sessionId,result,usage,...(reportedCostUsd!==undefined?{reportedCostUsd}:{}),permissions:{requested:readOnly?'read-only':'workspace-write',enforced:spec.provider==='codex'?'provider-sandbox':readOnly?'provider-tool-allowlist':'provider-restricted-tools'},billing:{mode:'subscription',actualMicros:null,accountCreditCost:'unavailable'},started:true,final:true};
+      // A shadow review asks for the must-fix schema and also accepts a result valid against today's
+      // (legacySchema), marked as such; the factory reads its findings as legacy (workflows/must-fix.mjs).
+      let schemaFallback;
+      try { validateSchema(result,schema); } catch (error) { if (!spec.legacySchema) throw error; validateSchema(result,spec.legacySchema); schemaFallback='legacy'; }
+      const normalized={...(schemaFallback?{schemaFallback}:{}),...accountingResult,...(limits.length?{limits}:{}),provider:spec.provider,model:spec.model,...(spec.effort?{effort:spec.effort}:{}),family:family(spec.provider),sessionId,result,usage,...(reportedCostUsd!==undefined?{reportedCostUsd}:{}),permissions:{requested:readOnly?'read-only':'workspace-write',enforced:spec.provider==='codex'?'provider-sandbox':readOnly?'provider-tool-allowlist':'provider-restricted-tools'},billing:{mode:'subscription',actualMicros:null,accountCreditCost:'unavailable'},started:true,final:true};
       await writeFile(resolve(artifactDir,'result.json'),JSON.stringify(normalized,null,2),{mode:0o600});return normalized;
     } catch {
       // A reported usage limit is the cause, not a malformed result. It is still started work.
