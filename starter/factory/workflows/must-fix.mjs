@@ -224,21 +224,34 @@ const quoted = text => JSON.stringify(String(text).length > 160 ? `${String(text
 // The contradictions in one result, as factory sentences; empty when it passes every check. A result
 // with no purpose assessment (one valid only against today's schema, 5.5) is contradictory.
 // Checked here: the purpose assessment is present; it lists each acceptance line of the task exactly
-// as often as the task does, by exact text, and nothing else; a `yes` silent answer comes with at
-// least one finding marked `silent`. The ledger checks (`fixOf` names a ledger entry, every awaiting
-// entry is judged, a `relevance` for every builder citation) need the ledger and come with it.
+// as often as the task does, and nothing else; a `yes` silent answer comes with at least one finding
+// marked `silent`. An entry matches a criterion by its exact text with surrounding whitespace
+// trimmed, nothing more. Entries that differ only in surrounding whitespace from each other are
+// ambiguous, and so is a trimmed text that names two task lines differing only in surrounding
+// whitespace unless the entry gives one of them exactly. The ledger checks (`fixOf` names a ledger
+// entry, every awaiting entry is judged, a `relevance` for every builder citation) need the ledger
+// and come with it.
 export function protocolContradictions(result, task) {
   const purpose = result?.purpose;
   if (!purpose || typeof purpose !== 'object' || !Array.isArray(purpose.acceptance)) return ['the purpose assessment is missing'];
-  const out = [], acceptance = Array.isArray(task?.acceptance) ? task.acceptance : [], listed = purpose.acceptance.map(row => row?.criterion);
-  const count = (list, text) => list.filter(item => item === text).length;
+  const out = [], acceptance = Array.isArray(task?.acceptance) ? task.acceptance : [], listed = purpose.acceptance.map(row => typeof row?.criterion === 'string' ? row.criterion : '');
+  const key = text => String(text).trim(), group = list => { const map = new Map(); for (const text of list) { const k = key(text); map.set(k, [...(map.get(k) ?? []), text]); } return map; };
+  const expected = group(acceptance), found = group(listed);
+  for (const [k, entries] of found) {
+    const forms = new Set(entries), lines = new Set(expected.get(k) ?? []);
+    if (lines.size > 1) { for (const form of forms) if (!lines.has(form)) out.push(`purpose.acceptance lists ${quoted(form)}, which matches ${lines.size} acceptance criteria that differ only in surrounding whitespace`); }
+    else if (forms.size > 1) out.push(`purpose.acceptance lists ${quoted(k)} in ${forms.size} forms that differ only in surrounding whitespace`);
+  }
   for (const [index, criterion] of acceptance.entries()) {
     if (acceptance.indexOf(criterion) !== index) continue;
-    const expected = count(acceptance, criterion), found = count(listed, criterion);
-    if (!found) out.push(`purpose.acceptance omits criterion ${index + 1}, ${quoted(criterion)}`);
-    else if (found !== expected) out.push(`purpose.acceptance lists criterion ${index + 1}, ${quoted(criterion)}, ${found} times instead of ${expected === 1 ? 'once' : `${expected} times`}`);
+    // Lines that differ only in whitespace are counted by exact text; any other line by its trimmed text.
+    const exact = new Set(expected.get(key(criterion))).size > 1, want = exact ? acceptance.filter(text => text === criterion).length : expected.get(key(criterion)).length;
+    if (!exact && acceptance.findIndex(text => key(text) === key(criterion)) !== index) continue;
+    const have = exact ? listed.filter(text => text === criterion).length : (found.get(key(criterion)) ?? []).length;
+    if (!have) out.push(`purpose.acceptance omits criterion ${index + 1}, ${quoted(criterion)}`);
+    else if (have !== want) out.push(`purpose.acceptance lists criterion ${index + 1}, ${quoted(criterion)}, ${have} times instead of ${want === 1 ? 'once' : `${want} times`}`);
   }
-  for (const text of new Set(listed.filter(item => !acceptance.includes(item)))) out.push(`purpose.acceptance lists ${quoted(text ?? '')}, which is not an acceptance criterion of this task`);
+  for (const k of found.keys()) if (!expected.has(k)) out.push(`purpose.acceptance lists ${quoted(found.get(k)[0])}, which is not an acceptance criterion of this task`);
   if (purpose.silentWrongAnswer?.answer === 'yes' && !(result.findings ?? []).some(finding => finding?.silent === true)) out.push('purpose.silentWrongAnswer is yes, but no finding is marked silent');
   return out;
 }

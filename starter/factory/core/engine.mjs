@@ -23,7 +23,7 @@ import { adoptableResult, assertEvidence, isObservation, nodeContract, ownsStepS
 import { recordRetrospective, auditFindingsInTransaction, recordPushbackInTransaction } from '../operations/index.mjs';
 import { abandonUpkeepFlowInTransaction, closeLinkedTaskInTransaction, expireLapsedGrants, findingTasks, noteUncertainUpkeepFlowInTransaction, settleFlowFindingsInTransaction, supersedeOpenQuestions } from './project.mjs';
 import { UPKEEP_FLOW_DRAIN_STOP, UPKEEP_RETURN_CAUSES, afterProposingRunInTransaction, docsFollowUpEndedInTransaction, followUpPinCheck, noteFollowUpStepInTransaction, returnFollowUpInTransaction, isUpkeepFlowOfTask, tryDocsFollowUpInTransaction, upkeepFlowDecision } from '../operations/upkeep-tasks.mjs';
-import { attemptInvocations } from '../operations/usage-accounting.mjs';
+import { attemptInvocations, upkeepInvocationsOf } from '../operations/usage-accounting.mjs';
 import { requestFollowUpCloseInTransaction } from '../operations/upkeep-pr-close.mjs';
 import { endPresentationsForChange } from './communication.mjs';
 import { OPERATION_BOUNDARY, clearDecisionHold, decisionHolds, holdReason, markDecisionHold } from './decisions.mjs';
@@ -678,7 +678,16 @@ export class Engine {
       if (failure) { existing.failure = failure; existing.reason ??= failure.summary; existing.notice = commandFailureNotice(failure); }
       if (clean && correctionHold) existing.reason = reviewCorrectionHold ? 'unchanged candidate after review required revision' : 'unchanged candidate after fast checks failed';
       if (turnLimit && contract.role) { existing.classification = 'turn-limit'; existing.turnLimit = turnLimit; existing.reason ??= `provider turn limit: ${turnLimitText(turnLimit)}`; }
-      if (protocolHold) { existing.classification = 'protocol-failure'; existing.protocolFailure = protocolFailure; existing.reason ??= 'plan review protocol failure'; }
+      if (protocolHold) {
+        existing.classification = 'protocol-failure'; existing.protocolFailure = protocolFailure; existing.reason ??= 'plan review protocol failure';
+        // The failed review's strict assessments stay with the flow, so a resume keeps the escalation.
+        // Only an assessment is recorded: no result, no route and no evidence of the failed review.
+        for (const [index, row] of (Array.isArray(protocolFailure.riskAssessments) ? protocolFailure.riskAssessments : []).slice(0, 2).entries()) {
+          if (row?.assessment?.level !== 'strict') continue;
+          recordRiskAssessment(current, contract.binding ?? attempt.step, { identity: row.identity ?? null, result: { riskAssessment: row.assessment } }, `${attempt.id}:protocol-failure-${index + 1}`);
+          s.event('risk.assessed', { flowId, attemptId: attempt.id, step: attempt.step, level: effectiveRisk(s.need('task', current.taskId), current), assessment: row.assessment });
+        }
+      }
       existing.settledAt = now(); existing.outputIdentity = outputIdentity;
       // Knowledge upkeep's maintained invocation totals (design 4.5): while upkeep is not off, the
       // attempt's invocations are added to the day's row here, and the attempt records that it was
@@ -686,7 +695,7 @@ export class Engine {
       countAttemptInvocationsInTransaction(s, existing, current);
       // An upkeep follow-up counts its own model invocations, whatever the mode: at
       // upkeep.budget.maxFlowInvocations it is ended at its next step boundary (6.6, 7.6).
-      if (isUpkeepFlowOfTask(current)) current.upkeepInvocations = (current.upkeepInvocations ?? 0) + attemptInvocations(existing).length;
+      if (isUpkeepFlowOfTask(current)) current.upkeepInvocations = (current.upkeepInvocations ?? 0) + upkeepInvocationsOf(attemptInvocations(existing)).length;
       // Why a commit, integration, publication or merge of a follow-up failed, when that is the target
       // moving under it (stale or base-moved): an ending it causes returns its candidates.
       noteFollowUpStepInTransaction(current, { operation: contract.operation, passed, aborted, actionResult: receipt.actionResult, attemptId: attempt.id });

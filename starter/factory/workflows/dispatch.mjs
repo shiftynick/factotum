@@ -3,7 +3,7 @@ import { assertGoverningBoundary, governanceEditBrief } from '../operations/gove
 import { withRefusalNotice } from './refusal-notice.mjs';
 import { VerifiedObjects, assertNoHistoryRewrites, shallowBoundary } from '../core/verified-git.mjs';
 import { CHECK_GIT_OPTIONS, CHECK_GIT_ENV, NO_PLANTED_COMMANDS, remoteRefHead } from '../core/git-options.mjs';
-import { accountingResult } from '../operations/usage-accounting.mjs';
+import { accountingResult, SHADOW_REVIEW_CALL } from '../operations/usage-accounting.mjs';
 import { copyInputs, inputsBrief } from '../operations/inputs.mjs';
 import { originalRequestBrief } from '../operations/original-request.mjs';
 import { checkDiagnostics } from './check-diagnostics.mjs';
@@ -103,6 +103,29 @@ async function shadowOutcome(derive, signal) {
   try { return await derive(); }
   catch (error) { if (signal?.aborted) throw error; return { shadowRoute: { version: SHADOW_ROUTE_VERSION, estimate: true, error: String(error?.message ?? error).slice(0, 300) } }; }
 }
+// A shadow review's correction review (design 5.4) is for the estimate only, so it must never cost
+// the review its own result. It starts only when at least `minMs` remain before `marginMs` ahead of
+// the attempt's deadline, and everything it does, provider preflight included, is bounded by that
+// point (and by `maxMs`, when set): when the bound runs out its signal is aborted and the review
+// returns without it. A failure for any reason is a skipped estimate; only an operator's stop (the
+// attempt's own signal) stops the attempt. `run({ signal, deadlineAt })` starts the call.
+export const SHADOW_CORRECTION_LIMITS = Object.freeze({ minMs: 20000, marginMs: 30000, maxMs: null });
+async function shadowCorrection(run, { deadlineAt, signal, limits = SHADOW_CORRECTION_LIMITS }) {
+  const until = deadlineAt - limits.marginMs, budget = Math.min(until - Date.now(), limits.maxMs ?? Infinity);
+  if (budget < limits.minMs) return { skipped: 'deadline' };
+  const own = new AbortController(); let timer;
+  const expired = new Promise((resolve, reject) => { timer = setTimeout(() => { own.abort(); reject(new Error('the shadow correction review ran out of its time budget')); }, budget); });
+  const pending = run({ signal: signal ? AbortSignal.any([signal, own.signal]) : own.signal, deadlineAt: until });
+  pending.catch(() => {});
+  try { return { result: await Promise.race([pending, expired]) }; }
+  catch (error) { if (signal?.aborted) throw error; return { skipped: own.signal.aborted ? 'deadline' : 'failed', error: String(error?.message ?? error).slice(0, 300) }; }
+  finally { clearTimeout(timer); }
+}
+// The higher of two risk levels: a correction never lowers the strict escalation of the result it replaced.
+const strictOf = rows => rows.some(row => row?.result?.riskAssessment?.level === 'strict');
+// A shadow estimate whose correction review was skipped: the original result's derived fields, and
+// no shadow route, since the must-fix bar's outcome is not known.
+const skippedEstimate = (record, corrected, actual) => ({ mustFix: record, shadowRoute: { version: SHADOW_ROUTE_VERSION, estimate: true, skipped: corrected.skipped, ...(corrected.error ? { error: corrected.error } : {}), actualRoute: actual.route ?? null, actualDisposition: actual.disposition ?? null } });
 // A must-fix flow's derived fields are a record; deriving them never fails the review (in slice 2
 // only the protocol checks act).
 async function mustFixOutcome(derive) {
@@ -113,12 +136,15 @@ async function mustFixOutcome(derive) {
 // the attempt fails with classification protocol-failure and the engine stops the flow at plan
 // review without following any edge (core/engine.mjs), the hold a turn limit uses. `results`: the
 // contradictions of each contradictory result, in order, which the notice quotes; `corrected`:
-// whether the single correction review ran.
-function planProtocolFailure(a, results, corrected) {
+// whether the single correction review ran; `reviews`: every result the plan review returned. Their
+// strict risk assessments travel with the failure, and the engine records them with the hold, so a
+// resumed flow keeps the escalation; nothing else of the failed review is kept.
+function planProtocolFailure(a, results, corrected, reviews) {
+  const riskAssessments = reviews.filter(row => row?.result?.riskAssessment?.level === 'strict').slice(0, 2).map(row => ({ identity: row.identity ?? null, assessment: row.result.riskAssessment }));
   const said = results.map((row, index) => `${results.length > 1 ? (index ? 'Second' : 'First') : corrected ? 'After its correction review' : 'Its only result'}: ${row.join('; ')}.`).join(' ');
   const how = results.length > 1 ? 'returned a contradictory result twice' : corrected ? 'was still contradictory after its correction review' : 'returned a contradictory result and policy.planReviewProtocolCorrections allows no correction review';
   const notice = `The plan review ${how}, so the flow stopped at ${a.step} without following any edge: no plan was published and no plan visit was spent. Resume runs a fresh plan review of the same plan; or replan with a note (flow.replan), or stop. ${said}`.slice(0, 2000);
-  return Object.assign(new Error(`plan review protocol failure: ${said}`.slice(0, 2000)), { code: 'PROTOCOL_FAILURE', notice, protocolFailure: { step: a.step, contradictions: results.slice(0, 2).map(row => row.slice(0, 20).map(text => text.slice(0, 300))) } });
+  return Object.assign(new Error(`plan review protocol failure: ${said}`.slice(0, 2000)), { code: 'PROTOCOL_FAILURE', notice, protocolFailure: { step: a.step, contradictions: results.slice(0, 2).map(row => row.slice(0, 20).map(text => text.slice(0, 300))), ...(riskAssessments.length ? { riskAssessments } : {}) } });
 }
 // The strict plan check's own finding, in the must-fix shape for a shadow flow: a check-trust finding (design 6.4).
 const strictPlanShadowFields = () => ({ scenario: 'A strict plan without a concrete threat model and explicit stop conditions gives the builder and later reviews nothing to hold the change to, so a review could pass work whose risks were never stated.', reachable: { status: 'unknown', evidence: [], coverage: '' }, purposeImpact: 'check-trust', silent: true, origin: 'new-code', fixOf: null });
@@ -373,7 +399,7 @@ async function withOriginalPRObservation(intent, result) {
 // The role whose wording a step of an approved governance-edit task gets (operations/governance-edit.mjs).
 const GOVERNANCE_ROLES = Object.freeze({ 'provider.plan': 'planner', 'provider.build': 'builder' });
 export const UPKEEP_CHECKED_OPERATIONS = Object.freeze(['workspace.commit', 'workspace.integrate', 'forge.publish', 'forge.merge']);
-async function runScopedAction(intent, { signal, providerInvoke=invoke, accountingResults=[], deadlineAt=Date.now()+intent.timeoutMs } = {}) {
+async function runScopedAction(intent, { signal, providerInvoke=invoke, accountingResults=[], deadlineAt=Date.now()+intent.timeoutMs, shadowCorrectionLimits=SHADOW_CORRECTION_LIMITS } = {}) {
   const a = intent.action, config = a.config, cwd = intent.cwd;
   if(a.operation==='integration.run')return (await import('./integrations.mjs')).runIntegrationAction(intent,{signal});
   if (['main.verify','target.sync','maintenance.backup','audit','retrospective','machine.sample','retention.archive','knowledge.upkeep','learnings.check'].includes(a.operation)) return (await import('./maintenance.mjs')).runMaintenanceAction(intent,{signal,deadlineAt,providerInvoke});
@@ -405,18 +431,19 @@ async function runScopedAction(intent, { signal, providerInvoke=invoke, accounti
   const learnings = LEARNING_ROLES[a.operation] ? learningsBrief(a.learnings?.items ?? [], LEARNING_ROLES[a.operation]) : '';
   const brief = `Task ${a.task.id}: ${a.task.title}\n${a.task.outcome ? `Outcome: ${a.task.outcome}\n` : ''}Acceptance:\n${a.task.acceptance.map(x => `- ${x}`).join('\n')}\n${originalRequestBrief(a.task.originalRequest)}${upkeepTaskEvidence(a.task, GOVERNANCE_ROLES[a.operation] ?? 'reviewer')}Governing context:${contextText}\n${learnings}${riskInstructions}\n${governanceEditBrief(a.governanceEdit, GOVERNANCE_ROLES[a.operation] ?? 'reviewer')} Do not start persistent background processes. Do not access any repository outside this assigned project.\n${a.node?.guidance ? `Workflow guidance for this step: ${a.node.guidance}\n` : ''}${inputsBrief(a.task.inputs)}`;
   // legacySchema (a shadow review only): a result valid against today's schema is also accepted (adapters/providers).
-  const provider = async (role, prompt, schema, sessionId, artifactName='provider', legacySchema) => {
+  // `call` (a shadow review's correction only): its own signal and deadline, and the label its accounting carries.
+  const provider = async (role, prompt, schema, sessionId, artifactName='provider', legacySchema, call={}) => {
     const selected = resolveProviderSpec(config,role,a);
     // A context task (knowledge-upkeep slice 6) starts no provider whose instruction suppression the
     // operator has not recorded as checked on this host; refused before anything is written or started.
     if (a.task.upkeep?.kind === 'context') { const unqualified = unqualifiedProviders(config, { [role]: selected }); if (unqualified.length) throw Object.assign(new Error(`${a.operation}: ${contextProviderRefusal(a.task.id, unqualified)}`), { code: 'PROVIDER_REJECTED' }); }
-    const remainingMs=Math.floor(deadlineAt-Date.now()-10000);assert(remainingMs>=1000,'insufficient original deadline for another provider turn');
+    const remainingMs=Math.floor((call.deadlineAt??deadlineAt)-Date.now()-10000);assert(remainingMs>=1000,'insufficient original deadline for another provider turn');
     // The exact prompt is kept with the attempt's provider trace, written before the provider starts.
     const promptDir = join(a.artifactDir, artifactName), prompted = recordPrompt(promptDir, prompt, knownSecrets(config));
     let result;
-    try { result = await providerInvoke({ ...selected, role, prompt, schema, ...(legacySchema ? { legacySchema } : {}), cwd, artifactDir: promptDir, timeoutMs:remainingMs, readOnly: role !== 'builder', ...(a.governanceEdit ? { suppressWorktreeInstructions: true } : {}), ...(a.providerHolds?.length ? { heldProviders: a.providerHolds } : {}), ...(sessionId ? { sessionId, previousObservationId: a.results.build?.usageObservation?.id } : {}), maxTurns: selected.maxTurns ?? defaultMaxTurns(role) }, { signal });
+    try { result = await providerInvoke({ ...selected, role, prompt, schema, ...(legacySchema ? { legacySchema } : {}), cwd, artifactDir: promptDir, timeoutMs:remainingMs, readOnly: role !== 'builder', ...(a.governanceEdit ? { suppressWorktreeInstructions: true } : {}), ...(a.providerHolds?.length ? { heldProviders: a.providerHolds } : {}), ...(sessionId ? { sessionId, previousObservationId: a.results.build?.usageObservation?.id } : {}), maxTurns: selected.maxTurns ?? defaultMaxTurns(role) }, { signal: call.signal ?? signal });
     } catch (error) {
-      accountingResults.push(error.accountingResult ?? { provider: selected.provider, model: selected.model, sessionId: sessionId ?? null });
+      accountingResults.push({ ...(error.accountingResult ?? { provider: selected.provider, model: selected.model, sessionId: sessionId ?? null }), ...(call.label ? { call: call.label } : {}) });
       // A provider that stopped at its turn limit ended in a known way (dev.84, H9): say who, where and why.
       // Only an end bound to this invocation's session counts (the adapter checks it; checked again here,
       // since a builder's session is kept for resume): otherwise it stays an uncertain provider result.
@@ -428,7 +455,7 @@ async function runScopedAction(intent, { signal, providerInvoke=invoke, accounti
       throw error;
     }
     // Limit reports travel with the invocation record; usage accounting ignores them.
-    accountingResults.push({ ...accountingResult(result), ...(result.limits?.length ? { limits: result.limits } : {}) });
+    accountingResults.push({ ...accountingResult(result), ...(result.limits?.length ? { limits: result.limits } : {}), ...(call.label ? { call: call.label } : {}) });
     return { ...result, ...prompted, ...(role==='builder'?{dependencyEvidence}:{}), contextDigest: a.context.digest, taskRevision: a.task.revision, identity: repositoryIdentity(cwd) };
   };
   switch (a.operation) {
@@ -544,7 +571,7 @@ async function runScopedAction(intent, { signal, providerInvoke=invoke, accounti
       // A must-fix flow whose plan review is still contradictory stops at plan review (6.4): no edge is
       // followed, no plan is published and no plan visit is spent. Checked first, before anything else.
       const remaining=contradictions(result);
-      if(remaining.length)throw planProtocolFailure(a,[...protocolCorrections.filter(row=>row.contradictions).map(row=>row.contradictions),remaining],protocolCorrections.length>0);
+      if(remaining.length)throw planProtocolFailure(a,[...protocolCorrections.filter(row=>row.contradictions).map(row=>row.contradictions),remaining],protocolCorrections.length>0,[...protocolCorrections.map(row=>row.original),result]);
       const strict=a.risk?.level==='strict'||result.result.riskAssessment.level==='strict'||protocolCorrections.some(row=>row.original.result.riskAssessment.level==='strict');
       // In a must-fix or shadow flow the factory's own finding is a check-trust finding (design 6.4) in the must-fix shape.
       const strictPlanCheck=(row,isStrict)=>{if(isStrict&&!assessmentComplete(row.result.riskAssessment)){row.result.verdict='revise';row.result.findings.push({severity:'high',file:'',line:0,message:'Strict plan review requires a concrete threat model and explicit stop conditions.',...(mustFixBar?strictPlanShadowFields():{})});}};
@@ -561,8 +588,9 @@ async function runScopedAction(intent, { signal, providerInvoke=invoke, accounti
         let basis=result,isStrict=strict,correction=null;
         if(protocolCorrections.length)correction={contradictions:protocolContradictions(result.result,a.task)};
         else if(checks.length&&bound>0){
-          basis=await provider('reviewer',`${prompt}${protocolCorrectionPrompt(checks,first.result)}`,planSchema,undefined,'provider-shadow-protocol-correction',legacySchema);
-          basis={...basis,result:structuredClone(basis.result)};isStrict=strict||basis.result.riskAssessment.level==='strict';strictPlanCheck(basis,isStrict);
+          const corrected=await shadowCorrection(call=>provider('reviewer',`${prompt}${protocolCorrectionPrompt(checks,first.result)}`,planSchema,undefined,'provider-shadow-protocol-correction',legacySchema,{...call,label:SHADOW_REVIEW_CALL}),{deadlineAt,signal,limits:shadowCorrectionLimits});
+          if(corrected.skipped)return skippedEstimate(mustFixRecord({schemaFallback:result.schemaFallback??null,derivation:await derive(result,strict),round,prefix:'P',protocol:{contradictions:checks,correction:{skipped:corrected.skipped,...(corrected.error?{error:corrected.error}:{})},failure:null},purpose:purposeSummary(result.result,a.task)}),corrected,planReviewed);
+          basis={...corrected.result,result:structuredClone(corrected.result.result)};isStrict=strict||basis.result.riskAssessment.level==='strict';strictPlanCheck(basis,isStrict);
           correction={contradictions:protocolContradictions(basis.result,a.task),result:basis.result,...(basis.schemaFallback?{schemaFallback:basis.schemaFallback}:{})};
         }
         const failure=correction?correction.contradictions.length>0:checks.length>0,derivation=await derive(basis,isStrict);
@@ -715,15 +743,16 @@ async function runScopedAction(intent, { signal, providerInvoke=invoke, accounti
         const checks=protocolContradictions(first.result,a.task);protocol={contradictions:checks,correction:null,failure:false};
         if(checks.length){result=await provider('reviewer',`${prompt}${protocolCorrectionPrompt(checks,first.result)}`,reviewSchema,undefined,'provider-protocol-correction-1');protocol.correction={contradictions:protocolContradictions(result.result,a.task)};protocol.failure=protocol.correction.contradictions.length>0;}
       }
-      const classified={...result,phase,baseHead,...(scopePaths.length?{scope:{paths:scopePaths,outside:outside?.slice(0,200)??null,outsideCount:outside?.length??null}}:{}),...reviewDisposition(satisfied?{...config,policy:{...config.policy,reviewProtocol:'fresh-full'}}:reviewConfig,a.task,{...a,effectiveRisk:a.risk.level},result,phase),...(protocol?.correction?{protocolCorrections:[{reason:'protocol',contradictions:protocol.contradictions,original:first,originalArtifact:'provider',correctionArtifact:'provider-protocol-correction-1'}]}:{})};
+      const classified={...result,phase,baseHead,...(scopePaths.length?{scope:{paths:scopePaths,outside:outside?.slice(0,200)??null,outsideCount:outside?.length??null}}:{}),...reviewDisposition(satisfied?{...config,policy:{...config.policy,reviewProtocol:'fresh-full'}}:reviewConfig,a.task,{...a,effectiveRisk:result!==first&&strictOf([first])?'strict':a.risk.level},result,phase),...(protocol?.correction?{protocolCorrections:[{reason:'protocol',contradictions:protocol.contradictions,original:first,originalArtifact:'provider',correctionArtifact:'provider-protocol-correction-1'}]}:{})};
       if(satisfied&&!['pass'].includes(classified.route))classified.route='revise';
       // A second contradictory result routes park with disposition protocol-failure, whatever it
       // reports, before the legacy fallback, the strict checks and every other route; it mints no
       // review evidence. The satisfied review, which has no park edge, revises, ending that flow (5.4, 6.5).
       if(protocol?.failure)Object.assign(classified,{route:satisfied?'revise':'park',disposition:'protocol-failure'});
       const round=(a.reviewHistory?.length??0)+1;
+      // A correction never lowers the risk of the result it replaced: the original's strict escalation carries over.
       const derived=async(row,extra={})=>{
-        const strict=effectiveRisk(a.task,{...a,effectiveRisk:a.risk.level,results:{...(a.results??{}),review:row}})==='strict';
+        const strict=effectiveRisk(a.task,{...a,effectiveRisk:row!==first&&strictOf([first])?'strict':a.risk.level,results:{...(a.results??{}),review:row}})==='strict';
         const incomplete=!assessmentComplete(row.result.riskAssessment)||!['fullDiffInspected','threatModelReviewed','stopConditionsReviewed'].every(key=>row.result.strictReview?.[key]===true);
         const derivation=deriveReview(row.result.findings,{round,risk:strict?'strict':'ordinary',strictFollowups:a.reviewPolicy?.strictFollowups===true,purpose:row.result.purpose??null,...await citationContext(a,cwd,row)});
         return {derivation,review:{strict:strict||derivation.escalated,incomplete:strict&&incomplete,bounded:!satisfied&&boundedReview(reviewConfig),phase,satisfied},...extra};
@@ -735,7 +764,10 @@ async function runScopedAction(intent, { signal, providerInvoke=invoke, accounti
       if(shadow)Object.assign(classified,await shadowOutcome(async()=>{
         const checks=protocolContradictions(first.result,a.task);
         let basis=first,correction=null;
-        if(checks.length){basis=await provider('reviewer',`${prompt}${protocolCorrectionPrompt(checks,first.result)}`,reviewSchema,undefined,'provider-shadow-protocol-correction',legacySchema);correction={contradictions:protocolContradictions(basis.result,a.task),result:basis.result,...(basis.schemaFallback?{schemaFallback:basis.schemaFallback}:{})};}
+        if(checks.length){
+          const corrected=await shadowCorrection(call=>provider('reviewer',`${prompt}${protocolCorrectionPrompt(checks,first.result)}`,reviewSchema,undefined,'provider-shadow-protocol-correction',legacySchema,{...call,label:SHADOW_REVIEW_CALL}),{deadlineAt,signal,limits:shadowCorrectionLimits});
+          if(corrected.skipped){const {derivation}=await derived(first);return skippedEstimate(mustFixRecord({schemaFallback:first.schemaFallback??null,derivation,round,protocol:{contradictions:checks,correction:{skipped:corrected.skipped,...(corrected.error?{error:corrected.error}:{})},failure:null},purpose:purposeSummary(first.result,a.task)}),corrected,classified);}
+          basis=corrected.result;correction={contradictions:protocolContradictions(basis.result,a.task),result:basis.result,...(basis.schemaFallback?{schemaFallback:basis.schemaFallback}:{})};}
         const failure=correction?correction.contradictions.length>0:false,{derivation,review}=await derived(basis);
         return shadowRecord({schemaFallback:basis.schemaFallback??null,derivation,route:shadowRouteV2(derivation.findings,review,{failure}),actual:classified,verdict:basis.result.verdict,round,basis:basis===first?'original':'correction',protocol:{contradictions:checks,correction,failure},purpose:purposeSummary(basis.result,a.task)});
       },signal));

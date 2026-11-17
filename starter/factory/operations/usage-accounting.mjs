@@ -77,6 +77,12 @@ export function accountingResult(result) {
 }
 
 // The model operations: the ones whose attempt starts a provider.
+// A shadow review's correction call (review-must-fix design 5.4, 14.2) carries `call` with this
+// label. It is a provider invocation like any other in every count here, but it is never upkeep's:
+// an upkeep flow's review only shadows the must-fix bar, so the call is left out of the upkeep share
+// and of an upkeep flow's own invocation budget.
+export const SHADOW_REVIEW_CALL = 'shadow-review-correction';
+export const upkeepInvocationsOf = invocations => invocations.filter(row => row?.call !== SHADOW_REVIEW_CALL);
 export const isModelOperation = operation => String(operation).startsWith('provider.') || operation === 'audit' || operation === 'knowledge.upkeep';
 // The invocations of one attempt. This is the one counting function (knowledge-upkeep design, 4.5):
 // the projection below and the maintained daily totals (operations/upkeep-budget.mjs) both use it,

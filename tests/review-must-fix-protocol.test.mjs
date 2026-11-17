@@ -16,6 +16,9 @@ import { runAction } from '../starter/factory/workflows/dispatch.mjs';
 import { changeWorkflow } from '../starter/factory/core/configuration.mjs';
 import { pinnedReviewSettings } from '../starter/factory/core/review-bar.mjs';
 import { protocolContradictions, purposeBlock, purposeSummary, shadowRouteV1, shadowRouteV2, SHADOW_V2_OMITS } from '../starter/factory/workflows/must-fix.mjs';
+import { SHADOW_REVIEW_CALL, upkeepInvocationsOf } from '../starter/factory/operations/usage-accounting.mjs';
+import { countAttemptInvocationsInTransaction } from '../starter/factory/operations/upkeep-budget.mjs';
+import { upkeepDay, upkeepDayId } from '../starter/factory/operations/upkeep-records.mjs';
 
 const ACCEPTANCE = ['Observed fixture behavior', 'The reader reports a missing file'];
 const pinnedPolicy = pinnedReviewSettings({ policy: { reviewBar: 'shadow' } }).reviewPolicy;
@@ -40,7 +43,13 @@ test('protocol checks: the purpose assessment lists each acceptance line exactly
   assert.deepEqual(protocolContradictions(changeResult({ purpose: omitsSecond() }), task), ['purpose.acceptance omits criterion 2, "The reader reports a missing file"']);
   assert.deepEqual(protocolContradictions(changeResult({ purpose: purposeOf([...ACCEPTANCE, ACCEPTANCE[0]]) }), task), ['purpose.acceptance lists criterion 1, "Observed fixture behavior", 2 times instead of once']);
   assert.deepEqual(protocolContradictions(changeResult({ purpose: purposeOf([...ACCEPTANCE, 'Something else']) }), task), ['purpose.acceptance lists "Something else", which is not an acceptance criterion of this task']);
-  assert.deepEqual(protocolContradictions(changeResult({ purpose: purposeOf([ACCEPTANCE[0], `${ACCEPTANCE[1]} `]) }), task).length, 2, 'exact text: a trailing space is another criterion');
+  // Exact text with surrounding whitespace trimmed, and nothing more: the count of entries is kept, and
+  // forms that differ only in surrounding whitespace are ambiguous.
+  assert.deepEqual(protocolContradictions(changeResult({ purpose: purposeOf([` ${ACCEPTANCE[0]}`, `${ACCEPTANCE[1]} \n`]) }), task), [], 'surrounding whitespace is trimmed');
+  assert.deepEqual(protocolContradictions(changeResult({ purpose: purposeOf([ACCEPTANCE[0], ACCEPTANCE[1].toLowerCase()]) }), task).length, 2, 'nothing else is relaxed');
+  assert.deepEqual(protocolContradictions(changeResult({ purpose: purposeOf([ACCEPTANCE[0], `${ACCEPTANCE[0]} `, ACCEPTANCE[1]]) }), task), ['purpose.acceptance lists "Observed fixture behavior" in 2 forms that differ only in surrounding whitespace', 'purpose.acceptance lists criterion 1, "Observed fixture behavior", 2 times instead of once'], 'an ambiguous duplicate after trimming');
+  assert.deepEqual(protocolContradictions(changeResult({ purpose: purposeOf(['A', 'A ']) }), { acceptance: ['A', 'A '] }), [], 'task lines that differ only in whitespace are matched exactly');
+  assert.deepEqual(protocolContradictions(changeResult({ purpose: purposeOf([' A', 'A ']) }), { acceptance: ['A', 'A '] }), ['purpose.acceptance lists " A", which matches 2 acceptance criteria that differ only in surrounding whitespace', 'purpose.acceptance omits criterion 1, "A"']);
   assert.deepEqual(protocolContradictions(changeResult({ purpose: purposeOf(['A', 'A']) }), { acceptance: ['A', 'A'] }), [], 'a repeated acceptance line is listed as often as the task has it');
   assert.equal(protocolContradictions(changeResult({ purpose: purposeOf(['A']) }), { acceptance: ['A', 'A'] }).length, 1);
   assert.deepEqual(protocolContradictions(changeResult({ purpose: purposeOf([]) }), { acceptance: [] }), [], 'a tracked task without criteria');
@@ -296,4 +305,84 @@ test('engine: only a must-fix flow is held by a plan review protocol failure', a
   const flow = f.store.need('flow', 'flow-1');
   assert.equal(flow.step, 'failed', 'its failure route, as for any failed plan review');
   assert.notEqual(f.store.need('attempt', attempt.id).classification, 'protocol-failure');
+});
+
+// ---- Review of slice 2: the shadow correction's deadline, strict escalation across a correction, accounting ----
+
+test('review fix 1: the shadow correction review is skipped when too little of the attempt remains, and the review keeps its own result', async t => {
+  const { intent } = candidate(t, { bar: 'shadow' }), calls = [];
+  intent.timeoutMs = 40000; // less than the 30 s margin plus the 20 s minimum
+  const review = await runAction(intent, { providerInvoke: scripted([changeResult({ purpose: omitsSecond() }), changeResult()], calls) });
+  assert.equal(calls.length, 1, 'no correction review was started');
+  assert.deepEqual([review.route, review.disposition], ['pass', 'accepted']);
+  assert.deepEqual(review.shadowRoute, { version: 'v2', estimate: true, skipped: 'deadline', actualRoute: 'pass', actualDisposition: 'accepted' });
+  assert.deepEqual([review.mustFix.basis, review.mustFix.protocol.correction, review.mustFix.protocol.failure], ['original', { skipped: 'deadline' }, null]);
+});
+
+test('review fix 1: the whole correction, preflight included, is bounded; a failure skips the estimate; only an operator stop stops the attempt', { timeout: 20000 }, async t => {
+  // A correction that ignores its cancellation (a preflight that hangs) is abandoned at the bound.
+  const { intent } = candidate(t, { bar: 'shadow' }), seen = [];
+  const hanging = async (spec, options) => { seen.push(options?.signal); if (seen.length === 1) return scripted([changeResult({ purpose: omitsSecond() })])(spec); return new Promise(resolve => setTimeout(() => resolve(scripted([changeResult()])(spec)), 3000)); };
+  const started = Date.now();
+  const review = await runAction(intent, { providerInvoke: hanging, shadowCorrectionLimits: { minMs: 0, marginMs: 30000, maxMs: 200 } });
+  assert.ok(Date.now() - started < 2500, 'the review returned at the bound, not when the correction finished');
+  assert.deepEqual([review.route, review.shadowRoute.skipped, review.mustFix.protocol.correction.skipped], ['pass', 'deadline', 'deadline']);
+  assert.equal(seen[1]?.aborted, true, 'the correction was told to stop');
+  // Any other failure of the correction is a skipped estimate.
+  let n = 0;
+  const failing = await runAction(candidate(t, { bar: 'shadow' }).intent, { providerInvoke: async spec => { if (n++) throw Object.assign(new Error('Provider cancelled before launch'), { code: 'PROVIDER_CANCELLED' }); return scripted([changeResult({ purpose: omitsSecond() })])(spec); } });
+  assert.deepEqual([failing.route, failing.shadowRoute.skipped, failing.shadowRoute.error], ['pass', 'failed', 'Provider cancelled before launch']);
+  // The plan review's correction is bounded the same way.
+  const plan = await planFlow(t, 'shadow'), planSeen = [];
+  const planned = await runAction(plan.attempt().intent, { providerInvoke: async (spec, options) => { planSeen.push(options?.signal); if (planSeen.length === 1) return scripted([planResult({ purpose: omitsSecond() })])(spec); return new Promise(resolve => setTimeout(() => resolve(scripted([planResult()])(spec)), 3000)); }, shadowCorrectionLimits: { minMs: 0, marginMs: 30000, maxMs: 200 } });
+  assert.deepEqual([planned.route, planned.shadowRoute.skipped], ['pass', 'deadline']);
+});
+
+test('review fix 2: a correction never lowers the strict escalation of the result it replaced', async t => {
+  // The first review escalates to strict and omits a criterion; the correction is complete but reports
+  // ordinary risk, no findings and incomplete strict attestations.
+  const fixture = await runAction(candidate(t).intent, { providerInvoke: scripted([changeResult({ purpose: omitsSecond(), strict: true }), changeResult()]) });
+  assert.deepEqual([fixture.route, fixture.disposition], ['revise', 'incomplete'], 'routed as strict work');
+  assert.equal(fixture.mustFix.risk, 'strict');
+  const shadow = await runAction(candidate(t, { bar: 'shadow' }).intent, { providerInvoke: scripted([changeResult({ purpose: omitsSecond(), strict: true }), changeResult()]) });
+  assert.deepEqual([shadow.route, shadow.shadowRoute.route, shadow.shadowRoute.disposition, shadow.mustFix.risk], ['pass', 'revise', 'incomplete', 'strict'], 'the estimate too; the actual route is today\'s, from the original strict review that passed');
+  // Through the engine, the original's strict assessment stays with the flow.
+  const f = await reviewFlow(t, 'must-fix');
+  const review = await runAction(f.attempt.intent, { providerInvoke: scripted([changeResult({ purpose: omitsSecond(), strict: true }), changeResult()]) });
+  f.engine.settle('flow-1', f.attempt, receipt(review));
+  const flow = f.store.need('flow', 'flow-1');
+  assert.deepEqual([flow.step, flow.effectiveRisk, flow.evidence.review], ['gate', 'strict', undefined], 'no review evidence for a strict review that did not pass');
+});
+
+test('review fix 3: a plan protocol-failure hold keeps the failed review\'s strict escalation, so resume reviews as strict work', async t => {
+  const f = await planFlow(t, 'must-fix');
+  const strictBad = { ...planResult({ purpose: omitsSecond() }), riskAssessment: strictAssessment };
+  let thrown;
+  await assert.rejects(runAction(f.attempt().intent, { providerInvoke: scripted([strictBad, planResult({ purpose: omitsSecond() })]) }), error => { thrown = error; return true; });
+  assert.deepEqual(thrown.protocolFailure.riskAssessments.map(row => row.assessment), [strictAssessment]);
+  f.engine.settle('flow-1', f.attempt(), failedReceipt(thrown));
+  let flow = f.store.need('flow', 'flow-1');
+  assert.deepEqual([flow.state, flow.effectiveRisk], ['stopped', 'strict']);
+  assert.deepEqual(flow.riskAssessments.map(row => [row.step, row.assessment.level]), [['plan-review', 'strict']]);
+  assert.deepEqual([flow.results['plan-review'], flow.evidence], [undefined, {}], 'nothing else of the failed review is kept');
+  f.command('resume', { flowId: 'flow-1', note: 'Fictional resume' });
+  await f.engine.tick();
+  const again = f.attempt();
+  assert.equal(again.intent.action.risk.level, 'strict');
+  // An ordinary pass is now strict work without a threat model: the strict plan check sends it back.
+  const reviewed = await runAction(again.intent, { providerInvoke: scripted([planResult()]) });
+  assert.equal(reviewed.route, 'revise');
+  f.engine.settle('flow-1', again, receipt(reviewed));
+  flow = f.store.need('flow', 'flow-1');
+  assert.equal(flow.step, 'plan', 'back to the planner, not to plan publication');
+});
+
+test('accounting: the shadow correction is a labelled provider invocation, counted in every total but never as upkeep', async t => {
+  const review = await runAction(candidate(t, { bar: 'shadow' }).intent, { providerInvoke: scripted([changeResult({ purpose: omitsSecond() }), changeResult()]) });
+  assert.deepEqual(review.providerInvocations.map(row => row.call ?? null), [null, SHADOW_REVIEW_CALL]);
+  assert.deepEqual(upkeepInvocationsOf(review.providerInvocations).map(row => row.sessionId), ['review-1']);
+  const f = sandbox(t), attempt = { id: 'attempt-shadow', status: 'passed', receipt: { actionResult: review } }, day = upkeepDayId(Date.parse('2026-11-17T12:00:00Z'));
+  for (const flow of [{ taskSnapshot: { upkeep: { kind: 'docs' } } }, { taskSnapshot: {} }]) f.store.tx(() => countAttemptInvocationsInTransaction(f.store, { ...attempt, id: `${attempt.id}-${Boolean(flow.taskSnapshot.upkeep)}` }, flow, { config: { upkeep: { mode: 'observe' } }, nowMs: Date.parse('2026-11-17T12:00:00Z') }));
+  const totals = upkeepDay(f.store, day);
+  assert.deepEqual([totals.invocations, totals.upkeepInvocations], [4, 1], 'an upkeep flow\'s review counts its original review as upkeep and its shadow correction only as an invocation');
 });
