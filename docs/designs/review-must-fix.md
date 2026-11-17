@@ -1,6 +1,6 @@
 # Must-fix review: design
 
-Status: design only, second version (2026-11-17). Baseline: `main` at `f4b325e` (after dev.96).
+Status: design only, third version (2026-11-17). Baseline: `main` at `f4b325e` (after dev.96).
 
 Every statement about current behaviour cites a file and line at that commit. Citations that start `core/`, `operations/`, `workflows/`, `adapters/`, `service/` or `console/` are under `starter/factory/`.
 
@@ -9,7 +9,8 @@ This design answers a request from the third adopter's operator: review rounds s
 **History of this document**
 
 - First version: commit `0b292e6`, with 8 open questions.
-- This version: an independent review (verdict: reject pending changes; direction sound) raised five high and four medium findings. The main points were that the first version weakened today's strict bar without saying so, and that a model's mistaken evidence claim could still clear a real defect. All nine are addressed; [section 18](#18-review-points-and-where-they-are-addressed) maps each to its answer.
+- Second version: commit `d118281`. An independent review of the first version (verdict: reject pending changes; direction sound) raised five high and four medium findings: the first version weakened today's strict bar without saying so, and a model's mistaken evidence claim could still clear a real defect.
+- This version: the independent re-check of `d118281` found the first review materially addressed and raised four further findings: an environment fact does not confirm a reviewer's inference from it, the must-fix cap could be unreachable, plan review has no `park` edge, and the already-satisfied exception to the strict delta requirement must stay. All thirteen points are mapped in [section 18](#18-review-points-and-where-they-are-addressed).
 
 ## 1. The design in one page
 
@@ -26,16 +27,16 @@ A must-fix finding sends the change back to the builder. Every other finding is 
 The parts:
 
 1. **Schema.** Each finding states a concrete `scenario`, whether it is `reachable` here with cited evidence, its `purposeImpact`, whether it is `silent`, and its `origin`. Every citation says what part of the scenario it covers, and each claim explains how its evidence covers the whole scenario. A review also returns a `purpose` assessment: is the outcome met, is each acceptance criterion met, and can the change give a wrong answer silently. The factory derives `mustFix` and the finding's kind; the model's verdict does not decide either.
-2. **Two evidence checks, kept apart.** The factory **validates** citations: a quoted line exists at the reviewed head, an environment fact is one the operator declared, a record belongs to this flow, at the right candidate, with the cited check and result. Whether a claim is **supported** is a separate judgement: an independent reviewer must explain how validated evidence covers the complete scenario. A claim that rests only on validated existence is not supported and goes to the operator.
+2. **Two evidence checks, kept apart.** The factory **validates** citations: a quoted line exists at the reviewed head, an environment fact is one the operator declared, a record belongs to this flow, at the right candidate, with the cited check and result. Whether a claim is **supported** is a separate judgement, made by someone other than the claim's author: an independent reviewer for a builder's deferral, or the operator (or a later review on a different model family) for a reviewer's own exclusion. A declared environment fact confirms the fact, not the reviewer's inference that it rules out this scenario. A claim that is not confirmed goes to the operator.
 3. **Routing** reuses the existing routes (`revise`, `defer`, `pass`, `park`, `adjudicate`, `delta`), so no graph changes. A contradictory review that repeats its contradiction parks for the operator, even with no findings.
 4. **Strict work changes, explicitly.** Today any finding blocks a strict pass. Under the must-fix bar that stays true unless the project also turns on `policy.review.strictFollowups`. With it on, three named kinds of finding may stop blocking, and each one must be acknowledged by id in the exact-head question; protected-class items only by the operator. The shared strict requirement in `core/risk.mjs` changes, and is checked at question opening, at answering and before the merge.
 5. **One decision guard** decides when an ordinary merge returns to the operator (operator items, unverified criteria, a silent-answer assessment other than `no`, a non-must-fix `critical` finding, protective restrictions), checked at the same three points and for automatic merge.
 6. **Later rounds** judge earlier fixes against the original scenario only. A different input, assumption or failure path is a new finding with its own derivation. From round 3, a corner case in a fix blocks only with validated evidence.
 7. **Builder deferral** is allowed once per finding, with evidence; the next reviewer accepts it only by explaining coverage of the complete scenario.
-8. **Cap:** after 3 must-fix send-backs the flow parks for the operator.
+8. **Cap:** after 3 must-fix send-backs, or earlier if the graph's visit or transition budget cannot take another correction, the flow parks for the operator. A second contradictory plan review stops the flow at plan review for the operator.
 9. **Rollout:** `policy.reviewBar` is `severity` (today, the default) or `shadow`. The value `must-fix` is refused by configuration validation until the release that ships the ledger, the strict changes, the decision guard and the console evidence together, and only after the stale-output false-pass case is caught in a shadow trial. Activation is drained, every behaviour-affecting review setting is pinned per flow, and an operator-only restriction command tightens running flows when a kill criterion trips.
 
-How this would have played out on the third adopter's PR (section 2): the corner cases about two machines with the same hostname and checkout path would have cited a declared environment fact ("one factory host per account") and become follow-ups, or been reported as unknown and become operator items that need one acceptance at the merge question rather than another build round. The stale-binaries defect is a silent wrong answer in the check-trust class; the purpose question "can it give a wrong answer silently?" is asked first in every round, and a `yes` there blocks.
+How this would have played out on the third adopter's PR (section 2): the corner cases about two machines with the same hostname and checkout path would have cited a declared environment fact ("one factory host per account") or been reported as unknown. Either way they become operator items, accepted by the operator at the merge question (or confirmed by a later review on another model family), not another build round. The stale-binaries defect is a silent wrong answer in the check-trust class; the purpose question "can it give a wrong answer silently?" is asked first in every round, and a `yes` there blocks.
 
 ## 2. The request and the field evidence
 
@@ -68,6 +69,10 @@ How this would have played out on the third adopter's PR (section 2): the corner
 | Under `bounded-delta`: strict work goes full, delta, final, and a full review that passes routes `delta`. A strict final with findings routes `adjudicate`. Ordinary work defers medium and low findings from round `ordinaryFollowupAfter`; the final ordinary round parks. A delta or final review that leaves a previous finding without evidence routes `revise` or `park`. | `core/delivery-review.mjs:4-9,13,20-29`; `docs/risk-review.md:41-58` |
 | The reference change graph: `review` and `delta-review` route `pass` to the gate, `revise` to build, `delta` to delta review, `defer` to `followups` (then the gate), `adjudicate` to the gate, `park` to `review-question` (send back or stop). | `core/configuration.mjs:84-91` |
 | A result route that the node has no edge for fails the attempt. | `core/engine.mjs:803` |
+| The reference plan-review node has only `pass` (to publishing the plan) and `revise` (to the planner) edges; the plan node allows 3 visits per plan cycle. The build node allows exactly `maxBuildRounds` visits (default 4), the first of which is the initial build. | `core/configuration.mjs:73-74,79` |
+| A model step whose provider stopped at its turn limit settles as failed and stops the flow at the same step instead of following its failure route, so a resume runs the step again. | `core/engine.mjs:652-657` |
+| The already-satisfied path reviews once, always as a full review under the fresh-full protocol, and the strict requirement exempts `completionMode: already-satisfied` from the full-and-delta history it otherwise needs under bounded-delta. | `workflows/dispatch.mjs:612,620`; `core/risk.mjs:33` |
+| A replan starts a new plan cycle with fresh visit and transition budgets for the steps after the plan. | `core/project.mjs:711-713` |
 | `forge.followup` accepts only `defer` with medium or low findings in ordinary work, and opens one unapproved GitHub issue (at most 20 acceptance lines), linked from the PR, with a pending operator obligation. Its result mints review evidence. | `workflows/dispatch.mjs:405-415`; `adapters/github/index.mjs:183-212`; `core/operations.mjs:26` |
 | Review evidence is minted only by a `pass` route, or by a strict final `adjudicate`. | `core/delivery-review.mjs:31`; `core/engine.mjs:802` |
 | The **strict requirement** accepts only a review whose route is `pass` with a pass verdict and no findings, or a bounded-delta final `adjudicate`. Under bounded-delta it also needs a full and a delta review in history. A review routed `defer` is refused. The requirement's digest binds the summary, reviewer, scope, review result and identity; the answer must name the exact head and that digest. | `core/risk.mjs:28-45` |
@@ -115,6 +120,7 @@ The factory derives each finding's **kind** from the reported fields, the flow's
 | any | `outcome` | `shown` | **must-fix** |
 | any | `outcome` | `unknown` | operator item (`unresolved-scenario`) |
 | any | `outcome` | `not-here`, supported | follow-up |
+| any | `outcome` | `not-here`, not yet confirmed (11.3) | operator item (`unconfirmed-exclusion`) |
 | any | `outcome` | `not-here`, unsupported | operator item (`unsupported-exclusion`) |
 | strict | a protected class | `shown` or `unknown` | **must-fix** |
 | strict | a protected class | `not-here`, supported | operator item (`protected-exclusion`), the operator's own acceptance only |
@@ -178,9 +184,9 @@ purpose: {
 }
 ledger: [{
   id:          string
-  judgement:   fix-holds | fix-incomplete | deferral-accepted | deferral-rejected
+  judgement:   fix-holds | fix-incomplete | deferral-accepted | deferral-rejected | exclusion-confirmed | exclusion-rejected
   sameScenario: boolean            fix-incomplete only: the original scenario, unchanged, still fails
-  coverage:    string 0..1200      deferral-accepted: how the builder's evidence covers the complete scenario
+  coverage:    string 0..1200      deferral-accepted, exclusion-confirmed: how the evidence covers the complete scenario
   relevance:   [covers | partial | irrelevant]   deferral judgements: one per builder citation, in order
   evidence:    citation[0..4]
 }]
@@ -194,10 +200,10 @@ ledger: [{
 | --- | --- |
 | `id` | `R<round>.<index>`, for example `R2.3`. Stable for the life of the flow |
 | `kind` | `must-fix`, `operator-item` or `follow-up` (4.3) |
-| `reason` | `outcome-shown`, `protected-class`, `unmet-acceptance`, `silent-wrong-answer`, `unresolved-scenario`, `unsupported-exclusion`, `protected-exclusion`, `critical`, `restricted`, `legacy-severity`, or `purpose-none` |
+| `reason` | `outcome-shown`, `protected-class`, `unmet-acceptance`, `silent-wrong-answer`, `unresolved-scenario`, `unconfirmed-exclusion`, `unsupported-exclusion`, `protected-exclusion`, `budget`, `critical`, `restricted`, `legacy-severity`, or `purpose-none` |
 | `bar` | `must-fix`, or `legacy` when the finding lacks the new fields |
 | `citations` | Per citation: `validated`, `not-found`, `stale`, `unknown-ref` or `not-checkable` (11.2) |
-| `support` | For an exclusion or a deferral: `supported`, `existence-only`, `unsupported` or `contradicted` (11.3) |
+| `support` | For an exclusion or a deferral: `supported`, `unconfirmed`, `existence-only`, `unsupported` or `contradicted` (11.3) |
 | `claimDigest` | Digest of the finding as recorded, its citations, their validation and its support status. What an acknowledgement names |
 | `downgraded` | Why a `shown` was read as `unknown`, when it was |
 
@@ -211,7 +217,7 @@ A result that fails one of these checks is contradictory:
 - `ledger` judges every entry the factory marked as awaiting judgement (8.2). An omitted judgement is a contradiction, not a send-back: today's route for it (`revise`, `core/delivery-review.mjs:13`) would hand the builder nothing to fix.
 - A `deferral-accepted` judgement has a `relevance` entry for every builder citation.
 
-The first contradictory result gets one fresh correction review with the contradiction stated, as plan review does today (`workflows/dispatch.mjs:480-486`). **A second contradictory result routes `park`** with disposition `protocol-failure`, whatever it reports, including a pass with no findings. This check runs first, before the legacy fallback, the strict checks and every other route. It mints no review evidence. In a satisfied review, whose only other route is `revise`, it routes `revise`, which ends that flow as failed (`core/configuration.mjs:68`). In shadow flows the protocol failure is recorded as the shadow route and the actual route is today's.
+The first contradictory result gets one fresh correction review with the contradiction stated, as plan review does today (`workflows/dispatch.mjs:480-486`). **A second contradictory result routes `park`** with disposition `protocol-failure`, whatever it reports, including a pass with no findings. This check runs first, before the legacy fallback, the strict checks and every other route. It mints no review evidence. In a satisfied review, whose only other route is `revise`, it routes `revise`, which ends that flow as failed (`core/configuration.mjs:68`). A plan review has no `park` edge either; its fail-closed outcome is in 6.4. In shadow flows the protocol failure is recorded as the shadow route and the actual route is today's.
 
 ### 5.5 Backward compatibility
 
@@ -253,11 +259,15 @@ In a must-fix flow the correction brief lists only the open must-fix items: id, 
 
 ### 6.4 Plan review
 
-Plan review uses the same finding fields and test. A must-fix plan finding routes `revise`. Other plan findings are carried into the build brief as advisory plan notes and recorded on the flow; nothing has been built, so they are neither follow-ups nor operator items. The protocol checks of 5.4 apply, with plan review's existing single correction. The strict plan check that adds a high finding when the threat model is missing (`workflows/dispatch.mjs:487`) adds it as a must-fix `check-trust` finding.
+Plan review uses the same finding fields and test. A must-fix plan finding routes `revise`. Other plan findings are carried into the build brief as advisory plan notes and recorded on the flow; nothing has been built, so they are neither follow-ups nor operator items. The protocol checks of 5.4 apply, with plan review's existing single correction.
+
+**A second contradictory plan review stops the flow at plan review.** The reference plan-review node has only `pass` and `revise` edges (`core/configuration.mjs:74`). `pass` would accept a plan the review could not assess, and `revise` would send the planner a contradiction that is the reviewer's, not the plan's, and spend a plan visit on it (today's behaviour, `docs/risk-review.md:91`). Instead, in must-fix and shadow flows, the attempt settles as failed with classification `protocol-failure`, and the flow stops at the plan-review step without following any edge, the same hold a turn limit uses (`core/engine.mjs:652-657`). It mints nothing, publishes no plan and spends no plan visit. The stop notice quotes both contradictions. The operator resumes (a fresh plan review of the same plan), replans with a note, or stops. This needs no graph change and works for any graph whose plan review is `provider.planReview`. In shadow flows it is recorded as the shadow outcome and the actual route is today's.
+
+The strict plan check that adds a high finding when the threat model is missing (`workflows/dispatch.mjs:487`) adds it as a must-fix `check-trust` finding.
 
 ### 6.5 Already-satisfied review
 
-The `satisfied-review` node routes only `pass` and `revise` (`core/configuration.mjs:68`). A must-fix finding or a protocol failure fails it as today. Operator items and follow-ups are recorded as rows and the satisfied question lists them through the decision guard (12.5) and, for strict work, the strict requirement (7.4).
+The `satisfied-review` node routes only `pass` and `revise` (`core/configuration.mjs:68`). A must-fix finding or a protocol failure fails it as today. Operator items and follow-ups are recorded as rows when the review settles, the review routes `pass`, and the satisfied question lists them through the decision guard (12.5) and, for strict work, the strict requirement (7.4). The satisfied review stays a single full review under the fresh-full protocol, as today (`workflows/dispatch.mjs:612,620`), whatever the project's protocol; there is no delta phase on this path.
 
 ## 7. Strict work
 
@@ -296,14 +306,14 @@ Nothing else changes: protected-class findings that are `shown` or `unknown`, ou
 
 `strictReviewRequirement` (`core/risk.mjs:28-41`) branches on the flow's pinned bar. For `severity` it is unchanged. For `must-fix` it requires:
 
-- **Accepted review evidence:** the latest review at the exact candidate (head and tree) with complete attestations and assessment, and, under bounded-delta, a full and a delta review in history (unchanged). Its route is `pass`; or `defer`, with a `followups` result recorded at the same identity and the same review digest; or a bounded-delta final `adjudicate`. No must-fix item open in the ledger, except under `adjudicate`.
+- **Accepted review evidence:** the latest review at the exact candidate (head and tree) with complete attestations and assessment, and, under bounded-delta, a full and a delta review in history, **except for `completionMode: already-satisfied`**, which keeps today's exemption (`core/risk.mjs:33`): its single full satisfied review is the whole review chain (6.5). Its route is `pass`; or `defer`, with a `followups` result recorded at the same identity and the same review digest; or a bounded-delta final `adjudicate`. No must-fix item open in the ledger, except under `adjudicate`.
 - **The acknowledgement list:** every finding of the flow that is not judged fixed and was not must-fix-and-fixed: adjudicated must-fix items, operator items, follow-ups (with `strictFollowups` on), and a silent-answer assessment of `unknown`. Each entry carries its id, kind, reason, claim digest and whether it is operator-only (protected-class items and anything under a restriction).
 - **The digest:** `assessmentDigest` adds the digest of the acknowledgement list and of the ledger, so any change to a finding, a judgement or a support status invalidates an earlier answer.
 - **The answer** (`core/project.mjs:1021-1031`) must carry `reviewedHead` (as today) and `acknowledgedFindings: [{ id, claimDigest }]` equal to the list. Operator-only entries require the actor to be the operator, even when `strictDecisionRole` is `orchestrator`.
 
 It is computed at the three existing points with no new path: when the question opens (`core/engine.mjs:479`), when it is answered (`core/project.mjs:1021-1031`) and before the effect (`workflows/actions.mjs:198,208`; `workflows/dispatch.mjs:463,704`). The strict merge requirements therefore change, for must-fix flows only, in two ways: a `defer` review becomes acceptable evidence, and every non-fixed finding needs an explicit acknowledgement.
 
-**End-to-end tests through real merge authorization** (scripted providers, the real `answer` command, the effect dispatcher and the test forge): strict `fresh-full` with a follow-up merges after acknowledgement; strict bounded-delta goes full, delta, `defer`, gate and merge, and a `defer` from the full phase is impossible; an answer missing one acknowledgement is refused; an answer naming a claim digest that changed is refused; `strictDecisionRole: orchestrator` acknowledging a protected exclusion is refused; a ledger change between answer and merge is refused before the merge; a severity flow merges exactly as today.
+**End-to-end tests through real merge authorization** (scripted providers, the real `answer` command, the effect dispatcher and the test forge): strict `fresh-full` with a follow-up merges after acknowledgement; strict bounded-delta goes full, delta, `defer`, gate and merge, and a `defer` from the full phase is impossible; an answer missing one acknowledgement is refused; an answer naming a claim digest that changed is refused; `strictDecisionRole: orchestrator` acknowledging a protected exclusion is refused; a ledger change between answer and merge is refused before the merge; a severity flow merges exactly as today. **Already-satisfied:** on a project with `reviewProtocol: bounded-delta`, a strict already-satisfied flow with one operator item goes through its single full satisfied review, the satisfied gate and the satisfied question; an answer without `acknowledgedFindings` is refused; an answer with `reviewedHead` and the acknowledgement is accepted, `outcome.satisfied` records the outcome, and no delta review was required at any of the three checks.
 
 ## 8. Later rounds
 
@@ -375,10 +385,16 @@ The reviewer is told to accept a deferral only when the builder's evidence, take
 
 ### 9.5 Cap and escalation
 
-`policy.review.mustFixRounds` (default 3, 1 to 12) bounds the review rounds of a flow that route `revise` for must-fix items. The review that would start one more routes `park` to `review-question`.
+`policy.review.mustFixRounds` (default 3) bounds the review rounds of a flow that route `revise` for must-fix items. The review that would start one more routes `park` to `review-question`.
 
-- **"One more round"** is the operator's `send_back` answer there, with its required note. It allows exactly one further must-fix send-back: the cap rises by one for this flow and is recorded with the answer. Through today's mechanism it also extends each exhausted visit bound by one and adds 12 transitions (`core/project.mjs:1004-1011`), but it does not extend strict review nodes, so strict work has no unbounded loop.
-- **Running out of budget.** The node visit bounds (`maxBuildRounds` for build, the review visit bound for the review nodes) and the transition bound remain hard limits. Commissioning refuses a cap above `maxBuildRounds` or `ordinaryReviewRounds`, so the cap parks first. If a bound is still reached (for example after several `send_back` answers), the move is refused and the flow stops with "workflow visit bound exhausted" (`core/project.mjs:586-591`); recovery is the existing deliberate resume or replan.
+**The cap must be reachable before any budget runs out.**
+
+- **Counting.** The initial build is build visit 1. A must-fix send-back is a correction build, so with `maxBuildRounds` = B at most B − 1 corrections fit. Configuration validation therefore requires `mustFixRounds` ≤ `maxBuildRounds` − 1 (and ≤ `ordinaryReviewRounds`); the defaults, 3 and 4, satisfy it. A project with `maxBuildRounds: 1` cannot use `must-fix`.
+- **The correction cycle.** Commissioning computes, for each `provider.review` node of the pinned graph, its correction cycle: the path from its `revise` edge back to a review node through the first edge of each step (in the reference graph: build, commit, integrate, the fast check when configured, publish, review or delta review), and the path from the review to the merge question along `pass` edges. Commissioning refuses `must-fix` for a graph where no such cycle exists.
+- **The budget check.** Before routing `revise`, the review action checks that one more cycle fits: every step on the cycle with a visit bound has a visit left (its bound plus its extensions, minus its visits, as `core/project.mjs:125-127` computes them), and the flow's remaining transitions cover the cycle plus the path to the merge question. If not, it routes `park` with reason `budget` instead, even below the cap. Visits spent elsewhere, such as a `retry` after a build question or a conflict repair, are counted, so they can bring the park forward.
+
+- **"One more round"** is the operator's `send_back` answer at `review-question`, with its required note. It grants exactly one further must-fix send-back: the flow's cap allowance rises by one, recorded with the answer. Through today's mechanism the same answer extends each exhausted visit bound by one and adds 12 transitions (`core/project.mjs:1004-1011`), which is what lets the extra cycle fit. Strict review nodes are not extended by today's mechanism, so for strict work the answer is checked first: if the correction cycle would still not fit after the extension, the `send_back` is refused with that reason, and the operator can stop, or replan where supported, which starts a new plan cycle with fresh budgets (`core/project.mjs:711-713`). The next review that still has an open must-fix item finds the allowance used and parks again; it never routes to a build visit that is not available.
+- **Hard limits stay.** The node visit bounds and the transition bound are not changed. With the budget check, a must-fix review parks before any of them is reached. A bound can still be reached on a path the review does not control (for example repeated build-question retries); then the move is refused and the flow stops with "workflow visit bound exhausted" (`core/project.mjs:586-591`), as today.
 - **Operator dispositions before a retry.** A new operator command, `flow.disposeFinding`, records `operator-accepted` or `operator-required` on one ledger entry, with a note and the entry's version, so a contested or disputed finding can be settled before `retry` or `send_back`. For protected-class items it is the operator's alone; for outcome items in ordinary work a delegated orchestrator may record `operator-required`, never `operator-accepted`.
 
 ## 10. Purpose first
@@ -424,16 +440,28 @@ The record binding closes the field case's shape: a passing result recorded for 
 
 A claim is one of:
 
-- **`supported`:** at least one citation validated, none contradicted, coverage of the complete scenario stated, and the claim confirmed by someone other than its author. For a builder's deferral, that is an independent reviewer's `deferral-accepted` with coverage and at least one validated citation marked `covers` (9.3). For a reviewer's own `not-here`, it is a validated `environment` citation whose `covers` text and the finding's coverage tie the fact to the scenario: the fact is the operator's own statement, which is the confirmation.
-- **`existence-only`:** citations validate, but no independent confirmation that they cover the scenario.
+- **`supported`:** at least one citation validated, none contradicted, coverage of the complete scenario stated, and the claim confirmed by someone other than its author. For a builder's deferral, that is an independent reviewer's `deferral-accepted` with coverage and at least one validated citation marked `covers` (9.3). For a reviewer's own `not-here`, see below.
+- **`unconfirmed`:** a reviewer's own exclusion whose citations validate and whose coverage is stated, but which nobody else has confirmed yet.
+- **`existence-only`:** citations validate, but coverage is missing, or an independent judge did not find that they cover the scenario.
 - **`unsupported`:** nothing validates.
 - **`contradicted`:** a citation contradicts.
+
+**A reviewer's own exclusion is never confirmed by its author or by the fact it cites.** The operator declared the fact, not the reviewer's inference that the fact rules out this scenario. For example, a defect needs two processes on one host; the reviewer excludes it citing "each account runs the factory on one host"; the citation validates, but the fact says nothing about processes. So an exclusion the reviewer bases on an environment fact (or on any other citation) is `unconfirmed`, an operator item, until one of these confirms it:
+
+| Counts as confirmation | Does not count |
+| --- | --- |
+| The operator accepts that claim's digest, at the merge or satisfied question or with `flow.disposeFinding` | The citation validating |
+| A later review in the same flow, in a fresh session on a **different model family** from the reviewer that made the exclusion, given the scenario, the cited evidence and the coverage, returning `exclusion-confirmed` with its own coverage of the complete scenario. Such entries await judgement like claimed fixes (8.2); the factory never starts a round only to confirm one | The operator having declared the fact |
+| | A later review on the same model family, or the same reviewer in a later round |
+| | A passing check or other record: a check can show that a fact holds, not that the fact rules out a scenario |
+
+`exclusion-rejected` re-derives the finding as if its reachability were `unknown` (4.3). Once confirmed, an outcome exclusion becomes a follow-up; a protected-class exclusion in strict work still needs the operator's own acceptance of its claim digest (4.3).
 
 Only `supported` exclusions and deferrals can become plain follow-ups. Every other status leaves an operator item or a must-fix finding (4.3, 9.3). "Validated" is never shown as "verified", so no one reads it as proof of the argument.
 
 ### 11.4 Environment facts
 
-The strongest "can't happen here" evidence is a fact about the project's real setup that the operator stated, such as "each account runs the factory on one host" or "checkout paths are unique on a host". They are declared in `policy.review.environment` as `{ id, fact }` entries (at most 40, each at most 300 characters). They are configuration, not repository files, so a builder cannot add one; they are authority-bearing and operator-only (section 13); every must-fix brief lists them; and each flow pins the facts it started with.
+The most useful "can't happen here" evidence is a fact about the project's real setup that the operator stated (useful, not sufficient: 11.3), such as "each account runs the factory on one host" or "checkout paths are unique on a host". They are declared in `policy.review.environment` as `{ id, fact }` entries (at most 40, each at most 300 characters). They are configuration, not repository files, so a builder cannot add one; they are authority-bearing and operator-only (section 13); every must-fix brief lists them; and each flow pins the facts it started with.
 
 ### 11.5 What the operator sees
 
@@ -464,7 +492,7 @@ Upkeep-origin flows get the project's bar. Their rows are never turned into issu
 
 One shared function, `reviewDecisionGuard(task, flow, identity)`, returns whether the merge or satisfied decision must be the operator's, the reasons, and the acknowledgement list. In an ordinary must-fix flow the decision is the operator's, and `autoMerge` does not answer, when any of these hold:
 
-- an operator item of any reason (unresolved scenario, unsupported or existence-only exclusion or deferral, disputed deferral, protected class, `critical`, restricted, row overflow);
+- an operator item of any reason (unresolved scenario, unconfirmed, unsupported or existence-only exclusion or deferral, budget, disputed deferral, protected class, `critical`, restricted, row overflow);
 - a criterion that is not `met`, or an outcome other than `met`;
 - a silent-answer assessment other than `no`;
 - an active `review.restrict` with `operatorDisposition: all`.
@@ -505,13 +533,13 @@ Document flows use the same test; their findings are almost always `outcome` or 
 | Setting | Values | Default | Authority |
 | --- | --- | --- | --- |
 | `policy.reviewBar` | `severity`, `shadow`; `must-fix` from the enabling release (15) | `severity` | Authority-bearing: operator-only on both schemas |
-| `policy.review.mustFixRounds` | 1 to 12, not above `maxBuildRounds` or `ordinaryReviewRounds` | 3 | As the existing round settings |
+| `policy.review.mustFixRounds` | 1 to 11, at most `maxBuildRounds` − 1 and at most `ordinaryReviewRounds` | 3 | As the existing round settings |
 | `policy.review.inFixEvidenceFrom` | 2 to 12 | 3 | As the existing round settings |
 | `policy.review.maxFollowupsPerFlow` | 1 to 50 | 20 | As the existing round settings |
 | `policy.review.strictFollowups` | boolean | `false` | Authority-bearing: operator-only |
 | `policy.review.environment` | up to 40 `{id, fact}` | none | Authority-bearing: operator-only |
 
-The authority-bearing ones join `authorityPolicy` (`core/authority-policy.mjs:16-33`). Commissioning refuses `must-fix` when a `provider.review` node other than a satisfied review lacks a `defer` edge, since the route would fail the attempt (`core/engine.mjs:803`).
+The authority-bearing ones join `authorityPolicy` (`core/authority-policy.mjs:16-33`). Commissioning refuses `must-fix` when a `provider.review` node other than a satisfied review lacks a `defer` or a `park` edge, since the route would fail the attempt (`core/engine.mjs:803`), or when a review node has no correction cycle (9.5).
 
 ### 13.2 Activation is drained
 
@@ -566,20 +594,20 @@ Every slice ships with its tests and leaves severity flows byte-identical. **Unt
 - Accepted when: every row and rule of 4.3 has a fixture; `shown` with reasoning only, with a missing quote and with a record at another head is read as `unknown`; record citations with the wrong check or result do not validate; legacy rows get stable ids; the new schemas pass `validateSchemaDefinition`; a severity flow's prompts, schemas and routes are byte-identical (golden test); in shadow the actual route always equals the severity route; `must-fix` is refused by validation.
 
 **Slice 2: purpose first and fail-closed protocol checks, shadow v2.**
-- The purpose block; the purpose assessment; the checks of 5.4 with one correction review and `park` on the second; purpose synthesis.
-- Accepted when: a pass with **no findings** that omits an acceptance criterion, twice in a row, parks with `protocol-failure` and mints no evidence; the same for an omitted ledger judgement once slice 3 exists; protocol failure takes precedence over the legacy fallback; `not-met` without a finding adds a must-fix finding; an old-shape result in a must-fix fixture flow never passes; a task without an outcome is labelled.
+- The purpose block; the purpose assessment; the checks of 5.4 with one correction review and `park` on the second; the plan-review protocol-failure stop of 6.4; purpose synthesis.
+- Accepted when: a pass with **no findings** that omits an acceptance criterion, twice in a row, parks with `protocol-failure` and mints no evidence; the same for an omitted ledger judgement once slice 3 exists; protocol failure takes precedence over the legacy fallback; **a plan review that twice returns a contradiction (for example a pass with no findings that omits a criterion) stops the flow at plan review with `protocol-failure`, publishes no plan, spends no plan visit, and a resume runs a fresh plan review of the same plan**; a single contradiction followed by a valid plan review proceeds normally; `not-met` without a finding adds a must-fix finding; an old-shape result in a must-fix fixture flow never passes; a task without an outcome is labelled.
 
 **Slice 3: ledger, later rounds and support, shadow v3.**
-- `flow.reviewLedger`; the ledger block and judgements; id matching with the legacy fallback; `sameScenario`; the in-fix rule; support status of reviewer exclusions; the mirrored `priorFindingsDisposition`.
-- Accepted when: **a fixture where the original fix holds but the reviewer reports a corner case in that fix with a different input, at round 3 with reasoning only, records the original as `fix-holds` and the corner case as a new `in-fix` finding that is not must-fix**; a `fix-incomplete` without `sameScenario` is a contradiction; a protected-class `in-fix` finding in strict work still blocks; the recomputed ledger equals the stored one.
+- `flow.reviewLedger`; the ledger block and judgements; id matching with the legacy fallback; `sameScenario`; the in-fix rule; support status of reviewer exclusions, with confirmation by a different model family; the mirrored `priorFindingsDisposition`.
+- Accepted when: **a fixture where the original fix holds but the reviewer reports a corner case in that fix with a different input, at round 3 with reasoning only, records the original as `fix-holds` and the corner case as a new `in-fix` finding that is not must-fix**; a `fix-incomplete` without `sameScenario` is a contradiction; a protected-class `in-fix` finding in strict work still blocks; **a reviewer exclusion citing a validated environment fact is `unconfirmed` and an operator item; a later review on the same model family cannot confirm it; one on a different family returning `exclusion-confirmed` makes an outcome exclusion a follow-up**; the recomputed ledger equals the stored one.
 
 **Slice 4: enforcement routing and deferral (fixtures only).**
-- Route order of 6.1; row recording at settlement; `forge.followup` under the new assertion; builder brief; deferral and its judgement table; the unchanged-candidate exemption; the cap with `send_back` semantics; `flow.disposeFinding`; plan notes; the commissioning `defer`-edge check.
-- Accepted when: each route and each row of 9.3 has a fixture at both risk levels and both protocols; existence-only acceptance yields an operator item; a second deferral of a contested finding reaches the build question; the fourth must-fix send-back parks and `send_back` allows exactly one more.
+- Route order of 6.1; row recording at settlement; `forge.followup` under the new assertion; builder brief; deferral and its judgement table; the unchanged-candidate exemption; the cap, the correction cycle and the budget check, with `send_back` semantics; `flow.disposeFinding`; plan notes; the commissioning `defer`-edge check.
+- Accepted when: each route and each row of 9.3 has a fixture at both risk levels and both protocols; existence-only acceptance yields an operator item; a second deferral of a contested finding reaches the build question; with `maxBuildRounds: 4` and `mustFixRounds: 3`, the review after the third correction parks; after `send_back` one more correction runs, and **the next review with an open must-fix item parks rather than attempting a build visit that is not available**; a build-question `retry` that used a build visit makes the review park with reason `budget` one round earlier; `mustFixRounds: 4` with `maxBuildRounds: 4` is refused by validation; a strict `send_back` whose cycle cannot fit is refused.
 
 **Slice 5: strict requirement, decision guard, console evidence, restrictions (fixtures and end-to-end).**
 - The strict requirement of 7.4; `strictFollowups`; the decision guard of 12.5 with the `critical` rule; the acknowledgement answer field; the console of 12.3; `review.restrict`; notifications and lesson signals.
-- Accepted when: the end-to-end tests of 7.4 pass; each guard condition returns an ordinary decision to the operator at opening, answering and before the merge, and blocks `autoMerge`; a non-must-fix `critical` finding does so at all three points; a restriction applied with a merge question open supersedes it and refuses an earlier answer before the merge; a severity flow's questions and answers are unchanged.
+- Accepted when: the end-to-end tests of 7.4 pass; each guard condition returns an ordinary decision to the operator at opening, answering and before the merge, and blocks `autoMerge`; a non-must-fix `critical` finding does so at all three points; the already-satisfied end-to-end test of 7.4 passes; a restriction applied with a merge question open supersedes it and refuses an earlier answer before the merge; a severity flow's questions and answers are unchanged.
 
 **Slice 6: enabling.**
 - Configuration validation accepts `must-fix`. Ships only with slices 3 to 5 in the same release, and only after the prerequisite below.
@@ -589,7 +617,8 @@ Every slice ships with its tests and leaves severity flows byte-identical. **Unt
 
 | Seeded case | Expected |
 | --- | --- |
-| A fix that introduces a corner case needing a setup the project does not have | *Model:* `in-fix`, `not-here` citing a declared fact (a follow-up) or `unknown` (an operator item); no builder round |
+| A fix that introduces a corner case needing a setup the project does not have | *Model:* `in-fix`, `not-here` citing a declared fact or `unknown`; an operator item either way, unless a later different-family review confirms the exclusion; no builder round |
+| A defect needing two processes on one host, excluded by citing "one factory host per account" | `unconfirmed`; an operator item; never a plain follow-up on a delegable path |
 | A check that can pass on stale build output | *Model:* blocks as check trust |
 | An unmet acceptance criterion the diff looks plausible for | *Model:* `not-met`; blocks |
 | A deferral citing a real guard on a different path | *Model:* rejected, or accepted only as existence-only and put to the operator |
@@ -646,7 +675,8 @@ For **every admitted change and document flow**, under each bar, not only merged
 | Q3 | Is the `critical` safeguard right: never a send-back by severity alone, but a non-must-fix `critical` finding always returns the decision to the operator, at opening, answering and before the merge? | Yes, as designed in 4.3 rule 3 and 12.5 |
 | Q4 | With `strictFollowups` on, may `strictDecisionRole` acknowledge strict items that are not protected-class, or only the operator? | The strict decision role for those; the operator only for protected-class items |
 | Q5 | Should environment facts live in configuration (as designed) or in a governing context file? | Configuration: short, operator-owned, citable by id, pinned per flow |
-| Q6 | The cap: 3 must-fix send-backs, then park. "One more round" is a `send_back` with a note that allows exactly one further send-back and extends each exhausted visit bound by one (not strict review nodes). When a hard visit or transition bound is reached anyway, the flow stops and needs a deliberate resume or replan. Is that the right behaviour? | Yes; park rather than stop at the cap, and no automatic extension |
+| Q9 | Should a later review on a different model family be able to confirm a reviewer's exclusion (11.3), or should only the operator confirm one? | Allow the different-family review; report how often it confirms, and how often the operator later marks a confirmed exclusion "should have blocked" |
+| Q6 | The cap: 3 must-fix send-backs (at most `maxBuildRounds` − 1, since the initial build uses a visit), then park; the review also parks earlier when the visit or transition budget cannot take another correction. "One more round" is a `send_back` with a note that allows exactly one further send-back and extends each exhausted visit bound by one; a strict `send_back` whose cycle cannot fit is refused, leaving stop or replan. Is that the right behaviour? | Yes; park rather than stop at the cap, and no automatic extension |
 | Q7 | For GitHub-source projects, keep opening the follow-up issue in addition to the rows? | Yes, as today |
 | Q8 | Should `strictFollowups` exist at all in the first enforcement release, or wait for enforcement data on ordinary work? | Ship it, off, and turn it on for the third adopter only after the enforcement window passes |
 
@@ -663,6 +693,10 @@ For **every admitted change and document flow**, under each bar, not only merged
 | 7 | Critical-finding safeguard | 4.3 rule 3; the guard at all three points (12.5); slice 5 tests; Q3 |
 | 8 | Active-flow compatibility claim | Drained activation (13.2); pinning of every behaviour-affecting setting (13.3); the one tightening-only mid-flow change is designed explicitly (13.4) |
 | 9 | Trial metrics | Every admitted flow and operator effort (16.1); estimates labelled (14.2, 16.2); windows (16.2); executable procedures with the restriction command and the fate of pinned flows (16.3) |
+| 10 | Re-check 1: an environment fact does not confirm the reviewer's inference | A reviewer's exclusion is `unconfirmed` and an operator item until the operator accepts its claim digest or a later different-family review confirms it; what does and does not count is listed (11.3); the two-processes failing case is a slice 3 fixture and a trial case; Q9 |
+| 11 | Re-check 2: the cap must be reachable | The initial build counts; `mustFixRounds` ≤ `maxBuildRounds` − 1; a budget check parks before a correction cycle that cannot fit; `send_back` grants one allowance and is refused for strict work when the cycle still cannot fit (9.5, 13.1); the post-`send_back` park test is in slice 4 |
+| 12 | Re-check 3: plan review cannot `park` | A second contradictory plan review stops the flow at plan review, using the existing turn-limit hold, with no graph change (6.4); slice 2 acceptance tests |
+| 13 | Re-check 4: keep the already-satisfied exception | The strict requirement keeps the `already-satisfied` exemption from full-and-delta history (7.4, 6.5); an end-to-end test for a strict, bounded-delta, already-satisfied flow reaching acceptance (7.4, slice 5) |
 
 ## 19. What this design deliberately does not do
 
