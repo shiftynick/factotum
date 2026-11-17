@@ -55,16 +55,20 @@ export const awaitingEntries = (ledger, view) => (ledger?.entries ?? []).map(ent
 const allowedJudgements = entry => [...(isFixEntry(entry) ? FIX_JUDGEMENTS : []), ...(isExclusion(entry) ? EXCLUSION_JUDGEMENTS : [])];
 
 // A judgement's entry: by id; failing that, the legacy fallback (5.5): an entry raised by a finding
-// without the must-fix fields, named by its exact message, when exactly one such entry has it.
+// without the must-fix fields, named by its exact message, when exactly one such entry in the ledger
+// has it. A message two legacy findings share (in different files, or from different rounds) names
+// neither: each needs a judgement by its factory id. Neither the ledger judgement nor today's
+// priorFindingsDisposition carries a file, so the message alone must be unambiguous.
+const legacyNamed = (entries, message) => [...entries.values()].filter(entry => entry.bar === 'legacy' && entry.message === message);
 function entryFor(entries, id) {
   if (typeof id !== 'string') return null;
   if (entries.has(id)) return { entry: entries.get(id), via: 'id' };
-  const legacy = [...entries.values()].filter(entry => entry.bar === 'legacy' && entry.message === id);
+  const legacy = legacyNamed(entries, id);
   return legacy.length === 1 ? { entry: legacy[0], via: 'legacy-message' } : null;
 }
 // The legacy fallback for a reviewer that judged a legacy entry the old way: today's
-// priorFindingsDisposition, matched by exact message, with evidence.
-const legacyDisposition = (entry, result) => entry.bar === 'legacy' && entry.message !== null ? (Array.isArray(result?.priorFindingsDisposition) ? result.priorFindingsDisposition : []).find(row => row?.finding === entry.message && collapse(row.evidence)) ?? null : null;
+// priorFindingsDisposition, matched by exact message, with evidence, under the same rule.
+const legacyDisposition = (entry, result, entries) => entry.bar === 'legacy' && entry.message !== null && legacyNamed(entries, entry.message).length === 1 ? (Array.isArray(result?.priorFindingsDisposition) ? result.priorFindingsDisposition : []).find(row => row?.finding === entry.message && collapse(row.evidence)) ?? null : null;
 
 // The ledger after `rows` (a flow's review history, or it with the review being settled appended).
 // `policy`: the flow's pinned review policy. Returns the ledger and, apart from it, each entry's
@@ -117,7 +121,7 @@ export function replay(rows, policy = {}) {
     // The legacy fallback, for legacy entries this review did not judge by id.
     for (const entry of entries.values()) {
       if (judged.has(entry.id) || !presented.get(entry.id)?.includes('fix')) continue;
-      const old = legacyDisposition(entry, basis);
+      const old = legacyDisposition(entry, basis, entries);
       if (!old) continue;
       const fixed = old.disposition === 'fixed';
       entry.judgements.push({ round, judgement: fixed ? 'fix-holds' : 'fix-incomplete', via: 'legacy-disposition', sameScenario: !fixed, coverage: collapse(old.evidence).slice(0, 300), citations: [], reviewer, counted: true });
@@ -180,7 +184,7 @@ export function ledgerContradictions(row, { ledger, presented }) {
   const result = row?.result ?? {}, judgements = Array.isArray(result.ledger) ? result.ledger : [], entries = new Map((ledger?.entries ?? []).map(entry => [entry.id, entry])), out = [], counts = new Map();
   for (const judgement of judgements) {
     const match = entryFor(entries, judgement?.id);
-    if (!match) { out.push(`ledger judges ${quoted(judgement?.id ?? '')}, which is not a ledger entry`); continue; }
+    if (!match) { const named = typeof judgement?.id === 'string' ? legacyNamed(entries, judgement.id).length : 0; out.push(named > 1 ? `ledger judges ${quoted(judgement.id)}, which is the message of ${named} legacy entries; judge each by its id` : `ledger judges ${quoted(judgement?.id ?? '')}, which is not a ledger entry`); continue; }
     const { entry } = match;
     counts.set(entry.id, (counts.get(entry.id) ?? 0) + 1);
     if (!allowedJudgements(entry).includes(judgement.judgement)) out.push(String(judgement.judgement).startsWith('deferral') ? `ledger judges ${entry.id} ${judgement.judgement}, but no deferral of ${entry.id} awaits judgement` : `ledger judges ${entry.id} ${judgement.judgement}, which does not apply to ${entry.id} (it can be judged ${allowedJudgements(entry).join(' or ') || 'by none'})`);
@@ -190,7 +194,7 @@ export function ledgerContradictions(row, { ledger, presented }) {
   for (const [id, count] of counts) if (count > 1) out.push(`ledger judges ${id} ${count} times instead of once`);
   for (const { entry, awaits: what } of presented ?? []) {
     const required = what.filter(kind => kind === 'fix' || row?.family && row.family !== entry.excludedBy?.family);
-    if (!required.length || counts.has(entry.id) || required.every(kind => kind === 'fix') && legacyDisposition(entry, result)) continue;
+    if (!required.length || counts.has(entry.id) || required.every(kind => kind === 'fix') && legacyDisposition(entry, result, entries)) continue;
     out.push(`ledger omits a judgement of ${entry.id}, which awaits judgement (${required.map(kind => kind === 'fix' ? 'a claimed fix' : 'an exclusion to confirm or reject').join(' and ')})`);
   }
   for (const [index, finding] of (Array.isArray(result.findings) ? result.findings : []).entries()) if (finding?.origin === 'in-fix' && !entries.has(finding.fixOf)) out.push(`finding ${index + 1} has origin in-fix, but its fixOf ${quoted(finding.fixOf ?? 'null')} names no ledger entry`);

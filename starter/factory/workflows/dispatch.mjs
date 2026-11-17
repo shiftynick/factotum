@@ -104,14 +104,32 @@ async function citationContext(a, cwd, result) {
 // the reviewer is expected on (from its route; the adapter records the family that actually answered),
 // the entries awaiting this review's judgement, and the ledger block that shows them, with the paths
 // each claimed fix changed since its entry was raised or last judged.
-async function reviewLedgerView(a, cwd, config, round) {
+//
+// Ledger preparation never costs the review its time. Replaying the ledger reads only the recorded
+// history; the changed paths need Git, so they are read only while at least `reserveMs` of the
+// attempt would remain after `maxMs` more, all at once, and only for at most `maxMs`. Otherwise, or
+// when a read fails, the block says the paths are not known (null), and `preparation` records why:
+// `skipped: 'deadline'` or `'failed'`. The reviewer's own deadline is never touched.
+export const LEDGER_PREPARATION_LIMITS = Object.freeze({ maxMs: 2000, reserveMs: 120000 });
+async function reviewLedgerView(a, cwd, config, round, { deadlineAt, limits = LEDGER_PREPARATION_LIMITS }) {
   const head = repositoryIdentity(cwd).head, { ledger, findings } = replay(a.reviewHistory ?? [], a.reviewPolicy);
   let family = null; try { family = providerFamily(resolveProviderSpec(config, 'reviewer', a).provider); } catch { /* unknown: no exclusion is shown as awaiting confirmation */ }
-  const presented = awaitingEntries(ledger, { head, family, round }), changed = new Map();
-  for (const since of new Set(presented.filter(row => row.awaits.includes('fix')).map(row => row.entry.touchedHead))) {
-    try { changed.set(since, (await exec('git', [...NO_PLANTED_COMMANDS, 'diff', '--name-only', '-z', '--no-renames', since, 'HEAD', '--'], { cwd, timeout: 10000, maxBuffer: 1024 * 1024 })).stdout.split('\0').filter(Boolean).slice(0, 100)); } catch { changed.set(since, null); }
+  const presented = awaitingEntries(ledger, { head, family, round }), changed = new Map(), since = [...new Set(presented.filter(row => row.awaits.includes('fix')).map(row => row.entry.touchedHead))];
+  let preparation = { paths: since.length };
+  if (since.length) {
+    const budget = Math.min(limits.maxMs, deadlineAt - limits.reserveMs - Date.now());
+    if (budget <= 0) preparation.skipped = 'deadline';
+    else {
+      let timer;
+      const reads = Promise.all(since.map(async from => [from, (await exec('git', [...NO_PLANTED_COMMANDS, 'diff', '--name-only', '-z', '--no-renames', from, 'HEAD', '--'], { cwd, timeout: budget, enforceTimeout: true, maxBuffer: 1024 * 1024 })).stdout.split('\0').filter(Boolean).slice(0, 100)]));
+      reads.catch(() => {});
+      const expired = new Promise(resolve => { timer = setTimeout(() => resolve('deadline'), budget); });
+      try { const done = await Promise.race([reads, expired]); if (done === 'deadline') preparation.skipped = 'deadline'; else for (const [from, paths] of done) changed.set(from, paths); }
+      catch (error) { preparation = { ...preparation, skipped: 'failed', error: String(error?.message ?? error).slice(0, 300) }; }
+      finally { clearTimeout(timer); }
+    }
   }
-  return { ledger, family, presented, block: ledgerBlock({ ledger, findings, presented, changed }) };
+  return { ledger, family, presented, preparation, block: ledgerBlock({ ledger, findings, presented, changed }) };
 }
 // The shadow never changes how a review ends: if deriving it fails, or its protocol correction review
 // fails, the failure is recorded as its outcome. An attempt being stopped is not a shadow failure.
@@ -415,7 +433,7 @@ async function withOriginalPRObservation(intent, result) {
 // The role whose wording a step of an approved governance-edit task gets (operations/governance-edit.mjs).
 const GOVERNANCE_ROLES = Object.freeze({ 'provider.plan': 'planner', 'provider.build': 'builder' });
 export const UPKEEP_CHECKED_OPERATIONS = Object.freeze(['workspace.commit', 'workspace.integrate', 'forge.publish', 'forge.merge']);
-async function runScopedAction(intent, { signal, providerInvoke=invoke, accountingResults=[], deadlineAt=Date.now()+intent.timeoutMs, shadowCorrectionLimits=SHADOW_CORRECTION_LIMITS } = {}) {
+async function runScopedAction(intent, { signal, providerInvoke=invoke, accountingResults=[], deadlineAt=Date.now()+intent.timeoutMs, shadowCorrectionLimits=SHADOW_CORRECTION_LIMITS, ledgerPreparationLimits=LEDGER_PREPARATION_LIMITS } = {}) {
   const a = intent.action, config = a.config, cwd = intent.cwd;
   if(a.operation==='integration.run')return (await import('./integrations.mjs')).runIntegrationAction(intent,{signal});
   if (['main.verify','target.sync','maintenance.backup','audit','retrospective','machine.sample','retention.archive','knowledge.upkeep','learnings.check'].includes(a.operation)) return (await import('./maintenance.mjs')).runMaintenanceAction(intent,{signal,deadlineAt,providerInvoke});
@@ -761,7 +779,7 @@ async function runScopedAction(intent, { signal, providerInvoke=invoke, accounti
       // In shadow, a ledger that cannot be built never costs the review its result: the review runs
       // without the ledger block and the estimate records the failure (shadowOutcome).
       let ledger=null;
-      if(ledgerOn){try{ledger=await reviewLedgerView(a,cwd,config,round);}catch(error){if(enforced||signal?.aborted)throw error;ledger={ledger:{entries:[]},family:null,presented:[],block:'',error:String(error?.message??error).slice(0,300)};}}
+      if(ledgerOn){try{ledger=await reviewLedgerView(a,cwd,config,round,{deadlineAt,limits:ledgerPreparationLimits});}catch(error){if(enforced||signal?.aborted)throw error;ledger={ledger:{entries:[]},family:null,presented:[],preparation:null,block:'',error:String(error?.message??error).slice(0,300)};}}
       const priorAsk=enforced&&ledgerOn?'Judge earlier findings in ledger, by id; the factory writes priorFindingsDisposition from those judgements.':'Report priorFindingsDisposition for every finding in the immediately previous review; finding must exactly equal its previous message, with concrete evidence for the disposition.';
       const prompt=`${brief}${mustFixBar?`\n${purposeBlock({task:a.task,plan:a.results.plan?.result??null,subject:'change'})}${ledger?.block??''}`:''}\nIndependently review exact candidate ${repositoryIdentity(cwd).head}. Review phase: ${phase}. Full/ordinary reviews inspect the entire change; delta/final reviews inspect commits since ${baseHead}, resolve each previous finding, and inspect affected surrounding code. This is a fresh session. Do not edit files or run code. For strict work document the threat model and stop conditions and attest strictReview. fullDiffInspected means the entire assigned review scope was inspected (the full diff for full review, every delta commit for delta/final); name that scope in scopeSummary. For an already satisfied task inspect current implementation against acceptance even when the diff is empty. ${priorAsk} Prior reviews: ${JSON.stringify(mustFixBar?(a.reviewHistory??[]).map(({mustFix,shadowRoute,...row})=>row):a.reviewHistory??[])}. Trusted diff:\n${diff}\nBuilder report: ${JSON.stringify(a.results.build?.result??null)}. Report substantive defects and unmet acceptance, duplicated helpers, misplaced/unused code and oversized files; do not invent hardening outside the threat model. ${reviewScopeGuidance(a.task, 'change')}${carriedQuestionsBrief(a.carriedQuestions, 'reviewer', a.carriedOverflow)}${fastCheckReviewGuidance(config, a.results['fast-check'], repositoryIdentity(cwd))}${scopeReviewGuidance(scopePaths,outside,reviewedPlanScope(a.results))}\nReturn pass only when no substantive findings remain.${mustFixBar?mustFixGuidance({subject:'change',enforced,facts:a.reviewPolicy?.environment??[],records:a.reviewRecords??[],ledger:ledgerOn?{round,inFixEvidenceFrom:a.reviewPolicy?.inFixEvidenceFrom??3}:null}):''}`;
       // The protocol checks (5.4): the purpose assessment, and in a ledger flow the ledger judgements.
@@ -797,7 +815,7 @@ async function runScopedAction(intent, { signal, providerInvoke=invoke, accounti
       const ledgerRecord=(row,record,context,recorded,route=null)=>{
         if(!ledger)return record;
         const reviewer={provider:row.provider??null,model:row.model??null,family:row.family??null,sessionId:row.sessionId??null};
-        const fields={expectedFamily:ledger.family,presented:ledger.presented.map(item=>({id:item.entry.id,awaits:item.awaits})),citations:(Array.isArray(row.result.ledger)?row.result.ledger:[]).map(judgement=>(Array.isArray(judgement?.evidence)?judgement.evidence:[]).map(citation=>citationStatus(citation,context)))};
+        const fields={expectedFamily:ledger.family,preparation:ledger.preparation,presented:ledger.presented.map(item=>({id:item.entry.id,awaits:item.awaits})),citations:(Array.isArray(row.result.ledger)?row.result.ledger:[]).map(judgement=>(Array.isArray(judgement?.evidence)?judgement.evidence:[]).map(citation=>citationStatus(citation,context)))};
         const full={...record,reviewer,ledger:fields},after=replayLedger([...(a.reviewHistory??[]),{step:a.binding??a.step,identity:row.identity,result:recorded,mustFix:full,...(route?{shadowRoute:{route}}:{})}],a.reviewPolicy);
         return {...full,ledger:{...fields,...(shadow?{priorFindingsDisposition:mirroredDispositions(ledger.ledger,row.result,round)}:{}),applied:after.entries.flatMap(entry=>entry.judgements.filter(judgement=>judgement.round===round).map(judgement=>({id:entry.id,judgement:judgement.judgement,counted:judgement.counted,...(judgement.why?{why:judgement.why}:{})}))),counts:after.counts,digest:ledgerDigest(after)}};
       };

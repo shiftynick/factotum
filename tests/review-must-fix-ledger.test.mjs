@@ -13,7 +13,7 @@ import { sandbox } from './helpers.mjs';
 import { purposeOf } from './review-bar-scenarios.mjs';
 import { digest } from '../starter/factory/core/contracts.mjs';
 import { repositoryIdentity } from '../starter/factory/core/repository.mjs';
-import { runAction } from '../starter/factory/workflows/dispatch.mjs';
+import { runAction, LEDGER_PREPARATION_LIMITS } from '../starter/factory/workflows/dispatch.mjs';
 import { recordReview } from '../starter/factory/core/delivery-review.mjs';
 import { pinnedReviewSettings, validateReviewPolicy } from '../starter/factory/core/review-bar.mjs';
 import { validateConfig } from '../starter/factory/core/configuration.mjs';
@@ -56,10 +56,12 @@ function reviewRounds(t, { bar = 'shadow', risk = 'ordinary', review = {} } = {}
   };
   let edits = 0;
   // One round: a new candidate, then the review. `results`: the scripted answers in order.
-  async function round(results, { provider = 'claude', edit = true, calls = [] } = {}) {
+  // `timeoutMs` and `options` (runAction's) apply to the reviewed flow's review only.
+  async function round(results, { provider = 'claude', edit = true, calls = [], timeoutMs = null, options = {} } = {}) {
     if (edit) { writeFileSync(join(root, 'input.txt'), `records are read once\ncandidate ${++edits}\n`); git(['commit', '-qam', `Fictional candidate ${edits}`]); }
     const severity = await runAction(intent(provider, 'severity'), { providerInvoke: scripted([structuredClone(results[0])], provider) });
-    const review = await runAction(intent(provider, bar), { providerInvoke: scripted(structuredClone(results), provider, calls) });
+    const reviewed = intent(provider, bar); if (timeoutMs) reviewed.timeoutMs = timeoutMs;
+    const review = await runAction(reviewed, { ...options, providerInvoke: scripted(structuredClone(results), provider, calls) });
     const step = flow.reviewHistory.length ? 'delta-review' : 'review';
     flow.results.review = review; recordReview(flow, step, review, `attempt-${flow.reviewHistory.length + 1}`);
     // A must-fix fixture acts on the protocol checks only (slice 2); everything else is today's route.
@@ -284,7 +286,8 @@ test('purpose entries are settled by the next purpose assessment; an unchanged c
 // A rehearsal flow with two change reviews: `review` (revise to `again`) and `again`, each parking to a question.
 async function twoReviews(t, bar, { reviewer = 'claude' } = {}) {
   const f = sandbox(t);
-  const effect = (operation, next, edges) => ({ kind: 'effect', action: { operation }, timeoutMs: 60000, next, onFailure: 'failed', preserveInput: true, evidence: 'review', resultEdges: edges });
+  // The reference review timeout, so ledger preparation has time to read the changed paths.
+  const effect = (operation, next, edges) => ({ kind: 'effect', action: { operation }, timeoutMs: 600000, next, onFailure: 'failed', preserveInput: true, evidence: 'review', resultEdges: edges });
   const workflow = { version: 1, start: 'review', nodes: { review: effect('provider.review', 'gate', { pass: 'gate', revise: 'again', defer: 'gate', park: 'review-question' }), again: effect('provider.review', 'gate', { pass: 'gate', revise: 'gate', defer: 'gate', park: 'review-question' }), gate: { kind: 'end', outcome: 'completed' }, 'review-question': { kind: 'question', role: 'operator', question: 'Fictional park question', answers: { stop: 'failed' } }, failed: { kind: 'end', outcome: 'failed' } } };
   f.store.setMeta('workflow', workflow); f.store.setMeta('workflowDigest', digest(workflow));
   f.store.setMeta('config', { mode: 'rehearsal', repository: { slug: 'fictional/demo', account: 'fictional', target: 'main' }, providers: { reviewer: { provider: reviewer, model: 'fictional' } }, policy: { planning: false, ...(bar === 'severity' ? {} : { reviewBar: 'shadow', review: { environment: FACTS } }) }, context: { files: [], maxChars: 1000 } });
@@ -392,4 +395,62 @@ test('the replay is pure: the ledger depends only on the history rows, in order,
 
 test('configuration: must-fix is still refused with a ledger-pinned shadow project', () => {
   assert.throws(() => validateConfig({ mode: 'rehearsal', repository: { slug: 'fictional/demo', account: 'fictional', target: 'main' }, providers: {}, policy: { reviewBar: 'must-fix' } }), /must-fix is not available in this release/);
+});
+
+// ---- Review of slice 3 ----
+
+// A git on PATH whose `diff --name-only` (the ledger's changed paths) is slow, or fails.
+function slowLedgerDiff(t, root, { delay = 2.2, fail = false } = {}) {
+  const shim = mkdtempSync(join(tmpdir(), 'fct-shim-')), real = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
+  writeFileSync(join(shim, 'git'), `#!/bin/bash\nif [[ "$*" == *"diff --name-only -z --no-renames "*" HEAD --" ]]; then ${fail ? 'exit 3' : `sleep ${delay}`}; fi\nexec ${real} "$@"\n`, { mode: 0o755 });
+  const prior = process.env.PATH; process.env.PATH = `${shim}:${prior}`;
+  t.after(() => { process.env.PATH = prior; rmSync(shim, { recursive: true, force: true }); });
+}
+
+test('review fix 1: ledger preparation never costs a shadow review its time: skipped when time is short, bounded otherwise, and a failure is recorded', async t => {
+  const r = reviewRounds(t), raised = changeResult({ verdict: 'revise', findings: [finding('Records are read twice', 'outcome', 'shown', [fileCite()])] });
+  await r.round([raised]);
+  slowLedgerDiff(t, r.root);
+  // A 12-second attempt with a 2.2-second diff: severity succeeds, and so does shadow, without the paths.
+  const calls = [], short = await r.round([changeResult({ ledger: [judge('R1.1', 'fix-holds')] })], { timeoutMs: 12000, calls });
+  assert.deepEqual([short.route, short.shadowRoute.route], ['pass', 'pass']);
+  assert.deepEqual(short.mustFix.ledger.preparation, { paths: 1, skipped: 'deadline' });
+  assert.match(calls[0].spec.prompt, /"pathsChangedSince":null/);
+  assert.equal(LEDGER_PREPARATION_LIMITS.reserveMs, 120000);
+  // With time to spare the read is bounded: the review starts once the bound runs out.
+  const s = reviewRounds(t);
+  await s.round([raised]);
+  const started = Date.now(), bounded = await s.round([changeResult({ ledger: [judge('R1.1', 'fix-holds')] })], { options: { ledgerPreparationLimits: { maxMs: 300, reserveMs: 0 } } });
+  assert.ok(Date.now() - started < 2000, 'the review did not wait for the slow diff');
+  assert.deepEqual([bounded.route, bounded.mustFix.ledger.preparation], ['pass', { paths: 1, skipped: 'deadline' }]);
+});
+
+test('review fix 1: a failing ledger diff is recorded as skipped and the review proceeds; a fast one fills in the paths', async t => {
+  const r = reviewRounds(t), raised = changeResult({ verdict: 'revise', findings: [finding('Records are read twice', 'outcome', 'shown', [fileCite()])] });
+  await r.round([raised]);
+  const calls = [], fast = await r.round([changeResult({ ledger: [judge('R1.1', 'fix-incomplete', { sameScenario: true, evidence: [fileCite()] })] })], { calls });
+  assert.deepEqual(fast.mustFix.ledger.preparation, { paths: 1 });
+  assert.match(calls[0].spec.prompt, /"pathsChangedSince":\["input\.txt"\]/);
+  slowLedgerDiff(t, r.root, { fail: true });
+  const failed = await r.round([changeResult({ ledger: [judge('R1.1', 'fix-holds')] })]);
+  assert.deepEqual([failed.route, failed.mustFix.ledger.preparation.skipped], ['pass', 'failed']);
+});
+
+test('review fix 2: a legacy message two findings share settles neither; each needs a judgement by id', () => {
+  const policy = pinnedReviewSettings({ policy: { reviewBar: 'shadow' } }).reviewPolicy, h1 = 'a'.repeat(40), h2 = 'b'.repeat(40);
+  const old = file => ({ severity: 'high', file, line: 1, message: 'Missing authorization check' });
+  const raised = { step: 'review', identity: { head: h1 }, result: { ...changeResult({ verdict: 'revise' }), findings: [old('read.mjs'), old('delete.mjs')] }, mustFix: { basis: 'original', risk: 'ordinary', findings: [1, 2].map(n => ({ id: `R1.${n}`, bar: 'legacy', kind: 'must-fix', reason: 'legacy-severity' })), ledger: { expectedFamily: 'anthropic', citations: [] } } };
+  const later = result => ({ step: 'delta-review', identity: { head: h2 }, result, mustFix: { basis: 'original', risk: 'ordinary', findings: [], ledger: { expectedFamily: 'anthropic', citations: (result.ledger ?? []).map(() => []) } } });
+  const oneFixed = changeResult({ prior: [{ finding: 'Missing authorization check', disposition: 'fixed', evidence: 'read.mjs now checks authorization' }] });
+  const after = replayLedger([raised, later(oneFixed)], policy);
+  assert.deepEqual(after.entries.map(entry => [entry.id, entry.status, entry.judgements.length]), [['R1.1', 'fixed-claimed', 0], ['R1.2', 'fixed-claimed', 0]], 'neither is settled');
+  assert.deepEqual(shadowRouteV3(after, { strict: false }), { route: 'revise', disposition: 'correct' });
+  const ledger = replayLedger([raised], policy), presented = ledger.entries.map(entry => ({ entry, awaits: ['fix'] })), view = { ledger, presented };
+  assert.deepEqual(ledgerContradictions({ family: 'anthropic', result: oneFixed }, view), ['ledger omits a judgement of R1.1, which awaits judgement (a claimed fix)', 'ledger omits a judgement of R1.2, which awaits judgement (a claimed fix)']);
+  // A ledger judgement naming the shared message is ambiguous too.
+  assert.deepEqual(ledgerContradictions({ family: 'anthropic', result: changeResult({ ledger: [judge('Missing authorization check', 'fix-holds')] }) }, view).at(0), 'ledger judges "Missing authorization check", which is the message of 2 legacy entries; judge each by its id');
+  // By id, each is settled on its own.
+  const byId = replayLedger([raised, later(changeResult({ ledger: [judge('R1.1', 'fix-holds'), judge('R1.2', 'fix-incomplete', { sameScenario: true, evidence: [fileCite()] })] }))], policy);
+  assert.deepEqual(byId.entries.map(entry => [entry.id, entry.status]), [['R1.1', 'fixed'], ['R1.2', 'open']]);
+  assert.deepEqual(ledgerContradictions({ family: 'anthropic', result: changeResult({ ledger: [judge('R1.1', 'fix-holds'), judge('R1.2', 'fix-holds')] }) }, view), []);
 });
