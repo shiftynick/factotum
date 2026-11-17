@@ -21,7 +21,7 @@ Unregistering hides a project without changing its work. Renaming only changes i
 ## What the operator sees
 
 - A project overview with active work, pending decisions, main health, last observation time and connectivity. Unavailable, incompatible, paused and idle are distinct states.
-- A combined inbox whose rows always identify the project. Selecting an item opens its project-scoped question, evidence and allowed actions.
+- A combined inbox whose rows always identify the project. Selecting an item opens its project-scoped question, evidence and allowed actions. A must-fix flow's merge or satisfied question shows its review findings and purpose assessment and is answered with one check box per finding to acknowledge, sending the claim digests the page shows (see the [console guide](../starter/factory/console/README.md)).
 - Project pages for queue, flows, plans, evidence, costs and history, using the same components as the single-project view.
 - Optional aggregate measurements with explicit units, time range, coverage and missing/stale projects. Keep currencies, actual spend, reservations and subscription estimates separate.
 

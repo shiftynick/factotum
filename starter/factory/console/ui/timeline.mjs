@@ -740,11 +740,31 @@ function citationList(rows) {
     h('strong', { text: CITING_ROLE[row.role] }), row.step && row.step !== row.role ? h('span', { class: 'muted', text: ` (${row.step})` }) : null, ': ',
     (row.cited ?? []).length ? (row.cited ?? []).flatMap((item, at) => [at ? ', ' : '', h('code', { text: String(item.id ?? '') }), ` ${CITED_USE[item.use] ?? 'cited'}`]) : 'cited none'))));
 }
+// A must-fix flow's review ledger (review-must-fix design 12.3, 8.1): one row per finding, by its
+// factory id, with its kind, status, reason, class, reachability, support and counted judgements.
+export function reviewLedgerCard(flow) {
+  const ledger = flow?.reviewBar === 'must-fix' ? flow.reviewLedger : null;
+  if (ledger?.error) return card('Review ledger', notice('warning', 'The review ledger could not be built.', String(ledger.error)));
+  if (!ledger?.entries?.length) return null;
+  const OPEN = ['open', 'contested', 'operator-required', 'fixed-claimed', 'deferred-claimed'];
+  const row = e => h('tr', {}, h('td', {}, h('code', { text: e.id })), h('td', { text: e.kind ?? '' }), h('td', {}, chip(e.status === 'fixed' ? 'passed' : OPEN.includes(e.status) ? 'revise' : 'held', e.status)), h('td', { text: e.reason ?? '' }), h('td', { text: e.purposeImpact ?? '' }),
+    h('td', { text: e.reachable ? `${e.reachable.reported}${e.reachable.read !== e.reachable.reported ? ` → ${e.reachable.read}` : ''}` : '' }),
+    h('td', { text: e.support ?? (e.deferral ? `deferral ${e.deferral.void ? 'void' : e.deferral.outcome ?? 'awaiting'}` : '') }),
+    h('td', { text: (e.judgements ?? []).filter(j => j.counted).map(j => `${j.judgement} (R${j.round}${j.reviewer?.family ? `, ${j.reviewer.family}` : ''})`).join('; ') }),
+    h('td', { class: 'small', text: String(e.message ?? e.scenario ?? e.reason ?? '').slice(0, 200) }));
+  const table = h('div', { class: 'table-wrap' }, h('table', { class: 'data' }, h('thead', {}, h('tr', {}, ['Id', 'Kind', 'Status', 'Reason', 'Class', 'Reachable', 'Support', 'Judgements', 'Finding'].map(text => h('th', { text })))), h('tbody', {}, ledger.entries.slice(-LEDGER_ROWS).map(row))));
+  const omitted = ledger.entries.length > LEDGER_ROWS ? h('p', { class: 'muted small', text: `The ${ledger.entries.length - LEDGER_ROWS} earliest entries are not shown; status --flow lists every one.` }) : null;
+  const counts = Object.entries(ledger.counts ?? {}).filter(([, n]) => n).map(([status, n]) => `${n} ${status}`).join(', ');
+  return card(`Review ledger (${ledger.entries.length})`, h('div', { class: 'stack' }, table, omitted), { subtitle: `${counts}. Validated citations exist as cited; they do not by themselves support a claim.` });
+}
 // Records about this flow that used to live on the Operations tab.
+const LEDGER_ROWS = 60;
 function flowRecords(project, detail) {
   const cards = [], obligations = detail.obligations ?? [], pushback = detail.pushback ?? [], regressions = detail.regressions ?? [], contexts = detail.contexts ?? [];
   if (obligations.length) cards.push(card(`To-dos (${obligations.length})`, h('ul', { class: 'plain-list' }, obligations.map(o => h('li', {}, chip(o.status), ' ', o.title ?? o.text ?? o.id, o.evidence ? h('span', { class: 'muted small', text: ` · ${o.evidence}` }) : null))), { subtitle: 'Owed after this flow. Resolve open ones from the Inbox.' }));
   if (pushback.length) cards.push(card(`Rule proposals (${pushback.length})`, h('ul', { class: 'plain-list' }, pushback.map(p => h('li', {}, h('strong', { text: p.ruleId }), ` · ${p.reason}`, p.evidence ? h('span', { class: 'muted small', text: ` · ${p.evidence}` }) : null))), { subtitle: 'An agent objected to a project rule. Nothing changes unless you change the rule.' }));
+  const ledgerCard = reviewLedgerCard(detail.flow);
+  if (ledgerCard) cards.push(ledgerCard);
   if (regressions.length) cards.push(card(`Regression reports (${regressions.length})`, h('ul', { class: 'plain-list' }, regressions.map(r => h('li', {}, chip(r.status), ` ${r.reason}`, r.evidence ? h('span', { class: 'muted small', text: ` · ${r.evidence}` }) : null)))));
   // The learnings each plan cycle pinned (knowledge-upkeep slice 8, after the review of b46da01, Q8):
   // ids, paths, blob ids and flags, and what was skipped, refused or could not be read. Text only.

@@ -6,7 +6,8 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assert, digest } from '../core/contracts.mjs';
 import { repositoryIdentity } from '../core/repository.mjs';
-import { mergeDecisionRole, riskSummary, verifyStrictDecision } from '../core/risk.mjs';
+import { effectiveRisk, mergeDecisionRole, riskSummary, strictReviewRequirement, verifyStrictDecision } from '../core/risk.mjs';
+import { REVIEW_RESTRICTION_META, restrictionContext, restrictionOf, reviewDecisionGuard, staleDecision, verifyReviewDecision } from '../core/review-decision.mjs';
 import { assembleContext, governingContextChange, governingContextMessage } from '../operations/index.mjs';
 import { BEFORE_WORKSPACE, assertGoverningBoundary, assertGoverningEditsAllowed, assertGoverningEditsApproved, comparisonCommit, governingEditSnapshot, hasGoverningEdits } from '../operations/governance-edit.mjs';
 import { upgradeOwned } from '../core/install-layout.mjs';
@@ -183,7 +184,12 @@ export function actionSpecification(store, flow, node, artifactDir) {
   // builder and the follow-up step read the ledger too, every review step also reads the operator's
   // dispositions, and a change review reads its cap allowance and whether one more correction cycle
   // fits the flow's bounds (9.5). A severity or shadow flow's intent is unchanged.
-  if (flowReviewBar(flow) === 'must-fix' && ['provider.review', 'provider.planReview', 'provider.build', 'forge.followup'].includes(operation)) Object.assign(input, { reviewBar: 'must-fix', reviewPolicy: flow.reviewPolicy ?? null, operatorFindingDispositions: flow.operatorFindingDispositions ?? [], ...(operation === 'forge.followup' ? { reviewLedger: flow.reviewLedger ?? null } : {}), ...(operation === 'provider.review' ? { mustFixAllowance: flow.mustFixAllowance ?? 0, mustFixBudget: { revise: cycleBudget(flow, node.resultEdges?.revise ?? null) } } : {}) });
+  // A must-fix flow's merge and satisfied record also read what their decision is checked against again
+  // before the effect (review-must-fix design 7.4, 12.5): the pinned bar and policy, the operator's
+  // dispositions, the row overflow and the review restriction. Every must-fix review and build step
+  // reads the restriction (13.4).
+  if (flowReviewBar(flow) === 'must-fix' && ['forge.merge', 'outcome.satisfied'].includes(operation)) Object.assign(input, { reviewBar: 'must-fix', reviewPolicy: flow.reviewPolicy ?? null, operatorFindingDispositions: flow.operatorFindingDispositions ?? [], reviewRowOverflow: flow.reviewRowOverflow ?? null, reviewRestriction: store.meta(REVIEW_RESTRICTION_META, null) });
+  if (flowReviewBar(flow) === 'must-fix' && ['provider.review', 'provider.planReview', 'provider.build', 'forge.followup'].includes(operation)) Object.assign(input, { reviewBar: 'must-fix', reviewPolicy: flow.reviewPolicy ?? null, operatorFindingDispositions: flow.operatorFindingDispositions ?? [], ...(restrictionContext(store.meta(REVIEW_RESTRICTION_META, null)) ? { reviewRestriction: restrictionContext(store.meta(REVIEW_RESTRICTION_META, null)) } : {}), ...(operation === 'forge.followup' ? { reviewLedger: flow.reviewLedger ?? null } : {}), ...(operation === 'provider.review' ? { mustFixAllowance: flow.mustFixAllowance ?? 0, mustFixBudget: { revise: cycleBudget(flow, node.resultEdges?.revise ?? null) } } : {}) });
   if (LEARNING_ROLES[operation] && flow.kind !== 'maintenance') { const learnings = learningsForStep(flow, task, operation, cwd, config, upkeepSuspensions(store).learnings ?? upkeepSuspensions(store).all ?? null); if (learnings) input.learnings = learnings; }
   if (modelRole(flow.step, node, config) && flow.modelRoutes) {
     assert(Object.hasOwn(flow.modelRoutes, flow.step), 'model step has no pinned route; start a new flow for the changed workflow');
@@ -207,7 +213,7 @@ export function verifyDecision(store, flow) {
   assert(authorization && authorization.taskRevision === flow.taskRevision && authorization.configDigest === flow.configDigest, 'current merge decision required');
   const identity = repositoryIdentity(workingRoot(store, flow));
   assert(digest(identity) === digest(authorization.identity), 'authorized candidate changed before merge');
-  if (flow.mode === 'delivery') verifyStrictDecision(store.need('task', flow.taskId), flow, identity, authorization);
+  if (flow.mode === 'delivery') { const task = store.need('task', flow.taskId), restriction = store.meta(REVIEW_RESTRICTION_META, null); verifyStrictDecision(task, flow, identity, authorization, { restriction }); verifyReviewDecision(flow, authorization, { risk: effectiveRisk(task, flow), restriction }); }
   // Rechecked before merge: an adopted PR's merge needs the operator's own answer.
   if (flow.candidate) assert(authorization.actor === 'operator', 'an adopted pull request merge requires the operator\'s own decision');
   if (authorization.authority === 'mergeDecisionRole') assert(mergeDecisionRole(store.need('task', flow.taskId), flow) === authorization.actor, 'delegated merge decision no longer applies to this candidate');
@@ -217,5 +223,46 @@ export function verifySatisfiedDecision(store, flow) {
   assert(decision?.inboxId && decision.taskRevision === flow.taskRevision && decision.configDigest === flow.configDigest && decision.workflowDigest === flow.workflowDigest, 'current accepted outcome decision required');
   const identity = repositoryIdentity(workingRoot(store, flow));
   assert(digest(identity) === digest(decision.identity), 'accepted candidate changed before recording the outcome');
-  if (flow.mode === 'delivery') verifyStrictDecision(store.need('task', flow.taskId), flow, identity, decision);
+  if (flow.mode === 'delivery') { const task = store.need('task', flow.taskId), restriction = store.meta(REVIEW_RESTRICTION_META, null); verifyStrictDecision(task, flow, identity, decision, { restriction }); verifyReviewDecision(flow, decision, { risk: effectiveRisk(task, flow), restriction }); }
+}
+// A must-fix flow's recorded merge or accepted-outcome decision that no longer matches its decision
+// guard or strict requirement (review-must-fix design 12.5, 13.4): why, or null. Read before the
+// effect, so the engine refuses the earlier answer and opens the question again. Null for any other
+// flow, and for a decision that never recorded a guard digest (verifyDecision then refuses it).
+export function staleDecisionReason(store, flow, kind) {
+  if (flow.mode !== 'delivery' || flowReviewBar(flow) !== 'must-fix') return null;
+  const decision = kind === 'satisfied' ? flow.completionDecision : flow.mergeAuthorization;
+  if (!decision?.reviewDecisionDigest) return null;
+  const task = store.need('task', flow.taskId), restriction = store.meta(REVIEW_RESTRICTION_META, null);
+  let guard, requirement = null;
+  try { guard = reviewDecisionGuard(flow, { risk: effectiveRisk(task, flow), restriction }); } catch { return null; }
+  // A strict requirement that no longer holds at all (an open must-fix item, say) is read as none: the changed
+  // ledger changes the guard digest too, so the question still opens again (and says why it cannot be met).
+  try { requirement = strictReviewRequirement(task, flow, repositoryIdentity(workingRoot(store, flow)), { restriction }); } catch { requirement = null; }
+  return staleDecision(flow, decision, guard, requirement);
+}
+// The final dispatch check of a must-fix flow's merge or satisfied record (review-must-fix design 12.5,
+// 13.4; review of slice 5): a prepared intent carries a snapshot, so a change that arrives after
+// preparation must be caught against the live state in the engine's final dispatch transaction, the
+// only path that launches a prepared intent, after a restart too. Of what verifyDecision reads, the
+// task revision and approval, the configuration digest and the candidate are already rechecked in that
+// transaction (authorized(), the input identity check); a flow's ledger inputs cannot change while it
+// has an attempt (flow.disposeFinding and every review wait for it). The review restriction, in project
+// meta, can: so the decision is checked against the live guard and strict requirement here. Returns
+// null, or { reason, reopen }: reopen when the recorded decision no longer matches (the question opens
+// again); otherwise the intent's own snapshot is out of date and the step is prepared again. Any other
+// failure of verifyDecision is thrown, as at preparation. A severity or shadow flow is never refused here.
+export function decisionDispatchRefusal(store, flow, attempt) {
+  if (flow.mode !== 'delivery' || flowReviewBar(flow) !== 'must-fix') return null;
+  const node = flow.workflow?.nodes?.[attempt.step], contract = nodeContract(attempt.step, node), action = attempt.intent?.action ?? {};
+  const kind = contract.operation === 'outcome.satisfied' ? 'satisfied' : contract.requiresDecision || node?.requireDecision ? 'merge' : null;
+  if (!kind) return null;
+  const stale = staleDecisionReason(store, flow, kind);
+  if (stale) return { reason: stale, reopen: true };
+  if (Object.hasOwn(action, 'reviewRestriction')) {
+    const prepared = restrictionOf(action.reviewRestriction).version, live = restrictionOf(store.meta(REVIEW_RESTRICTION_META, null)).version;
+    if (prepared !== live) return { reason: `the review restriction changed since the step was prepared (version ${prepared} then, ${live} now)`, reopen: false };
+  }
+  if (kind === 'satisfied') verifySatisfiedDecision(store, flow); else verifyDecision(store, flow);
+  return null;
 }

@@ -173,8 +173,10 @@ export function relayedAnswerInput(item,p,actor){
   assert(p.relay!==undefined,'an answer that arrived through a presentation is relayed: send relay {quote, channel}, the operator\'s words verbatim and the channel they came through');
   const relay=p.relay;
   // A decision card's relay is validated and kept by the migrated relayedAnswer rules (core/decisions.mjs).
+  // acknowledgedFindings only for a must-fix flow's question (review-must-fix design 7.4, 12.5), so
+  // every other relayed answer is validated exactly as before.
   if(item.purpose!=='decision'){
-    onlyFields(p,['inboxId','version','subjectDigest','answer','note','reviewedHead','relay','presentationId'],'a relayed answer');
+    onlyFields(p,['inboxId','version','subjectDigest','answer','note','reviewedHead',...(item.reviewDecision?['acknowledgedFindings']:[]),'relay','presentationId'],'a relayed answer');
     assert(relay&&typeof relay==='object'&&!Array.isArray(relay)&&Object.keys(relay).every(key=>['quote','channel'].includes(key)),'relay is {quote, channel}: the operator\'s words verbatim and where they were said; the relayer is the command\'s actor');
     boundedText(relay.quote,'relay quote (the operator\'s words, verbatim)',4000);boundedText(relay.channel,'relay channel',200);
   }

@@ -117,16 +117,21 @@ export function commandForm(project, spec) {
   for (const field of spec.fields) {
     const id = `f-${cssId(key)}-${field.name}`;
     let input;
-    if (field.type === 'select') input = h('select', { id, name: field.name }, field.options.map(([value, label]) => h('option', { value, text: label })));
+    // A check box (an acknowledgement, say): its value is 'true' when checked and '' otherwise; a
+    // required one must be checked before the form is sent.
+    if (field.type === 'checkbox') input = h('input', { id, name: field.name, type: 'checkbox' });
+    else if (field.type === 'select') input = h('select', { id, name: field.name }, field.options.map(([value, label]) => h('option', { value, text: label })));
     else if (field.type === 'textarea') input = h('textarea', { id, name: field.name, rows: field.rows ?? 3, placeholder: field.placeholder });
     else input = h('input', { id, name: field.name, type: field.type ?? 'text', placeholder: field.placeholder, autocomplete: 'off', inputMode: field.inputMode });
-    input.value = draft.values[field.name] ?? '';
+    if (field.type === 'checkbox') input.checked = draft.values[field.name] === 'true';
+    else input.value = draft.values[field.name] ?? '';
     input.required = field.required !== false;
     input.disabled = draft.status === 'submitted' || staleBinding;
     input.dataset.focusKey = `field:${key}:${field.name}`;
-    input.addEventListener('input', () => { draft.values[field.name] = input.value; draft.dirty = true; draft.lastError = null; persist(); state.typingAt = Date.now(); });
+    input.addEventListener(field.type === 'checkbox' ? 'change' : 'input', () => { draft.values[field.name] = field.type === 'checkbox' ? (input.checked ? 'true' : '') : input.value; draft.dirty = true; draft.lastError = null; persist(); state.typingAt = Date.now(); });
     inputs[field.name] = input;
-    form.append(h('div', { class: 'field' }, h('label', { for: id, text: field.label + (field.required === false && !/\(optional/i.test(field.label) ? ' (optional)' : '') }), input, field.help ? h('p', { class: 'help', text: field.help }) : null));
+    const label = h('label', { for: id, text: field.label + (field.required === false && !/\(optional/i.test(field.label) ? ' (optional)' : '') });
+    form.append(field.type === 'checkbox' ? h('div', { class: 'field field-check' }, input, label, field.help ? h('p', { class: 'help', text: field.help }) : null) : h('div', { class: 'field' }, label, input, field.help ? h('p', { class: 'help', text: field.help }) : null));
   }
   const disabled = blockers.length > 0 || staleBinding || staleSubject || draft.status === 'submitted';
   const submitButton = h('button', { type: 'submit', class: `btn btn-${spec.variant ?? 'primary'}`, disabled, dataset: { focusKey: `submit:${key}` } }, spec.submitLabel ?? spec.title);
@@ -140,7 +145,8 @@ export function commandForm(project, spec) {
     if (!form.reportValidity()) return;
     // Fields marked raw (verbatim text) are submitted exactly as written; the rest are trimmed.
     const raw = new Set(spec.fields.filter(f => f.raw).map(f => f.name));
-    const values = Object.fromEntries(Object.entries(inputs).map(([name, input]) => [name, raw.has(name) ? input.value : input.value.trim()]));
+    const boxes = new Set(spec.fields.filter(f => f.type === 'checkbox').map(f => f.name));
+    const values = Object.fromEntries(Object.entries(inputs).map(([name, input]) => [name, boxes.has(name) ? (input.checked ? 'true' : '') : raw.has(name) ? input.value : input.value.trim()]));
     let payload;
     try { payload = spec.payload(values); } catch (error) { draft.lastError = error.message; persist(); afterSubmit(null, { renderOnly: true }); return; }
     if (spec.confirm && !window.confirm(`${spec.confirm}\n\nTarget: ${project.name}`)) return;

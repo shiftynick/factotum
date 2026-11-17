@@ -13,7 +13,7 @@ export const DELEGABLE = Object.freeze(['answer', 'cleanup.apply', 'config.updat
 // decision (slice C). On a migrated project, task.approve and decision answers also
 // need either the operator directly or a stored grant entry covering their exact
 // scope (core/grants.mjs); listing them here is operational delegation only.
-export const NEVER_DELEGABLE = Object.freeze(['grant.issue', 'grant.revoke', 'decision.dispose', 'decision.revoke', 'decision.ratify']);
+export const NEVER_DELEGABLE = Object.freeze(['grant.issue', 'grant.revoke', 'decision.dispose', 'decision.revoke', 'decision.ratify', 'review.restrict']);
 // Without an explicit list every delegable operation is delegated; [] turns delegation off.
 export const delegatedOperations = config => config?.policy?.delegatedOperations ?? DELEGABLE;
 

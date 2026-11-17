@@ -21,7 +21,7 @@ const signals = input => lessonSignals({ attempts: [], pushback: [], ...input })
 
 test('every signal kind has a class, and the verified ones are the three corrections something else attested', () => {
   assert.deepEqual(Object.entries(LESSON_SIGNAL_KINDS).filter(([, kind]) => kind === 'verified').map(([name]) => name), ['review-correction', 'fast-check-correction', 'gate-correction']);
-  assert.deepEqual(Object.entries(LESSON_SIGNAL_KINDS).filter(([, kind]) => kind === 'weak').map(([name]) => name), ['review-correction-inferred', 'plan-send-back', 'person-replan', 'operator-note', 'rule-pushback', 'plan-departure', 'unverified-acceptance', 'unchanged-candidate']);
+  assert.deepEqual(Object.entries(LESSON_SIGNAL_KINDS).filter(([, kind]) => kind === 'weak').map(([name]) => name), ['review-correction-inferred', 'plan-send-back', 'person-replan', 'operator-note', 'rule-pushback', 'plan-departure', 'unverified-acceptance', 'unchanged-candidate', 'review-deferral', 'fix-churn'], 'the two weak kinds of a must-fix flow (review-must-fix design 12.1) are weak');
 });
 
 test('a clean flow produces no signal', () => {

@@ -39,6 +39,7 @@ import { releaseDeliveredWorkspace } from '../operations/workspace-cleanup.mjs';
 import { HostResources, resourceRequest, contextManifest, describeHolders } from '../operations/index.mjs';
 import {reviewPhase,reviewDisposition,boundedReview} from '../core/delivery-review.mjs';
 import { assessmentComplete, effectiveRisk, verifyStrictDecision } from '../core/risk.mjs';
+import { verifyReviewDecision } from '../core/review-decision.mjs';
 import { boundedText } from '../core/text.mjs';
 import { assumptionsOf, carriedQuestionsBrief } from '../core/worker-questions.mjs';
 import { processIdentity } from '../core/process-identity.mjs';
@@ -118,7 +119,7 @@ export const LEDGER_PREPARATION_LIMITS = Object.freeze({ maxMs: 2000, reserveMs:
 async function reviewLedgerView(a, cwd, config, round, { deadlineAt, limits = LEDGER_PREPARATION_LIMITS }) {
   const head = repositoryIdentity(cwd).head, view = replay(a.reviewHistory ?? [], a.reviewPolicy, { operatorDispositions: a.operatorFindingDispositions ?? [] });
   let dispositions = null, dispositionRisk = null;
-  if (a.reviewBar === 'must-fix') { dispositions = await builderDispositions(a, cwd); dispositionRisk = a.risk?.level ?? 'strict'; withDispositions(view, dispositions, { round, risk: dispositionRisk, strictFollowups: a.reviewPolicy?.strictFollowups === true }); }
+  if (a.reviewBar === 'must-fix') { dispositions = await builderDispositions(a, cwd); dispositionRisk = a.risk?.level ?? 'strict'; withDispositions(view, dispositions, { round, risk: dispositionRisk, strictFollowups: a.reviewPolicy?.strictFollowups === true, restriction: a.reviewRestriction ?? null }); }
   const { ledger, findings } = view;
   let family = null; try { family = providerFamily(resolveProviderSpec(config, 'reviewer', a).provider); } catch { /* unknown: no exclusion is shown as awaiting confirmation */ }
   const presented = awaitingEntries(ledger, { head, family, round }), changed = new Map(), since = [...new Set(presented.filter(row => row.awaits.includes('fix')).map(row => row.entry.touchedHead))];
@@ -136,7 +137,7 @@ async function reviewLedgerView(a, cwd, config, round, { deadlineAt, limits = LE
       finally { clearTimeout(timer); }
     }
   }
-  return { ledger, family, presented, preparation, ...(dispositions ? { dispositions, dispositionRisk } : {}), block: ledgerBlock({ ledger, findings, presented, changed }) };
+  return { ledger, family, presented, preparation, ...(dispositions ? { dispositions, dispositionRisk, ...(a.reviewRestriction ? { dispositionRestriction: a.reviewRestriction } : {}) } : {}), block: ledgerBlock({ ledger, findings, presented, changed }) };
 }
 // The builder's dispositions (9.1) from the build before a must-fix review, bounded, with the
 // validation of each citation at the reviewed candidate.
@@ -442,6 +443,14 @@ async function withOriginalPRObservation(intent, result) {
 // The role whose wording a step of an approved governance-edit task gets (operations/governance-edit.mjs).
 const GOVERNANCE_ROLES = Object.freeze({ 'provider.plan': 'planner', 'provider.build': 'builder' });
 export const UPKEEP_CHECKED_OPERATIONS = Object.freeze(['workspace.commit', 'workspace.integrate', 'forge.publish', 'forge.merge']);
+// The strict requirement and, for a must-fix flow, the decision guard, checked again inside the effect
+// (review-must-fix design 7.4, 12.5) from what the intent carries. A severity or shadow flow's intent
+// carries no review bar, so this is exactly today's strict check.
+function verifyDecisionAt(a, identity, decision) {
+  const flow = { results: a.results, riskAssessments: a.riskAssessments, effectiveRisk: a.risk?.level, reviewHistory: a.reviewHistory, reviewProtocol: a.reviewProtocol, completionMode: a.completionMode, strictDecisionRole: a.strictDecisionRole, ...(a.reviewBar === 'must-fix' ? { candidate: a.candidate ?? undefined, reviewBar: 'must-fix', reviewPolicy: a.reviewPolicy ?? null, operatorFindingDispositions: a.operatorFindingDispositions ?? [], reviewRowOverflow: a.reviewRowOverflow ?? null } : {}) };
+  verifyStrictDecision(a.task, flow, identity, decision, { restriction: a.reviewRestriction ?? null });
+  if (a.reviewBar === 'must-fix') verifyReviewDecision(flow, decision, { risk: effectiveRisk(a.task, flow), restriction: a.reviewRestriction ?? null });
+}
 async function runScopedAction(intent, { signal, providerInvoke=invoke, accountingResults=[], deadlineAt=Date.now()+intent.timeoutMs, shadowCorrectionLimits=SHADOW_CORRECTION_LIMITS, ledgerPreparationLimits=LEDGER_PREPARATION_LIMITS } = {}) {
   const a = intent.action, config = a.config, cwd = intent.cwd;
   if(a.operation==='integration.run')return (await import('./integrations.mjs')).runIntegrationAction(intent,{signal});
@@ -594,7 +603,7 @@ async function runScopedAction(intent, { signal, providerInvoke=invoke, accounti
     }
     case 'outcome.satisfied': {
       const decision = a.completionDecision, identity = repositoryIdentity(cwd);
-      verifyStrictDecision(a.task, {results:a.results,riskAssessments:a.riskAssessments,effectiveRisk:a.risk?.level,reviewHistory:a.reviewHistory,reviewProtocol:a.reviewProtocol,completionMode:a.completionMode,strictDecisionRole:a.strictDecisionRole}, identity, decision);
+      verifyDecisionAt(a, identity, decision);
       assert(decision && digest(decision.identity) === digest(identity) && decision.taskRevision === a.task.revision, 'current accepted outcome required');
       const remote = await exec('git', ['ls-remote', config.repository.remote ?? 'origin', `refs/heads/${a.target ?? config.repository.target}`], { cwd, timeout: 30000, enforceTimeout: true });
       assert(remoteRefHead(remote.stdout, `refs/heads/${a.target ?? config.repository.target}`) === identity.head, 'target advanced after outcome verification');
@@ -678,7 +687,7 @@ async function runScopedAction(intent, { signal, providerInvoke=invoke, accounti
       // A must-fix flow (test fixtures until the enabling release; design 6.3, 6.4, 9): the correction
       // brief in place of the previous review, advisory plan notes, the disposition schema, and a
       // deferral the factory refuses makes the build blocked, so it reaches the build question.
-      const mustFixBuild=a.reviewBar==='must-fix'&&ledgerPinned(a.reviewPolicy),deferralContext={risk:a.risk?.level??'strict',strictFollowups:a.reviewPolicy?.strictFollowups===true};
+      const mustFixBuild=a.reviewBar==='must-fix'&&ledgerPinned(a.reviewPolicy),deferralContext={risk:a.risk?.level??'strict',strictFollowups:a.reviewPolicy?.strictFollowups===true,restriction:a.reviewRestriction??null};
       const ledgerView=mustFixBuild?replay(a.reviewHistory??[],a.reviewPolicy,{operatorDispositions:a.operatorFindingDispositions??[]}):null;
       const reviewSegment=mustFixBuild&&a.results.review?`Factory review route: ${a.results.review.route ?? 'unknown'}; disposition: ${a.results.review.disposition ?? 'unknown'}. The factory route determines whether correction is required; the reviewer's verdict alone is not approval.\n${correctionBrief(ledgerView,deferralContext)}`:`Previous review: ${JSON.stringify(a.results.review?.result ?? null)}\n${reviewRequirement}`;
       let result;
@@ -846,7 +855,7 @@ async function runScopedAction(intent, { signal, providerInvoke=invoke, accounti
         const strict=effectiveRisk(a.task,{...a,effectiveRisk:row!==first&&strictOf([first])?'strict':a.risk.level,results:{...(a.results??{}),review:row}})==='strict';
         const incomplete=!assessmentComplete(row.result.riskAssessment)||!['fullDiffInspected','threatModelReviewed','stopConditionsReviewed'].every(key=>row.result.strictReview?.[key]===true);
         const context=await citationContext(a,cwd,row);
-        const derivation=deriveReview(row.result.findings,{round,risk:strict?'strict':'ordinary',strictFollowups:a.reviewPolicy?.strictFollowups===true,purpose:row.result.purpose??null,inFixEvidence:ledgerOn&&round>=(a.reviewPolicy?.inFixEvidenceFrom??3),...context});
+        const derivation=deriveReview(row.result.findings,{round,risk:strict?'strict':'ordinary',strictFollowups:a.reviewPolicy?.strictFollowups===true,purpose:row.result.purpose??null,inFixEvidence:ledgerOn&&round>=(a.reviewPolicy?.inFixEvidenceFrom??3),...context,...(enforced&&a.reviewRestriction?{restriction:a.reviewRestriction}:{})});
         return {derivation,context,review:{strict:strict||derivation.escalated,incomplete:strict&&incomplete,bounded:!satisfied&&boundedReview(reviewConfig),phase,satisfied},...extra};
       };
       // A ledger flow's record of one result: who reviewed it, the family the review was expected on, the
@@ -855,7 +864,7 @@ async function runScopedAction(intent, { signal, providerInvoke=invoke, accounti
       const ledgerRecord=(row,record,context,recorded,route=null)=>{
         if(!ledger)return record;
         const reviewer={provider:row.provider??null,model:row.model??null,family:row.family??null,sessionId:row.sessionId??null};
-        const fields={expectedFamily:ledger.family,preparation:ledger.preparation,presented:ledger.presented.map(item=>({id:item.entry.id,awaits:item.awaits})),citations:(Array.isArray(row.result.ledger)?row.result.ledger:[]).map(judgement=>(Array.isArray(judgement?.evidence)?judgement.evidence:[]).map(citation=>citationStatus(citation,context))),...(ledger.dispositions?{dispositions:ledger.dispositions,dispositionRisk:ledger.dispositionRisk}:{})};
+        const fields={expectedFamily:ledger.family,preparation:ledger.preparation,presented:ledger.presented.map(item=>({id:item.entry.id,awaits:item.awaits})),citations:(Array.isArray(row.result.ledger)?row.result.ledger:[]).map(judgement=>(Array.isArray(judgement?.evidence)?judgement.evidence:[]).map(citation=>citationStatus(citation,context))),...(ledger.dispositions?{dispositions:ledger.dispositions,dispositionRisk:ledger.dispositionRisk,...(ledger.dispositionRestriction?{dispositionRestriction:ledger.dispositionRestriction}:{})}:{})};
         const full={...record,reviewer,ledger:fields},after=replayLedger([...(a.reviewHistory??[]),{step:a.binding??a.step,identity:row.identity,result:recorded,mustFix:full,...(route?{shadowRoute:{route}}:{})}],a.reviewPolicy,{operatorDispositions:a.operatorFindingDispositions??[]});
         return {...full,ledger:{...fields,...(shadow?{priorFindingsDisposition:mirroredDispositions(ledger.ledger,row.result,round)}:{}),applied:after.entries.flatMap(entry=>entry.judgements.filter(judgement=>judgement.round===round).map(judgement=>({id:entry.id,judgement:judgement.judgement,counted:judgement.counted,...(judgement.why?{why:judgement.why}:{})}))),counts:after.counts,digest:ledgerDigest(after)}};
       };
@@ -972,7 +981,7 @@ async function runScopedAction(intent, { signal, providerInvoke=invoke, accounti
     }
     case 'forge.merge': {
       const authorization = a.mergeAuthorization;
-      verifyStrictDecision(a.task, {results:a.results,riskAssessments:a.riskAssessments,effectiveRisk:a.risk?.level,reviewHistory:a.reviewHistory,reviewProtocol:a.reviewProtocol,completionMode:a.completionMode,strictDecisionRole:a.strictDecisionRole}, repositoryIdentity(cwd), authorization);
+      verifyDecisionAt(a, repositoryIdentity(cwd), authorization);
       assert(authorization && digest(authorization.identity) === digest(repositoryIdentity(cwd)), 'merge authorization candidate changed');
       // An upkeep task's limits, again, on the authorized candidate against the integrated target,
       // before anything is read from or asked of the forge (knowledge-upkeep design, 7.4).
