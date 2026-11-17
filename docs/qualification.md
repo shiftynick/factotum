@@ -2,6 +2,20 @@
 
 Date: 2026-10-22. Target: one trusted Linux account, local project sockets, GitHub, and subscription-backed Codex/Claude CLIs. This record separates executed observations from adapter contracts and installation prerequisites. "The main thread" and "the parent" below mean the coordinating agent session; see [how the change records were written](changes/README.md#how-these-records-were-written).
 
+## Purpose-first review release, 2026-11-17
+
+Dev.99 passed **1,909 tests, zero failures and one skip**, plus both fictional process-evaluation projects and the shared console (`npm run eval`).
+
+- **Manifest:** `df20aa689423c3c1e7ae625756c7407040fc208a67016171edeb7e1d1fbcafd3`.
+- **Payload:** `5d072aae8ba4a3c3750c40c606eaa72d0b8d1e690867b345cc25262d84ff94be`.
+- **Source:** built from clean commit `dfd513508b904a2e4a3bfc110199d15f4cb4b1bc`, with no test files in the payload.
+- **Install check:** the release's own CLI adopted it at the root and under a prefix. `adopt status` was clean and authenticated in both.
+- **Severity identity:** the slice 1 golden passes without edits.
+
+**Not qualified:**
+- shadow mode with real models on a real project;
+- a successful `archive-drop` of an eligible merged archive outside fixtures.
+
 ## Review bar shadow release, 2026-11-17
 
 Dev.98 passed **1,891 tests, zero failures and one skip**, plus both fictional process-evaluation projects and the shared console (`npm run eval`).
