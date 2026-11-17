@@ -12,7 +12,7 @@ Includes dev.95. Three small changes from the third adopter's install: a templat
   - **Before:** a copy with no proxy and no ask route still named the `TRIAGE` shorthand, "After binding", "Standing down and resuming", the proxy's keys in the private state file, the ask-prompt exception and the handoff's presentation-withdraw step.
   - **Now:** every such reference sits in an optional block of its own section, marked like the section itself. A section can have several blocks through the guide, some indented inside a list item; the note says to keep or delete all of a section's blocks together. The successor and handoff steps no longer have "With a triage proxy" and "Without a proxy" variants: the step itself moves the webhook, and the triage-proxy block after it says not to when there is a proxy.
   - **What to do:** nothing for a copy that works. A project that deleted sections from an earlier template can remove the leftover references by hand, or copy the template again and redo its placeholders.
-- **Check environment documented.** Gate, fast and main checks get only `PATH`, `HOME` and `LANG` from the environment, plus the factory's own `FACTOTUM_*` variables; `TMPDIR` and everything else are dropped. This was true before and is unchanged. [Running](running.md#configure-and-commission-delivery), [adoption](adoption.md#copy-and-configure), [fast checks](project-workflows.md#fast-checks-before-review) and the starter's setup checklist now say so, and show how a check sets what it needs in its `argv`, for example `["env", "TMPDIR=/srv/scratch/myproject-checks", "npm", "test"]`.
+- **Check environment documented.** Gate, fast and main checks take only `PATH` and `HOME` from the factory's environment. `LANG` is always `C.UTF-8`, and the factory adds its own `FACTOTUM_*` variables; `TMPDIR` and everything else are dropped. This was true before and is unchanged. [Running](running.md#configure-and-commission-delivery), [adoption](adoption.md#copy-and-configure), [fast checks](project-workflows.md#fast-checks-before-review) and the starter's setup checklist now say so, and show how a check sets what it needs in its `argv`, for example `["env", "TMPDIR=/srv/scratch/myproject-checks", "npm", "test"]`.
   - **Why:** one adopter's gate fell back to a nearly full shared `/tmp`.
 
 **Removed**
@@ -21,7 +21,8 @@ Includes dev.95. Three small changes from the third adopter's install: a templat
 
 **Validation**
 
-- **Local validation:** **TBD tests passed**, TBD failures, TBD skips. Both fictional process evaluations: TBD.
+- **Local validation:** **1,836 tests passed**, zero failures, one skip. The skipped test needs the external Unicode source. Both fictional process evaluations and the shared console passed.
+- **Review:** checked by the main thread; no independent review, as the changes are documentation, a template and removed dead code.
 - **Template test:** a new test deletes each optional section of the handling-guide template by the note's own rule, one at a time and all at once, and checks that nothing left names the deleted material.
 - **Not qualified:**
   - the live real-browser re-test on the trial project;
