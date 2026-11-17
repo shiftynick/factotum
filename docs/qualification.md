@@ -2,6 +2,21 @@
 
 Date: 2026-10-22. Target: one trusted Linux account, local project sockets, GitHub, and subscription-backed Codex/Claude CLIs. This record separates executed observations from adapter contracts and installation prerequisites. "The main thread" and "the parent" below mean the coordinating agent session; see [how the change records were written](changes/README.md#how-these-records-were-written).
 
+## Must-fix decision guard release, 2026-11-17
+
+Dev.102 passed **1,986 tests, zero failures and one skip**, plus both fictional process-evaluation projects and the shared console (`npm run eval`). The suite ran with stand-in provider commands first on PATH.
+
+- **Manifest:** `1c0238ef804d40dd258df5ffd4ba72955862b677ad7031f23a880aa0add6a45c`.
+- **Payload:** `7cbf66dd7f7cff7510f94e33eb44b0919af2aa90208cf98216d68b720edee7de`.
+- **Source:** built from clean commit `036801c1cc57608f470d9a6257f1a8ba54e1f0ea`, with no test files in the payload.
+- **Install check:** the release's own CLI adopted it at the root and under a prefix. `adopt status` was clean and authenticated in both.
+- **Severity identity:** the slice 1 golden passes without edits, and severity merges end to end exactly as before.
+
+**Not qualified:**
+- must-fix enforcement outside fixtures (configuration still refuses it);
+- the acknowledgement form in a real browser;
+- shadow mode with real models on a real project.
+
 ## Must-fix enforcement release, 2026-11-17
 
 Dev.101 passed **1,950 tests, zero failures and one skip**, plus both fictional process-evaluation projects and the shared console (`npm run eval`). The suite ran with stand-in provider commands first on PATH.
