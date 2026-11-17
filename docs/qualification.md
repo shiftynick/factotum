@@ -2,6 +2,20 @@
 
 Date: 2026-10-22. Target: one trusted Linux account, local project sockets, GitHub, and subscription-backed Codex/Claude CLIs. This record separates executed observations from adapter contracts and installation prerequisites. "The main thread" and "the parent" below mean the coordinating agent session; see [how the change records were written](changes/README.md#how-these-records-were-written).
 
+## Template and documentation release, 2026-11-17
+
+Dev.96 passed **1,836 tests, zero failures and one skip**, plus both fictional process-evaluation projects and the shared console (`npm run eval`).
+
+- **Manifest:** `ca5ed3ac5b285bdc0bfaf1332e5ef793f6de62d66850f46c9a6286d053379437`.
+- **Payload:** `2217775ffbe8a63022dd6159b26e19054609b3bfafd39250de3dcea2c6a46c93`.
+- **Source:** built from clean commit `9bfc78c42048ffe52c8593496b6b1a32db7f5b5d`, with no test files in the payload. It is the first release built from the public history, and it carries `factory/LICENSE`.
+- **Install check:** the release's own CLI adopted it at the root and under a prefix. `adopt status` was clean and authenticated in both.
+
+**Not qualified:**
+- the live real-browser re-test of dev.96;
+- live acceptance of a capture candidate;
+- models and GitHub at a large repository's scale.
+
 ## Event-marker layout release, 2026-11-17
 
 Dev.95 passed **1,833 tests, zero failures and one skip**, plus both fictional process-evaluation projects and the shared console (`npm run eval`).
