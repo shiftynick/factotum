@@ -2,6 +2,33 @@
 
 Development builds of the reference implementation. Each entry lists changes an adopter needs to act on. "The main thread" in review notes is the coordinating agent session; see [how the change records were written](changes/README.md#how-these-records-were-written).
 
+## 0.2.0-dev.20261022.96
+
+Includes dev.95. Three small changes from the third adopter's install: a template fix, a documentation note and dead console code removed. There is no schema change, and the reference graphs are unchanged, so queued tasks need no re-approval. Nothing to migrate.
+
+**Fixed (from the third adopter's install)**
+
+- **The T3 handling-guide template no longer leaves dangling references.** Deleting its optional sections (the triage proxy, issue mirrors and the ask prompt) as the template note says used to leave about eight references to the deleted material.
+  - **Before:** a copy with no proxy and no ask route still named the `TRIAGE` shorthand, "After binding", "Standing down and resuming", the proxy's keys in the private state file, the ask-prompt exception and the handoff's presentation-withdraw step.
+  - **Now:** every such reference sits in an optional block of its own section, marked like the section itself. A section can have several blocks through the guide, some indented inside a list item; the note says to keep or delete all of a section's blocks together. The successor and handoff steps no longer have "With a triage proxy" and "Without a proxy" variants: the step itself moves the webhook, and the triage-proxy block after it says not to when there is a proxy.
+  - **What to do:** nothing for a copy that works. A project that deleted sections from an earlier template can remove the leftover references by hand, or copy the template again and redo its placeholders.
+- **Check environment documented.** Gate, fast and main checks get only `PATH`, `HOME` and `LANG` from the environment, plus the factory's own `FACTOTUM_*` variables; `TMPDIR` and everything else are dropped. This was true before and is unchanged. [Running](running.md#configure-and-commission-delivery), [adoption](adoption.md#copy-and-configure), [fast checks](project-workflows.md#fast-checks-before-review) and the starter's setup checklist now say so, and show how a check sets what it needs in its `argv`, for example `["env", "TMPDIR=/srv/scratch/myproject-checks", "npm", "test"]`.
+  - **Why:** one adopter's gate fell back to a nearly full shared `/tmp`.
+
+**Removed**
+
+- **Unused timeline marker code.** `markerGap` and `clusterMarkers` in the console's `timeline.mjs` have not been used since dev.95 replaced them with `markerBoxes`. Their tests now check the same behaviour through `markerBoxes`. The console behaves exactly as in dev.95.
+
+**Validation**
+
+- **Local validation:** **TBD tests passed**, TBD failures, TBD skips. Both fictional process evaluations: TBD.
+- **Template test:** a new test deletes each optional section of the handling-guide template by the note's own rule, one at a time and all at once, and checks that nothing left names the deleted material.
+- **Not qualified:**
+  - the live real-browser re-test on the trial project;
+  - live acceptance of a check or learning candidate;
+  - models and GitHub at a large repository's scale.
+- **Upgrading:** use a reviewed, drained adoption and commissioning, with the release's own CLI.
+
 ## 0.2.0-dev.20261022.95
 
 Includes dev.94. One console fix from the dev.94 re-test. There is no schema change, and the reference graphs are unchanged, so queued tasks need no re-approval. Nothing to migrate.
