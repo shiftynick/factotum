@@ -271,3 +271,33 @@ test('normal post-merge cleanup still removes ignored files but records the ones
   assert.equal(existsSync(workspace.path), false);
   assert.deepEqual(result.ignoredDeleted, { count: 1, paths: ['private-notes.txt'] }, 'the stray note is listed; declared build output is not');
 });
+
+test('a completed flow whose only ignored files are pnpm dot paths matching excludeIgnored is released, not archived', async t => {
+  const f = await pendingFlow(t);
+  f.store.setMeta('config', { ...f.store.meta('config'), cleanup: { excludeIgnored: ['node_modules/**', '**/node_modules/**', '.next/**', '.artifacts/**'] } });
+  ignore(f.workspace.path, 'node_modules/'); ignore(f.workspace.path, '.next/');
+  for (const file of ['node_modules/.pnpm/pkg@1.0.0/node_modules/pkg/index.js', 'node_modules/.bin/pkg', 'apps/web/node_modules/.bin/next', '.next/cache/webpack/x.pack']) {
+    mkdirSync(join(f.workspace.path, file, '..'), { recursive: true }); writeFileSync(join(f.workspace.path, file), 'Regenerable fictional dependency\n');
+  }
+  const plan = await cleanupPlan(f.stateDir, f.flowId);
+  assert.equal(plan.mode, 'release'); assert.equal(plan.unsavedIgnored, 0);
+  const done = await cleanupApply(f.stateDir, { flowId: f.flowId, planDigest: plan.planDigest, note: 'Only reproducible dependencies remain' });
+  assert.equal(done.mode, 'release'); assert.equal(done.archiveDir, undefined);
+  assert.equal(existsSync(f.workspace.path), false);
+  assert.equal(existsSync(join(f.stateDir, 'archives', 'completed-workspaces')), false, 'nothing was archived');
+  assert.equal(done.release.ignoredDeleted, undefined, 'declared dependencies are not listed as deleted ignored files');
+});
+
+test('post-merge cleanup lists only ignored entries outside excludeIgnored, not the directories that hold them', async t => {
+  const root = mkdtempSync(join(tmpdir(), 'factotum-ignored-')); t.after(() => rmSync(root, { recursive: true, force: true }));
+  const project = join(root, 'repo'), stateDir = join(root, 'state'); mkdirSync(project); mkdirSync(stateDir);
+  git(project, ['init', '-q']); git(project, ['-c', 'user.name=Fictional', '-c', 'user.email=f@example.invalid', 'commit', '-q', '--allow-empty', '-m', 'Fictional base']);
+  const { workspace, owned } = await delivered(t, { root: project, stateDir });
+  ignore(workspace.path, 'node_modules/'); ignore(workspace.path, '*.log');
+  for (const file of ['node_modules/.pnpm/pkg@1.0.0/index.js', 'apps/web/node_modules/.bin/next', 'apps/api/node_modules/.bin/tsc', 'apps/api/debug.log']) {
+    mkdirSync(join(workspace.path, file, '..'), { recursive: true }); writeFileSync(join(workspace.path, file), 'Fictional\n');
+  }
+  const result = await releaseDeliveredWorkspace({ root: project, stateDir, config: { repository: { remote: 'origin', target: 'main' }, cleanup: { excludeIgnored: ['node_modules/**', '**/node_modules/**'] } }, workspace: owned, target: 'main', results: { merge: { merged: true } } });
+  assert.equal(existsSync(workspace.path), false);
+  assert.deepEqual(result.ignoredDeleted, { count: 1, paths: ['apps/api/debug.log'] });
+});

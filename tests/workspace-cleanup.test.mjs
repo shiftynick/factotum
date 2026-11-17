@@ -116,3 +116,61 @@ test('excludeIgnored leaves out only ignored paths matching a commissioned glob,
   assert.ok(manifest.excluded.some(entry => entry.path === 'deps/cache/pkg/big.js' && /^[a-f\d]{64}$/.test(entry.sha256)));
   assert.equal(f.store.need('cleanup', 'deps').archive.excluded, undefined, 'the store keeps a summary, not the full list');
 });
+
+// A pnpm monorepo's reproducible output: dependency stores and build caches in dot directories.
+const PNPM_GLOBS = ['node_modules/**', '**/node_modules/**', '.next/**', '.artifacts/**'];
+function pnpmLayout(path) {
+  const files = {
+    'node_modules/.pnpm/left-pad@1.3.0/node_modules/left-pad/index.js': 'module.exports = pad;\n',
+    'node_modules/.pnpm/left-pad@1.3.0/node_modules/left-pad/bin/pad': '#!/bin/sh\n',
+    'node_modules/.modules.yaml': 'layoutVersion: 5\n',
+    'node_modules/.bin/pad': '#!/bin/sh\nexec pad\n',
+    'apps/web/node_modules/.bin/next': '#!/bin/sh\nexec next\n',
+    'apps/web/node_modules/.cache/a.json': '{"cache":true}\n',
+    '.next/cache/webpack/client.pack': 'x'.repeat(4096),
+    '.next/.trace': 'trace\n',
+    '.artifacts/report.json': '{}\n',
+  };
+  for (const [file, text] of Object.entries(files)) { mkdirSync(join(path, file, '..'), { recursive: true }); writeFileSync(join(path, file), text); }
+  symlinkSync('.pnpm/left-pad@1.3.0/node_modules/left-pad', join(path, 'node_modules/left-pad'));
+  return { files: Object.keys(files).length, bytes: Object.values(files).reduce((sum, text) => sum + Buffer.byteLength(text), 0) };
+}
+test('excludeIgnored covers pnpm dot paths: the plan excludes them and the tar holds none of them', async t => {
+  const f = sandbox(t);
+  writeFileSync(join(f.root, '.gitignore'), 'node_modules/\n.next/\n.artifacts/\n*.env\n'); mkdirSync(join(f.root, 'apps/web'), { recursive: true }); writeFileSync(join(f.root, 'apps/web/page.js'), 'export default 1;\n');
+  git(f.root, ['add', '.']); git(f.root, ['commit', '-qm', 'Monorepo fixture']);
+  f.store.setMeta('config', { ...f.store.meta('config', {}), cleanup: { excludeIgnored: PNPM_GLOBS } });
+  const { head, setupDigest, ...owned } = await prepare({ root: f.root, stateDir: f.stateDir, projectId: f.project.projectId, flowId: 'pnpm' });
+  const layout = pnpmLayout(owned.path);
+  writeFileSync(join(owned.path, 'local.env'), 'ignored but not reproducible\n'); writeFileSync(join(owned.path, 'apps/web/page.js'), 'export default 2;\n');
+  f.store.put('flow', { id: 'pnpm', taskId: f.task.id, state: 'failed', workspace: owned });
+  const plan = await cleanupPlan(f.stateDir, 'pnpm');
+  assert.equal(plan.excludedFiles, layout.files); assert.equal(plan.excludedBytes, layout.bytes);
+  assert.equal(plan.files, 4, 'only input.txt, .gitignore, apps/web/page.js and local.env are archived');
+  const done = await cleanupApply(f.stateDir, { flowId: 'pnpm', planDigest: plan.planDigest, note: 'Dependencies and build caches are reproducible' });
+  const listed = execFileSync('tar', ['--list', '--file', join(done.archiveDir, 'tree.tar')], { encoding: 'utf8' }).split('\n').filter(Boolean);
+  assert.deepEqual(listed.filter(entry => /node_modules|\.next|\.artifacts/.test(entry)), []);
+  assert.ok(listed.includes('./local.env') && listed.includes('./apps/web/page.js'));
+  const manifest = JSON.parse(readFileSync(join(done.archiveDir, 'manifest.json'), 'utf8'));
+  for (const directory of ['node_modules', 'apps/web/node_modules', '.next', '.artifacts']) assert.ok(manifest.excluded.some(entry => entry.path === directory && entry.type === 'dir'), directory);
+  assert.ok(manifest.excluded.some(entry => entry.path === 'node_modules/left-pad' && entry.type === 'symlink'));
+  const restored = restoreFlowArchive(f.stateDir, 'pnpm', join(f.base, 'restored'));
+  assert.equal(existsSync(join(restored.target, 'node_modules')), false);
+  assert.equal(readFileSync(join(restored.target, 'local.env'), 'utf8'), 'ignored but not reproducible\n');
+});
+test('excludeIgnored never leaves out a tracked or plain untracked file in a matching directory', async t => {
+  const f = sandbox(t);
+  writeFileSync(join(f.root, '.gitignore'), 'node_modules/.pnpm/\n'); mkdirSync(join(f.root, 'node_modules/.patched'), { recursive: true }); writeFileSync(join(f.root, 'node_modules/.patched/fix.js'), 'tracked\n');
+  git(f.root, ['add', '.']); git(f.root, ['commit', '-qm', 'Tracked patch fixture']);
+  f.store.setMeta('config', { ...f.store.meta('config', {}), cleanup: { excludeIgnored: PNPM_GLOBS } });
+  const { head, setupDigest, ...owned } = await prepare({ root: f.root, stateDir: f.stateDir, projectId: f.project.projectId, flowId: 'tracked' });
+  mkdirSync(join(owned.path, 'node_modules/.pnpm/x'), { recursive: true }); writeFileSync(join(owned.path, 'node_modules/.pnpm/x/i.js'), 'ignored\n');
+  writeFileSync(join(owned.path, 'node_modules/.local-note'), 'untracked, not ignored\n'); writeFileSync(join(owned.path, 'node_modules/.patched/fix.js'), 'edited\n');
+  f.store.put('flow', { id: 'tracked', taskId: f.task.id, state: 'failed', workspace: owned });
+  const plan = await cleanupPlan(f.stateDir, 'tracked');
+  assert.equal(plan.excludedFiles, 1); assert.equal(plan.excludedBytes, 'ignored\n'.length);
+  const done = await cleanupApply(f.stateDir, { flowId: 'tracked', planDigest: plan.planDigest, note: 'Keep tracked and untracked work' });
+  const listed = execFileSync('tar', ['--list', '--file', join(done.archiveDir, 'tree.tar')], { encoding: 'utf8' }).split('\n');
+  assert.ok(listed.includes('./node_modules/.patched/fix.js') && listed.includes('./node_modules/.local-note'));
+  assert.ok(!listed.some(entry => entry.includes('.pnpm')));
+});

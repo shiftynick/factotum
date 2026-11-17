@@ -29,7 +29,8 @@ import { LEARNING_ID, LEARNING_MAX_CHARS, learningChars, parseLearning } from '.
 import { governingAcross, gitTreeLookup, resolveTreePath, treeView } from '../core/tree-paths.mjs';
 import { evidenceItem, serializeEvidence, EVIDENCE_CLOSE, EVIDENCE_OPEN } from './upkeep-evidence.mjs';
 import { ASSESSMENT_LIMITS, textRules } from './upkeep-assessment.mjs';
-import { globDirectory, matchesGlob } from './upkeep-prefilter.mjs';
+import { globDirectory } from './upkeep-prefilter.mjs';
+import { matchesGlob } from '../core/globs.mjs';
 
 const DIRECTORY = '40000', REGULAR = '100644', SUBMODULE = '160000';
 const OBJECT_ID = /^([a-f\d]{40}|[a-f\d]{64})$/;

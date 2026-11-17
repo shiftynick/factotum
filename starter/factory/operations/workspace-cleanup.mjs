@@ -4,7 +4,8 @@ import { NO_AUTO_MAINTENANCE, NO_PLANTED_COMMANDS } from '../core/git-options.mj
 import { createHash } from 'node:crypto';
 import { closeSync, copyFileSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
-import { dirname, join, matchesGlob } from 'node:path';
+import { dirname, join } from 'node:path';
+import { matchesGlob } from '../core/globs.mjs';
 import { assert, digest, now, note } from '../core/contracts.mjs';
 import { Store } from '../core/store.mjs';
 import { archiveAndRelease, git as workspaceGit, inspect, release, releaseArchived } from '../adapters/workspace/index.mjs';
@@ -48,20 +49,25 @@ export function treeManifest(root, { exclude = () => false } = {}) {
   walk('', false);
   return { entries, excluded, special, bytes, excludedBytes, digest: digest(entries), excludedDigest: digest(excluded) };
 }
+// cleanup.excludeIgnored globs (core/globs.mjs): wildcards match dot segments
+// (node_modules/** covers node_modules/.pnpm/...), `[...]` and `{a,b}` are supported, and
+// `dir/**` also matches the directory `dir` itself, as `git ls-files --directory` lists it.
+const CLEANUP_GLOBS = Object.freeze({ extended: true, directory: true });
+export const matchesExcludeIgnored = (path, patterns = []) => patterns.some(pattern => matchesGlob(pattern, path.replace(/\/$/, ''), CLEANUP_GLOBS));
 // cleanup.excludeIgnored: a path is left out only if it matches a commissioned
 // glob AND Git reports it ignored. Tracked and plain untracked files never are.
 export function ignoredExcluder(root, patterns = []) {
   if (!patterns.length) return () => false;
   const ignored = new Set(execFileSync('git', [...NO_PLANTED_COMMANDS, '-c', 'core.hooksPath=/dev/null', 'ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z'], { cwd: root, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 }).split('\0').filter(Boolean).map(path => path.replace(/\/$/, '')));
   const isIgnored = path => { for (let current = path; current; current = current.includes('/') ? current.slice(0, current.lastIndexOf('/')) : '') if (ignored.has(current)) return true; return false; };
-  return path => patterns.some(pattern => matchesGlob(path, pattern)) && isIgnored(path);
+  return path => matchesExcludeIgnored(path, patterns) && isIgnored(path);
 }
 // Ignored files that are unsaved work: everything Git ignores except what the commissioned
 // cleanup.excludeIgnored globs declare reproducible. Ordinary `git status` omits ignored
 // files, so it alone never proves a workspace can be removed without archiving.
 export function unsavedIgnored(root, patterns = []) {
   const ignored = execFileSync('git', [...NO_PLANTED_COMMANDS, '-c', 'core.hooksPath=/dev/null', 'ls-files', '--others', '--ignored', '--exclude-standard', '-z'], { cwd: root, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 }).split('\0').filter(Boolean);
-  return ignored.filter(path => !patterns.some(pattern => matchesGlob(path, pattern)));
+  return ignored.filter(path => !matchesExcludeIgnored(path, patterns));
 }
 
 // The release a delivered flow's cleanup step performs: the owned head must be in the
@@ -89,7 +95,10 @@ function deletedIgnoredSummary(path, patterns) {
   let paths;
   try { paths = execFileSync('git', [...NO_PLANTED_COMMANDS, '-c', 'core.hooksPath=/dev/null', 'ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z'], { cwd: path, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 }).split('\0').filter(Boolean); }
   catch (error) { return { count: null, paths: [], error: String(error.message).slice(0, 300) }; }
-  const kept = paths.filter(entry => !patterns.some(pattern => matchesGlob(entry, pattern) || matchesGlob(entry.replace(/\/$/, ''), pattern)));
+  // Git also lists a directory whose contents are all ignored and then lists those contents
+  // (apps/ when apps/web/node_modules/ is all it holds); only the entries themselves count.
+  const containers = new Set(paths.flatMap(entry => { const parts = entry.replace(/\/$/, '').split('/'); return parts.slice(1).map((_, at) => parts.slice(0, at + 1).join('/')); }));
+  const kept = paths.filter(entry => !containers.has(entry.replace(/\/$/, '')) && !matchesExcludeIgnored(entry, patterns));
   if (!kept.length) return null;
   return { count: kept.length, paths: kept.slice(0, IGNORED_LIST_LIMIT), ...(kept.length > IGNORED_LIST_LIMIT ? { truncated: true } : {}) };
 }

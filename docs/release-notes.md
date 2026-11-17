@@ -2,6 +2,32 @@
 
 Development builds of the reference implementation. Each entry lists changes an adopter needs to act on. "The main thread" in review notes is the coordinating agent session; see [how the change records were written](changes/README.md#how-these-records-were-written).
 
+## 0.2.0-dev.20261022.97
+
+Includes dev.96. One workspace-cleanup fix from the second adopter's report. There is no schema change, and the reference graphs are unchanged, so queued tasks need no re-approval. Nothing to migrate, but read **What to do** if you use `cleanup.excludeIgnored`.
+
+**Fixed (from the second adopter's report)**
+
+- **`cleanup.excludeIgnored` globs now match paths that start with a dot.** The globs were matched with Node's `path.matchesGlob`, which never lets `*` or `**` match a path segment starting with a dot. `node_modules/**` therefore did not cover `node_modules/.pnpm/...`, `**/node_modules/**` did not cover `apps/web/node_modules/.bin/...`, and `.next/**` covered nothing in `.next/cache/`.
+  - **Before:** on a pnpm monorepo with `["node_modules/**","**/node_modules/**",".next/**",".artifacts/**"]`, a plan left out 54 files (1.4 MB) and archived 45,665 (1.1 GB), almost all of them under `node_modules/.pnpm/`. Each `cleanup apply` wrote a 1.1 GB `tree.tar`. The same matching decided which ignored files of a completed flow are unsaved work, so completed flows whose only ignored files were dependencies were archived instead of released.
+  - **Now:** cleanup uses the factory's own glob matcher (`core/globs.mjs`), the one knowledge upkeep already used. Wildcards match dot segments like any other, and a glob ending in `/**` also matches the directory itself, so `node_modules/**` covers the `node_modules` directory as Git lists it. `[...]`, `{a,b}` and `\` escapes still work. Extended patterns such as `+(a|b)` are no longer supported; a glob using one now matches less, so more is archived, never less. The safety rule is unchanged: a path is left out only if it matches a glob **and** Git reports it ignored. Tracked and plain untracked files are always archived.
+  - **Also:** the list of ignored files that a normal post-merge cleanup records as deleted (`ignoredDeleted`) no longer names directories such as `apps/` just because everything in them is ignored. It names only the ignored entries themselves that the globs do not cover.
+  - **What to do:**
+    - With such globs, plans and archives from dev.96 and earlier (including dev.95) included every dot path the globs were meant to leave out. Archives already written are **not** removed or shrunk automatically. Each is a complete, verified archive; delete one by hand only once you are sure you no longer need it.
+    - Plan again any cleanup you planned on an older release. `cleanup apply` refuses an old plan whose results have changed.
+    - Check that your globs cover nested build output: `.next/**` is anchored at the workspace root, so use `**/.next/**` for `apps/web/.next/`.
+- **Archive locations documented.** [Workspace cleanup](workspace-cleanup.md#where-archives-are-kept) now says where each kind of archive is kept. A flow that was `failed` (including abandoned) when `cleanup apply` ran is archived under `archives/failed-workspaces/`; a completed flow in `archive` mode has been archived under `archives/completed-workspaces/` since dev.82. Nothing is moved or renamed, and `cleanup restore` reads the directory recorded for the flow.
+
+**Validation**
+
+- **Local validation:** **TBD tests passed**, TBD failures, TBD skips. Both fictional process evaluations passed.
+- **Review:** TBD.
+- **New tests:** pnpm-style layouts (`node_modules/.pnpm/...`, nested `apps/web/node_modules/.bin/...`, `.next/cache/...`) through `cleanup plan` and `apply`, checking excluded bytes, the tar's contents and the restore; a tracked and an untracked file inside a matching directory are still archived; a completed flow whose only ignored files match the globs is released, not archived; the post-merge deletion record; and unit tests of the matcher. All of them fail on dev.96.
+- **Not qualified:**
+  - the fix on the second adopter's own monorepo;
+  - archives of hundreds of thousands of files.
+- **Upgrading:** use a reviewed, drained adoption and commissioning, with the release's own CLI.
+
 ## 0.2.0-dev.20261022.96
 
 Includes dev.95. Three small changes from the third adopter's install: a template fix, a documentation note and dead console code removed. There is no schema change, and the reference graphs are unchanged, so queued tasks need no re-approval. Nothing to migrate.

@@ -1,27 +1,15 @@
 // Knowledge upkeep: classification and the deterministic pre-filter (knowledge-upkeep design,
 // 6.1 and 6.2). Pure functions over what the assessment read from one commit: no Git, no store, no
 // clock. workflows/upkeep-assess.mjs supplies the tree and the file texts.
+import { globToRegExp, matchesGlob } from '../core/globs.mjs';
 import { governingInTree, resolveTreePath } from '../core/tree-paths.mjs';
 import { contextPathMatches as contextMatches } from './context.mjs';
 
 // ---- Globs ----
-// `*` and `?` stay inside one path segment; `**` crosses segments, and `**/` also matches no
-// directory at all, so docs/**/*.md covers docs/a.md and docs/guide/a.md. Matching is exact in
-// letter case. (A context entry's own `paths` are matched as the context loader matches them.)
-const patterns = new Map();
-export function globToRegExp(glob) {
-  let source = '';
-  for (let at = 0; at < glob.length; at++) {
-    const char = glob[at];
-    if (char === '*') {
-      if (glob[at + 1] === '*') { at++; if (glob[at + 1] === '/') { at++; source += '(?:.*/)?'; } else source += '.*'; }
-      else source += '[^/]*';
-    } else if (char === '?') source += '[^/]';
-    else source += char.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-  }
-  return new RegExp(`^${source}$`, 's');
-}
-export function matchesGlob(glob, path) { let found = patterns.get(glob); if (!found) patterns.set(glob, found = globToRegExp(glob)); return found.test(path); }
+// core/globs.mjs: `*` and `?` stay inside one path segment; `**` crosses segments, and `**/` also
+// matches no directory at all, so docs/**/*.md covers docs/a.md and docs/guide/a.md. Matching is
+// exact in letter case. (A context entry's own `paths` are matched as the context loader matches them.)
+export { globToRegExp, matchesGlob };
 // The directories a glob can match inside: its leading segments without a wildcard, as a prefix
 // that ends in '/', or '' for the repository root. Used to keep the tree walk to those folders.
 export function globDirectory(glob) {

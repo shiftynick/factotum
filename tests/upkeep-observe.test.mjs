@@ -228,7 +228,7 @@ test('with upkeep work in hand every read is by key, and settled history changes
   assert.deepEqual(upkeepReads.map(row => row.args[1]), [merged.flowId], 'only the run in hand is read');
   // No upkeep module reads a whole kind, looks up by an undeclared field or filters records.data with JSON.
   const factory = new URL('../starter/factory/', import.meta.url);
-  const QUIET = ['core/upkeep-config.mjs', 'core/line-diff.mjs', 'operations/upkeep-runs.mjs', 'operations/upkeep-prefilter.mjs', 'operations/upkeep-budget.mjs', 'operations/upkeep-assessment.mjs', 'operations/upkeep-confusables.mjs', 'operations/upkeep-evidence.mjs'];
+  const QUIET = ['core/upkeep-config.mjs', 'core/line-diff.mjs', 'core/globs.mjs', 'operations/upkeep-runs.mjs', 'operations/upkeep-prefilter.mjs', 'operations/upkeep-budget.mjs', 'operations/upkeep-assessment.mjs', 'operations/upkeep-confusables.mjs', 'operations/upkeep-evidence.mjs'];
   for (const file of [...QUIET, 'workflows/upkeep-assess.mjs']) {
     const source = readFileSync(new URL(file, factory), 'utf8');
     assert.doesNotMatch(source, /store\.(all|stored|recent|live|by|events|count)\(|json_extract|json_each|->>|FROM events/, file);

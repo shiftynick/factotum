@@ -31,7 +31,8 @@ import { collapseWhitespace } from '../operations/upkeep-class-key.mjs';
 import { MAX_RESOLVED_WORDS, NAMED_ELSEWHERE, scriptsByPath, scriptsNamedElsewhere } from '../operations/upkeep-capture.mjs';
 import { changedLinesExact } from '../core/line-diff.mjs';
 import { upgradeOwned } from '../core/install-layout.mjs';
-import { matchesGlob, upgradeOwnedPath } from '../operations/upkeep-prefilter.mjs';
+import { upgradeOwnedPath } from '../operations/upkeep-prefilter.mjs';
+import { matchesGlob } from '../core/globs.mjs';
 
 // A changed blob larger than this, containing a NUL byte or not valid UTF-8 is binary (7.4).
 export const MAX_TEXT_BYTES = 1024 * 1024;

@@ -38,7 +38,7 @@ node factory/cli.mjs cleanup apply --actor operator --state <state> --id <flowId
 
 Apply refuses if anything in the workspace changed since the plan. It then:
 
-1. writes an archive under `<state>/archives/failed-workspaces/<id>/` (`completed-workspaces/` for a completed flow). The archive contains a self-contained Git bundle of the branch history, a POSIX tar of the complete working tree, and a copy of the index. The tar covers tracked, modified, untracked and ignored files, file modes and symlinks. It excludes the `.git` link. The archive also packs every object the index references, including staged content and conflict stages that exist in no commit.
+1. writes an archive under `<state>/archives/failed-workspaces/<id>/`, or `completed-workspaces/<id>/` for a completed flow (see [where archives are kept](#where-archives-are-kept)). The archive contains a self-contained Git bundle of the branch history, a POSIX tar of the complete working tree, and a copy of the index. The tar covers tracked, modified, untracked and ignored files, file modes and symlinks. It excludes the `.git` link. The archive also packs every object the index references, including staged content and conflict stages that exist in no commit.
 2. restores the archive into a scratch repository and requires the identical working tree and index before continuing;
 3. records the archive and checks the workspace is still unchanged;
 4. records the removal intent, removes the worktree and deletes the exact owned local branch;
@@ -58,7 +58,34 @@ By default everything is archived. A project can commission globs for reproducib
 "cleanup": {"excludeIgnored": ["site/node_modules/**", "site/dist/**", "site/.astro/**"]}
 ```
 
+The globs are relative to the workspace root and match exactly in letter case:
+
+- `*` matches any run of characters inside one path segment, and `?` one character. Neither crosses `/`.
+- `**` matches across segments, and `**/` also matches no directory at all: `**/node_modules/**` covers `node_modules/x` and `apps/web/node_modules/x`.
+- A glob ending in `/**` also matches the directory itself, so `node_modules/**` covers the `node_modules` directory, not only what is in it.
+- Path segments that start with a dot are matched like any other. `node_modules/**` covers `node_modules/.pnpm/...` and `node_modules/.bin/...`, and `.next/**` covers `.next/cache/...`.
+- `[abc]`, `[a-z]` and `[!abc]` match one character, `{dist,build}` either alternative, and `\*` a literal `*`.
+- A glob without a leading `**/` is anchored at the root: `.next/**` does not cover `apps/web/.next/`. Use `**/.next/**` for that.
+
+For a pnpm monorepo, for example:
+
+```json
+"cleanup": {"excludeIgnored": ["node_modules/**", "**/node_modules/**", "**/.next/**"]}
+```
+
+Before dev.97 these globs were matched with Node's `path.matchesGlob`, which never lets a wildcard match a segment that starts with a dot. `node_modules/**` then left out only the non-dot paths, and the pnpm store under `node_modules/.pnpm/`, `.bin/` directories and everything in `.next/` were archived. A completed flow with such files was also archived instead of released. A plan made on dev.96 or earlier may no longer match what dev.97 computes; `cleanup apply` then refuses it as changed, and you plan again.
+
 A path is left out only if it matches one of these globs **and** Git reports it ignored. Tracked files and untracked files that aren't ignored are always archived, even when a glob matches them. The plan reports `excludedFiles`, `excludedBytes` and `excludedDigest`, and its digest covers them, so a change to excluded files still invalidates the plan. The archive's `manifest.json` lists every excluded path with its size and SHA-256. The restore check compares everything else exactly. A restore reports how many paths were left out and that the setup step must be rerun to recreate them.
+
+## Where archives are kept
+
+Everything is under `<state>/archives/`:
+
+- `failed-workspaces/<id>/` holds the archive of a flow that was `failed` (including abandoned) when `cleanup apply` ran.
+- `completed-workspaces/<id>/` holds the archive of a `completed` flow whose plan was in `archive` mode. Releases since dev.82 have written completed flows here.
+- `workspace-commits/` holds the verified history bundles kept when a squash or rebase merge's workspace is released.
+
+The directory name records the flow's state when the archive was written, not whether anything was lost. `<id>` is derived from the flow and its workspace ownership. The flow's `cleanup` record and `workspaceReleased.archiveDir` name the exact directory, and `cleanup restore` reads it from there. Archives are never moved or renamed by an upgrade.
 
 ## Restore
 
