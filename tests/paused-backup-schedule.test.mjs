@@ -8,6 +8,7 @@ import { sandbox, until } from './helpers.mjs';
 import { digest } from '../starter/factory/core/contracts.mjs';
 import { COMMANDS } from '../starter/factory/core/command-help.mjs';
 import { operationalTick } from '../starter/factory/workflows/maintenance.mjs';
+import { dispatchSchedules } from '../starter/factory/operations/schedules.mjs';
 import { placeRecoveryHold } from '../starter/factory/operations/recovery-hold.mjs';
 
 // 00:30 UTC is 01:30 in Berlin (CET): the daily 02:00 occurrence falls due half an hour later.
@@ -53,6 +54,9 @@ for (const [name, hold, named] of [
   ['retention hold', f => { pause(f); f.store.setMeta('retentionHold', { operationId: 'fictional-retention', createdAt: new Date().toISOString() }); }, 'retention hold'],
   ['retention hold without a pause', f => f.store.setMeta('retentionHold', { operationId: 'fictional-retention', createdAt: new Date().toISOString() }), 'retention hold'],
   ['upgrade in progress', f => { pause(f); f.store.setMeta('upgradeRecovery', { operation: 'merge', units: ['fictional.service'], at: new Date().toISOString() }); }, 'upgrade in progress'],
+  // Review of 90610ed, finding 1: an upgrade marker holds a backup with admission open too (an upgrade
+  // interrupted after it stopped the units leaves the marker and may leave admission open).
+  ['upgrade in progress with admission open', f => f.store.setMeta('upgradeRecovery', { operation: 'merge', units: ['fictional.service'], at: new Date().toISOString() }), 'upgrade in progress'],
 ]) test(`a ${name} still holds a scheduled backup and says so`, async t => {
   const f = project(t); daily(f, 'daily-backup', 'maintenance.backup'); hold(f);
   // A backup job queued before the hold does not start either.
@@ -149,4 +153,69 @@ test('the pause help says what still runs', () => {
   assert.match(summary, /a scheduled maintenance\.backup still fires and its job starts/);
   assert.match(summary, /raises one notice/);
   assert.match(fields.find(row => row[0] === 'holdMaintenance')[2], /scheduled backups are held too/);
+});
+
+// Review of 90610ed, finding 1: a backup hold placed after the job was picked, inside the tick, still
+// fences its start. The marker is written as the admission transaction begins.
+test('an upgrade marker written just before a paused backup job is admitted leaves it queued', async t => {
+  const f = project(t); daily(f, 'daily-backup', 'maintenance.backup'); pause(f);
+  const tx = f.store.tx.bind(f.store); let injected = false;
+  f.store.tx = fn => tx(() => {
+    if (!injected && f.store.all('job').some(job => job.status === 'queued')) { injected = true; f.store.setMeta('upgradeRecovery', { operation: 'merge', units: ['fictional.service'], at: new Date().toISOString() }); }
+    return fn();
+  });
+  await operationalTick(f.store, { nowMs: at(1) });
+  assert.equal(injected, true);
+  const [job] = f.store.all('job'); assert.equal(job.status, 'queued'); assert.equal(f.store.all('flow').length, 0);
+});
+
+// Review of 90610ed, finding 2: an acknowledged notice is still the notice for its hold.
+test('an acknowledged held notice is not raised again during its hold, and resolves when the hold lifts', async t => {
+  const f = project(t); daily(f, 'daily-retro', 'retrospective'); pause(f);
+  await operationalTick(f.store, { nowMs: at(1) });
+  assert.equal(f.command('inbox.ack', { inboxId: 'schedule-held:daily-retro' }).status, 'completed');
+  const acknowledged = heldNotice(f, 'daily-retro'); assert.equal(acknowledged.status, 'acknowledged');
+  await operationalTick(f.store, { nowMs: at(25) });
+  let notice = heldNotice(f, 'daily-retro');
+  assert.equal(events(f, 'schedule.held').length, 1); assert.equal(notice.status, 'acknowledged'); assert.equal(notice.version, acknowledged.version); assert.equal(notice.missed, 2);
+  assert.equal(f.command('pause', { paused: false, note: 'Fictional resume' }).status, 'completed');
+  await operationalTick(f.store, { nowMs: at(25.5) });
+  notice = heldNotice(f, 'daily-retro'); assert.equal(notice.status, 'resolved'); assert.equal(notice.version, acknowledged.version + 1);
+  assert.equal(events(f, 'schedule.hold-released').length, 1);
+});
+test('an acknowledged held notice is superseded when its schedule is removed', async t => {
+  const f = project(t); daily(f, 'daily-retro', 'retrospective'); pause(f);
+  await operationalTick(f.store, { nowMs: at(1) });
+  assert.equal(f.command('inbox.ack', { inboxId: 'schedule-held:daily-retro' }).status, 'completed');
+  assert.equal(f.command('schedule.remove', { scheduleId: 'daily-retro', note: 'Fictional removal' }).status, 'completed');
+  await operationalTick(f.store, { nowMs: at(2) });
+  assert.equal(heldNotice(f, 'daily-retro').status, 'superseded');
+});
+
+// Review of 90610ed, finding 3: an occurrence missed under a hold is found whatever windowMs is.
+test('a held occurrence older than the catch-up window still raises the notice, and catch-up is unchanged', async t => {
+  const f = project(t);
+  // Thursdays only. The service is offline from before Thursday 02:00 until Sunday.
+  const put = f.command('schedule.put', { expectedSchedule: null, schedule: { id: 'thursday-retro', operation: 'retrospective', type: 'daily', timeOfDay: '02:00', timezone: 'Europe/Berlin', weekdays: [4] } });
+  assert.equal(put.status, 'completed', put.error);
+  f.store.tx(() => { const row = f.store.need('schedule', 'thursday-retro'); row.createdAt = new Date(BASE).toISOString(); f.store.put('schedule', row); });
+  pause(f);
+  await operationalTick(f.store, { nowMs: at(72) });
+  const notice = heldNotice(f, 'thursday-retro');
+  assert.equal(notice?.status, 'open'); assert.equal(notice.occurrence.key, 'thursday-retro:2026-11-19'); assert.equal(notice.missed, 1);
+  assert.equal(f.store.need('schedule', 'thursday-retro').lastScannedAt, undefined, 'the schedule cursor is not moved by the hold');
+  // Execution catch-up is exactly as before: the Thursday occurrence is outside windowMs and is skipped.
+  assert.equal(f.command('pause', { paused: false, note: 'Fictional resume' }).status, 'completed');
+  await operationalTick(f.store, { nowMs: at(72.5) });
+  assert.equal(events(f, 'schedule.triggered').length, 0); assert.equal(events(f, 'schedule.missed').length, 1);
+  assert.equal(heldNotice(f, 'thursday-retro').status, 'resolved');
+});
+test('held discovery counts every missed occurrence over a long hold, for daily and interval schedules', t => {
+  const f = project(t), start = Date.parse('2026-11-01T00:00:00Z');
+  f.store.put('schedule', { id: 'daily', operation: 'retrospective', enabled: true, type: 'daily', timeOfDay: '02:00', timezone: 'UTC', createdAt: new Date(start).toISOString(), revision: 'r' });
+  f.store.put('schedule', { id: 'hourly', operation: 'retrospective', enabled: true, type: 'interval', everyMs: 3600000, anchorMs: start, createdAt: new Date(start).toISOString(), revision: 'r' });
+  // Twenty days held, with a one-day window and a small catch-up bound: neither limits what the notice counts.
+  dispatchSchedules(f.store, { nowMs: start + 20 * 86400000, holdsFor: () => ['admission paused'], dispatch: () => ({}), windowMs: 86400000, maxCatchUp: 8 });
+  assert.equal(heldNotice(f, 'daily').missed, 20); assert.equal(heldNotice(f, 'daily').occurrence.key, 'daily:2026-11-01');
+  assert.equal(heldNotice(f, 'hourly').missed, 480); assert.equal(heldNotice(f, 'hourly').occurrence.key, 'hourly:1');
 });

@@ -47,19 +47,25 @@ import { startUpkeepRunInTransaction, upkeepTickInTransaction } from '../operati
 const allowed = new Set(['forge.lifecycle', UPKEEP_CLOSE_OPERATION, 'main.verify', 'queue.dispatch', 'maintenance.backup', 'audit', 'retrospective', 'machine.sample', 'retention.archive', 'source.sync', 'source.create', 'source.promote', 'target.sync', UPKEEP_OPERATION, LEARNINGS_CHECK_OPERATION]);
 export function scheduleGrantDigest(schedule) { return schedule.revision ?? digest(Object.fromEntries(['id','operation','payload','type','everyMs','anchorMs','timeOfDay','timezone','weekdays','enabled'].filter(key => schedule[key] !== undefined).map(key => [key,schedule[key]]))); }
 // What keeps a schedule from firing now, by name (none: it fires). Admission pause, recovery hold and
-// retention hold hold every schedule, as before dev.103. A scheduled maintenance.backup is held only
-// by the holds that make a backup unsafe or unwanted: recovery, retention, a drain (maintenanceHeld)
-// and an upgrade in progress (upgradeRecovery); a pause alone does not hold it.
+// retention hold hold every schedule, as before dev.103. A maintenance.backup is held by the holds
+// that make a backup unsafe or unwanted, whether or not admission is paused: recovery, retention, a
+// drain (maintenanceHeld) and an upgrade in progress (upgradeRecovery, which an interrupted upgrade
+// leaves set); a pause alone does not hold it.
 export const runsWhilePaused = schedule => schedule?.operation === 'maintenance.backup' && !schedule.recurringTask;
-// `paused` and `recoveryHold` are the values the caller has just read, when it has; the other holds
-// are read only when one of these applies, so a tick with nothing held reads no more than it did.
+// Read fresh on every call: the admission transaction asks again just before a backup job starts.
+export function backupHolds(store) {
+  return [store.meta('recoveryHold') && 'recovery hold', store.meta('retentionHold') && 'retention hold', store.meta('maintenanceHeld') && 'maintenance hold (drain)', store.meta('upgradeRecovery', null) && 'upgrade in progress'].filter(Boolean);
+}
+// `paused` and `recoveryHold` are the values the caller has just read, when it has. The backup holds
+// are read only when a backup schedule is looked at, so a tick with no backup schedule and nothing
+// held reads no more than it did.
 export function scheduleHolds(store, { paused = store.meta('paused'), recoveryHold = store.meta('recoveryHold') } = {}) {
   const retention = store.meta('retentionHold') && 'retention hold';
-  if (!paused && !recoveryHold && !retention) return () => [];
-  const recovery = (recoveryHold || paused && store.meta('recoveryHold')) && 'recovery hold', drain = paused && store.meta('maintenanceHeld') && 'maintenance hold (drain)';
+  let backup = null; const backupNow = () => backup ??= backupHolds(store);
+  if (!paused && !recoveryHold && !retention) return schedule => runsWhilePaused(schedule) ? backupNow() : [];
+  const recovery = (recoveryHold || paused && store.meta('recoveryHold')) && 'recovery hold', drain = paused && store.meta('maintenanceHeld');
   const general = [recovery, retention, paused && (drain ? 'admission paused with maintenance held (drain)' : 'admission paused')].filter(Boolean);
-  const backup = [recovery, retention, drain, store.meta('upgradeRecovery', null) && 'upgrade in progress'].filter(Boolean);
-  return schedule => runsWhilePaused(schedule) ? backup : general;
+  return schedule => runsWhilePaused(schedule) ? backupNow() : general;
 }
 const fetchTransport = async ({ url, payload, headers, signal }) => fetch(url, { method: 'POST', body: payload, headers, signal });
 export async function operationalTick(store, { transport = fetchTransport, nowMs } = {}) {
@@ -127,7 +133,7 @@ export async function operationalTick(store, { transport = fetchTransport, nowMs
     // Lanes: built-in maintenance jobs share one (one unfinished non-integration maintenance flow at
     // a time), each installed integration workflow has its own, and knowledge upkeep has its own
     // (5.2): at most one upkeep flow at a time, never counted against the built-in lane.
-    const canStart = job => !store.meta('maintenanceHeld') && (!store.meta('retentionHold') || job.operation==='retention.archive' && job.payload?.operationId===store.meta('retentionHold').operationId) && !store.live('flow').some(f => f.kind === 'maintenance' && !['completed','failed'].includes(f.state) && (isUpkeepJob(job) ? isUpkeepFlow(f) : installedOperation(config,job.operation) ? f.integration && (config.integrationWorkflows[f.integration.id]?.singleton ?? f.integration.id) === (config.integrationWorkflows[job.operation.slice(9)]?.singleton ?? job.operation.slice(9)) : !f.integration && !isUpkeepFlow(f)));
+    const canStart = job => (job.operation !== 'maintenance.backup' || !backupHolds(store).length) && !store.meta('maintenanceHeld') && (!store.meta('retentionHold') || job.operation==='retention.archive' && job.payload?.operationId===store.meta('retentionHold').operationId) && !store.live('flow').some(f => f.kind === 'maintenance' && !['completed','failed'].includes(f.state) && (isUpkeepJob(job) ? isUpkeepFlow(f) : installedOperation(config,job.operation) ? f.integration && (config.integrationWorkflows[f.integration.id]?.singleton ?? f.integration.id) === (config.integrationWorkflows[job.operation.slice(9)]?.singleton ?? job.operation.slice(9)) : !f.integration && !isUpkeepFlow(f)));
     // The built-in pick ignores upkeep jobs entirely, so a main.verify or target.sync queued before
     // or after an upkeep job is chosen exactly as it would be without one. The upkeep lane is looked
     // at only when the meta row read above names a run, and its job starts after the built-in one.
@@ -135,6 +141,8 @@ export async function operationalTick(store, { transport = fetchTransport, nowMs
     const candidates = [queuedJobs.find(j => !isUpkeepJob(j) && only(j) && canStart(j)), upkeep ? queuedJobs.find(j => isUpkeepJob(j) && only(j) && canStart(j)) : null].filter(Boolean);
     for (const candidate of candidates) store.tx(() => {
       const job = store.need('job', candidate.id); assert(allowed.has(job.operation) || installedOperation(config,job.operation) || isScheduledOperation(config,job.operation), 'unsupported maintenance job');
+      // A backup hold placed since the job was picked (an upgrade starting, say) leaves it queued.
+      if (job.operation === 'maintenance.backup' && backupHolds(store).length) return;
       assert(canStart(job), 'maintenance capacity changed');
       let schedule;
       if (job.scheduleId) { schedule = store.need('schedule', job.scheduleId); assert(schedule.enabled && (scheduleGrantDigest(schedule)) === job.scheduleRevision, 'schedule grant changed'); }

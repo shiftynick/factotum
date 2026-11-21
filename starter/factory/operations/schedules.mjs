@@ -80,33 +80,67 @@ export function dispatchSchedules(store, { nowMs = Date.now(), dispatch, trigger
     return claimed;
   });
 }
-// One held schedule: look for occurrences due since its last scan and raise or refresh its notice.
-// Returns whether the schedule record changed.
+// Every occurrence of a schedule due after `afterMs` (exclusive) up to `nowMs` (inclusive), whatever
+// the catch-up window: a held schedule must say what it missed, even what catch-up will skip. Daily
+// schedules are walked day by day (one zoned time per local day), interval ones by arithmetic, so a
+// long hold costs little. Returns {count, first, latest}; claimed occurrences are not counted. The
+// daily walk covers at most `maxDays` local days; `truncated` says earlier time was not walked.
+export function heldOccurrences(store, schedule, { afterMs, nowMs, maxDays = 400 }) {
+  const claimed = o => store.get('occurrence', digest(o.key));
+  if (schedule.type === 'interval') {
+    if (!(Number.isSafeInteger(schedule.everyMs) && schedule.everyMs >= 1000 && Number.isFinite(schedule.anchorMs))) return { count: 0 };
+    const at = n => ({ key: `${schedule.id}:${n}`, at: new Date(schedule.anchorMs + n * schedule.everyMs).toISOString() });
+    let first = Math.max(0, Math.floor((afterMs - schedule.anchorMs) / schedule.everyMs) + 1); const last = Math.floor((nowMs - schedule.anchorMs) / schedule.everyMs);
+    // A bounded backlog claimed just before the hold sits at the start of the range.
+    for (let i = 0; i < 1000 && first <= last && claimed(at(first)); i++) first++;
+    return first > last ? { count: 0 } : { count: last - first + 1, first: at(first), latest: at(last) };
+  }
+  if (schedule.type !== 'daily' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(schedule.timeOfDay ?? '') || typeof schedule.timezone !== 'string') return { count: 0 };
+  const [hh, mm] = schedule.timeOfDay.split(':').map(Number), end = localParts(nowMs, schedule.timezone), endDay = Date.UTC(+end.year, +end.month - 1, +end.day);
+  let truncated = false, startMs = afterMs;
+  if (endDay - maxDays * 86400000 > afterMs) { truncated = true; startMs = endDay - maxDays * 86400000; }
+  const begin = localParts(startMs, schedule.timezone), found = [];
+  for (let day = Date.UTC(+begin.year, +begin.month - 1, +begin.day); day <= endDay; day += 86400000) {
+    const date = new Date(day);
+    if (schedule.weekdays && !schedule.weekdays.includes(date.getUTCDay())) continue;
+    const t = zonedTime(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate(), hh, mm, schedule.timezone), p = localParts(t, schedule.timezone);
+    // A time that does not exist that day (the spring DST change) is skipped, as dueOccurrences does.
+    if (t <= startMs || t > nowMs || `${p.hour}:${p.minute}` !== schedule.timeOfDay) continue;
+    const occurrence = { key: `${schedule.id}:${p.year}-${p.month}-${p.day}`, at: new Date(t).toISOString() };
+    if (!claimed(occurrence)) found.push(occurrence);
+  }
+  return found.length ? { count: found.length, first: found[0], latest: found.at(-1), ...(truncated ? { truncated: true } : {}) } : { count: 0, ...(truncated ? { truncated: true } : {}) };
+}
+// A held notice is active for its hold while open or acknowledged: acknowledging it says the
+// operator has seen it, not that the hold is over, so it is neither raised again nor left unsettled.
+const ACTIVE = new Set(['open', 'acknowledged']);
+// One held schedule: look for occurrences due since its last scan, whatever the catch-up window, and
+// raise or refresh its notice. Returns whether the schedule record changed.
 function heldScan(store, schedule, holds, { nowMs, afterMs, windowMs, at }) {
   const from = Math.max(afterMs, Date.parse(schedule.heldScannedAt ?? '') || afterMs);
-  const occurrences = dueOccurrences(schedule, { nowMs, afterMs: from, maxCatchUp: 1000, windowMs }).filter(o => !store.get('occurrence', digest(o.key)));
-  const scannedAt = occurrences.length === 1000 ? occurrences.at(-1).at : at, moved = schedule.heldScannedAt !== scannedAt;
-  schedule.heldScannedAt = scannedAt;
-  const id = heldScheduleNoticeId(schedule.id), item = schedule.heldNotice ? store.get('inbox', id) : null, open = item?.status === 'open';
-  if (!occurrences.length && !open) return moved;
-  const first = open ? item.occurrence : occurrences[0], latest = occurrences.at(-1) ?? item.latestOccurrence, missed = (open ? item.missed : 0) + occurrences.length;
+  const found = heldOccurrences(store, schedule, { afterMs: from, nowMs }), moved = schedule.heldScannedAt !== at;
+  schedule.heldScannedAt = at;
+  const id = heldScheduleNoticeId(schedule.id), item = schedule.heldNotice ? store.get('inbox', id) : null, active = ACTIVE.has(item?.status);
+  if (!found.count && !active) return moved;
+  const first = active ? item.occurrence : found.first, latest = found.latest ?? item.latestOccurrence, missed = (active ? item.missed : 0) + found.count;
+  const truncated = Boolean(found.truncated || (active && item.truncated));
   const what = schedule.recurringTask ? `recurring task ${schedule.recurringTask}` : schedule.operation;
-  const summary = `Schedule ${schedule.id} (${what}) did not run its occurrence due ${first.at} because ${holdText(holds)}.${missed > 1 ? ` ${missed} occurrences have been missed so far, the latest due ${latest.at}.` : ''} When the hold lifts, occurrences due within the last ${hours(windowMs)} run then (catch-up); older ones are skipped and recorded as schedule.missed. A paused project still runs its scheduled maintenance.backup; every other schedule waits for the pause to end.`;
-  if (open) {
-    if (item.missed !== missed || digest(item.holds) !== digest(holds)) store.put('inbox', { ...item, holds, missed, latestOccurrence: latest, summary, updatedAt: at });
+  const summary = `Schedule ${schedule.id} (${what}) did not run its occurrence due ${first.at} because ${holdText(holds)}.${missed > 1 ? ` ${missed} occurrences have been missed so far, the latest due ${latest.at}.` : ''}${truncated ? ' Earlier occurrences may have been missed too: the hold is longer than the scan covers.' : ''} When the hold lifts, occurrences due within the last ${hours(windowMs)} run then (catch-up); older ones are skipped and recorded as schedule.missed. A paused project still runs its scheduled maintenance.backup; every other schedule waits for the pause to end.`;
+  if (active) {
+    if (item.missed !== missed || digest(item.holds) !== digest(holds) || Boolean(item.truncated) !== truncated) store.put('inbox', { ...item, holds, missed, latestOccurrence: latest, ...(truncated ? { truncated } : {}), summary, updatedAt: at });
     return moved;
   }
   const old = store.get('inbox', id);
   store.put('inbox', { id, kind: 'notice', role: 'operator', status: 'open', version: (old?.version ?? 0) + 1, createdBy: 'factory', createdAt: at, updatedAt: at,
     title: `Schedule ${schedule.id} is held: its ${what} occurrence due ${first.at} did not run (${holds.join(', ')})`,
-    summary, scheduleId: schedule.id, operation: schedule.operation ?? null, occurrence: first, latestOccurrence: latest, missed, holds });
+    summary, scheduleId: schedule.id, operation: schedule.operation ?? null, occurrence: first, latestOccurrence: latest, missed, ...(truncated ? { truncated } : {}), holds });
   store.event('schedule.held', { scheduleId: schedule.id, inboxId: id, occurrenceKey: first.key, holds });
   schedule.heldNotice = id;
   return true;
 }
 function settleHeldNotice(store, schedule, at, released, windowMs) {
   const id = schedule.heldNotice, item = id ? store.get('inbox', id) : null;
-  if (item?.status === 'open') {
+  if (ACTIVE.has(item?.status)) {
     if (released) { store.put('inbox', { ...item, status: 'resolved', resolvedAt: at, resolution: `The hold lifted at ${at}. Occurrences due within the last ${hours(windowMs)} were triggered by the usual catch-up; any older ones were skipped and recorded as schedule.missed.`, version: item.version + 1 }); store.event('schedule.hold-released', { scheduleId: schedule.id, inboxId: id }); }
     else { store.put('inbox', { ...item, status: 'superseded', supersededReason: 'the schedule was disabled or removed', version: item.version + 1 }); store.event('inbox.superseded', { inboxId: id, reason: 'schedule disabled' }); }
   }
