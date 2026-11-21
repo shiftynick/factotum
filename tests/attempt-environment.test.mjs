@@ -11,7 +11,7 @@ import { attemptDir, launch } from '../starter/factory/core/effects.mjs';
 import { repositoryIdentity } from '../starter/factory/core/repository.mjs';
 import { validateConfig } from '../starter/factory/core/configuration.mjs';
 import { ATTEMPT_ENVIRONMENT_KEYS, serviceEnvironment, supervisedEnvironment } from '../starter/factory/core/attempt-environment.mjs';
-import { parseUnitEnvironment, probeAttemptEnvironment } from '../starter/factory/operations/attempt-environment-probe.mjs';
+import { probeAttemptEnvironment } from '../starter/factory/operations/attempt-environment-probe.mjs';
 import { setTargetHealth } from '../starter/factory/operations/targets.mjs';
 import { operationalTick } from '../starter/factory/workflows/maintenance.mjs';
 
@@ -146,44 +146,106 @@ test('a provider CLI started inside a systemd attempt unit is resolved from the 
   for (const call of calls) { assert.equal(call.who, 'service', 'never the manager PATH\'s claude'); assert.equal(call.PATH, env.servicePath); assert.equal(call.HOME, env.base); }
 });
 
-test('the service unit environment is read from systemctl show, quoted words included', () => {
-  assert.deepEqual(parseUnitEnvironment('PATH=/opt/node24/bin:/usr/bin "NOTE=two words" HOME=/home/fictional\n'), { PATH: '/opt/node24/bin:/usr/bin', NOTE: 'two words', HOME: '/home/fictional' });
-  assert.deepEqual(parseUnitEnvironment(''), {});
-});
-
-// Doctor's check, with stand-in systemctl (the service unit's Environment=) and systemd-run.
-function probeFixture(t) {
-  const env = toolchains(t), stateDir = join(env.base, 'state'); mkdirSync(stateDir);
-  writeFileSync(join(env.standIn, 'systemctl'), `#!/bin/sh\n[ "$3" = "-p" ] && [ "$4" = "Environment" ] && { echo ${sh(`PATH=${env.servicePath}`)}; exit 0; }\nexit 1\n`, { mode: 0o755 });
-  return { env, stateDir, project: { projectId: 'fictional0123456789', root: env.base } };
+// Doctor's check. Stand-ins: systemctl (the running service's MainPID, and `stop`), systemd-run
+// (the user manager, which starts the probe with its own PATH and HOME) and a fake /proc with the
+// service's main process.
+function probeFixture(t, { mainPid = '4242', selfInService = false, pidCgroup = 'factotum-project-fictiona.service' } = {}) {
+  const env = toolchains(t), stateDir = join(env.base, 'state'), proc = join(env.base, 'proc'), calls = join(env.base, 'systemctl.calls'); mkdirSync(stateDir);
+  // The unit's configured Environment= is stale (edited, reloaded, not restarted); it must not be used.
+  writeFileSync(join(env.standIn, 'systemctl'), `#!/bin/sh\necho "$@" >> ${sh(calls)}\n[ "$2" = "show" ] && [ "$4" = "MainPID" ] && { echo ${sh(mainPid)}; exit 0; }\n[ "$2" = "show" ] && [ "$4" = "Environment" ] && { echo 'PATH=/stale/configured/bin'; exit 0; }\n[ "$2" = "stop" ] && exit 0\nexit 1\n`, { mode: 0o755 });
+  mkdirSync(join(proc, 'self'), { recursive: true }); mkdirSync(join(proc, '4242'));
+  writeFileSync(join(proc, 'self', 'cgroup'), `0::/user.slice/user-1000.slice/user@1000.service/app.slice/${selfInService ? 'factotum-project-fictiona.service' : 'fictional-terminal.scope'}\n`);
+  writeFileSync(join(proc, '4242', 'cgroup'), `0::/user.slice/user-1000.slice/user@1000.service/app.slice/${pidCgroup}\n`);
+  // The running service's environment: its PATH (from an EnvironmentFile=, say) and a credential that must not travel.
+  writeFileSync(join(proc, '4242', 'environ'), [`PATH=${env.servicePath}`, `HOME=${env.base}`, 'USER=fictional-service', 'GITHUB_TOKEN=ghp_fictional', 'LD_PRELOAD=/fictional.so', ''].join('\0'));
+  const systemctlCalls = () => existsSync(calls) ? readFileSync(calls, 'utf8').trim().split('\n') : [];
+  const runCalls = () => existsSync(join(env.base, 'systemd-run.calls')) ? readFileSync(join(env.base, 'systemd-run.calls'), 'utf8').trim().split('\n') : [];
+  const probe = (options = {}) => withPathAsync(`${env.standIn}:${env.managerPath}`, () => probeAttemptEnvironment({ project: { projectId: 'fictional0123456789', root: env.base }, stateDir, procRoot: proc, source: { ...process.env, PATH: env.managerPath }, ...options }));
+  return { env, stateDir, proc, probe, systemctlCalls, runCalls };
 }
-test('doctor: an attempt unit that resolves the service node and git passes, and the probe starts no provider', async t => {
-  const { env, stateDir, project } = probeFixture(t); standInSystemdRun(env, { wait: true });
-  // Doctor itself runs from a shell whose PATH is the manager's: the service's comes from its unit.
-  const probed = await withPathAsync(`${env.standIn}:${env.managerPath}`, () => probeAttemptEnvironment({ project, stateDir, source: { ...process.env, PATH: env.managerPath } }));
+// The user manager stand-in for the probe: keeps a copy of the request, then runs the probe in the foreground.
+function standInProbeRun(env) {
+  writeFileSync(join(env.standIn, 'systemd-run'), `#!/bin/sh\necho "$@" >> ${sh(join(env.base, 'systemd-run.calls'))}\nfor a; do last="$a"; done\ncp "$last" ${sh(join(env.base, 'request-copy.json'))}\nwhile [ $# -gt 0 ]; do case "$1" in --*) shift;; *) break;; esac; done\nexec env -i PATH=${sh(env.managerPath)} HOME=${sh(env.managerHome)} "$@"\n`, { mode: 0o755 });
+}
+const unitOf = line => line.match(/--unit=(\S+)/)[1];
+
+test('doctor: the probe uses the running service\'s environment, has a runtime limit, no --pipe, and passes when the unit resolves the service node and git', async t => {
+  const f = probeFixture(t); standInProbeRun(f.env);
+  const probed = await f.probe();
   assert.deepEqual(probed.reasons, []); assert.deepEqual(probed.warnings, []);
-  assert.equal(probed.record.status, 'same'); assert.equal(probed.record.pathFrom, 'factotum-project-fictiona.service');
-  assert.equal(probed.record.service.node.path, join(env.serviceBin, 'node')); assert.equal(probed.record.attempt.node.realPath, realpathSync(process.execPath));
-  assert.equal(probed.record.manager.node.path, join(env.managerBin, 'node'), 'the unit\'s own (manager) PATH would have given the shim');
-  const call = readFileSync(join(env.base, 'systemd-run.calls'), 'utf8');
-  assert.match(call, /^--user --wait --pipe --collect --quiet --unit=factotum-fictiona-doctor-env-[0-9a-f]{8} --property=Type=exec /);
-  assert.match(call, /attempt-environment-probe\.mjs /);
-  assert.deepEqual(readdirSync(join(stateDir, 'doctor-probes')), [], 'the probe file is removed');
+  assert.equal(probed.record.status, 'same'); assert.equal(probed.record.pathFrom, 'factotum-project-fictiona.service (running, process 4242)');
+  assert.equal(probed.record.service.node.path, join(f.env.serviceBin, 'node')); assert.equal(probed.record.attempt.node.realPath, realpathSync(process.execPath));
+  assert.equal(probed.record.manager.node.path, join(f.env.managerBin, 'node'), 'the unit\'s own (manager) PATH would have given the shim');
+  // The running process's allowlisted variables, not the unit's configured Environment= and no credential.
+  assert.deepEqual(JSON.parse(readFileSync(join(f.env.base, 'request-copy.json'), 'utf8')), { environment: { PATH: f.env.servicePath, HOME: f.env.base, USER: 'fictional-service' } });
+  assert.deepEqual(f.systemctlCalls(), ['--user show -p MainPID --value factotum-project-fictiona.service'], 'nothing stopped after a probe that finished');
+  const [call] = f.runCalls();
+  assert.match(call, /^--user --wait --collect --quiet --unit=factotum-fictiona-doctor-env-[0-9a-f]{8} --property=Type=exec --property=RuntimeMaxSec=15 \S+ \S+attempt-environment-probe\.mjs \S+\/doctor-probes\/attempt-environment-[^/]+\/request\.json$/);
+  assert.doesNotMatch(call, /--pipe/);
+  assert.deepEqual(readdirSync(join(f.stateDir, 'doctor-probes')), [], 'the private probe directory is removed');
 });
 
-test('doctor: an attempt unit that resolves a different node or git is a blocking reason with the remedy; an unrunnable probe is a warning', async t => {
-  const { env, stateDir, project } = probeFixture(t);
+test('doctor: run inside the project service, the probe uses the service\'s own environment', async t => {
+  const f = probeFixture(t, { selfInService: true }); standInProbeRun(f.env);
+  const probed = await f.probe({ source: { PATH: f.env.servicePath, HOME: f.env.base, GITHUB_TOKEN: 'ghp_fictional' } });
+  assert.equal(probed.record.status, 'same'); assert.equal(probed.record.pathFrom, 'factotum-project-fictiona.service (doctor runs in it)');
+  assert.deepEqual(JSON.parse(readFileSync(join(f.env.base, 'request-copy.json'), 'utf8')).environment, { PATH: f.env.servicePath, HOME: f.env.base });
+  assert.deepEqual(f.systemctlCalls(), []);
+});
+
+test('doctor: when the running service\'s environment cannot be established the check is unverified, never same', async t => {
+  for (const [options, why] of [[{ mainPid: '0' }, /factotum-project-fictiona\.service is not running/], [{ pidCgroup: 'another.service' }, /process 4242 is not in factotum-project-fictiona\.service/]]) {
+    const f = probeFixture(t, options); standInProbeRun(f.env);
+    const probed = await f.probe();
+    assert.equal(probed.record.status, 'unverified'); assert.deepEqual(probed.reasons, []);
+    assert.equal(probed.warnings.length, 1); assert.match(probed.warnings[0], /^Not verified that attempt units run the project service's node and git: /); assert.match(probed.warnings[0], why);
+    assert.deepEqual(f.runCalls(), [], 'no probe unit is started');
+  }
+  const unreadable = probeFixture(t); standInProbeRun(unreadable.env); rmSync(join(unreadable.proc, '4242', 'environ'));
+  const probed = await unreadable.probe();
+  assert.equal(probed.record.status, 'unverified'); assert.match(probed.warnings[0], /could not be read \(ENOENT\)/);
+});
+
+test('doctor: an attempt unit that resolves a different node or git is a blocking reason with the remedy', async t => {
+  const f = probeFixture(t);
   // A unit that ignores the recorded environment (as attempt units did before dev.104).
   const resolver = new URL('../starter/factory/core/attempt-environment.mjs', import.meta.url).href;
-  writeFileSync(join(env.standIn, 'systemd-run'), `#!${process.execPath}\nimport(${JSON.stringify(resolver)}).then(({ resolveCommand }) => { const path = ${JSON.stringify(env.managerPath)}; const r = { node: resolveCommand('node', path), git: resolveCommand('git', path) }; console.log(JSON.stringify({ attempt: r, manager: r })); });\n`, { mode: 0o755 });
-  const probed = await withPathAsync(`${env.standIn}:${env.prior}`, () => probeAttemptEnvironment({ project, stateDir }));
+  writeFileSync(join(f.env.standIn, 'systemd-run'), `#!${process.execPath}\nconst { dirname, join } = require('node:path'), request = process.argv[process.argv.length - 1];\nimport(${JSON.stringify(resolver)}).then(({ resolveCommand }) => { const path = ${JSON.stringify(f.env.managerPath)}; const r = { node: resolveCommand('node', path), git: resolveCommand('git', path) }; require('node:fs').writeFileSync(join(dirname(request), 'result.json'), JSON.stringify({ attempt: r, manager: r })); });\n`, { mode: 0o755 });
+  const probed = await f.probe();
   assert.equal(probed.record.status, 'differs');
   assert.equal(probed.reasons.length, 2, probed.reasons.join(' | '));
-  assert.match(probed.reasons[0], new RegExp(`^An attempt unit resolves node to ${join(env.managerBin, 'node')}, but the project service resolves it to ${join(env.serviceBin, 'node')} \\(`));
+  assert.match(probed.reasons[0], new RegExp(`^An attempt unit resolves node to ${join(f.env.managerBin, 'node')}, but the project service resolves it to ${join(f.env.serviceBin, 'node')} \\(`));
   assert.match(probed.reasons[0], /remove any drop-in for this project's attempt units \(factotum-fictiona-\*\)/);
   assert.match(probed.reasons[1], /resolves git to .*manager-bin\/git/);
-  writeFileSync(join(env.standIn, 'systemd-run'), '#!/bin/sh\necho "Failed to connect to bus" >&2\nexit 1\n', { mode: 0o755 });
-  const failed = await withPathAsync(`${env.standIn}:${env.prior}`, () => probeAttemptEnvironment({ project, stateDir }));
-  assert.deepEqual(failed.reasons, []); assert.equal(failed.record.status, 'unprobed');
-  assert.match(failed.warnings.join(), /Could not check which node and git an attempt unit runs \(systemd-run exited 1: Failed to connect to bus\)/);
+});
+
+test('doctor: a failed probe unit is stopped by its exact name and reported as a warning', async t => {
+  const f = probeFixture(t);
+  writeFileSync(join(f.env.standIn, 'systemd-run'), `#!/bin/sh\necho "$@" >> ${sh(join(f.env.base, 'systemd-run.calls'))}\necho "Failed to connect to bus" >&2\nexit 1\n`, { mode: 0o755 });
+  const probed = await f.probe();
+  assert.deepEqual(probed.reasons, []); assert.equal(probed.record.status, 'unverified');
+  assert.match(probed.warnings.join(), /Could not check which node and git an attempt unit runs \(systemd-run exited 1: Failed to connect to bus\)/);
+  assert.deepEqual(f.systemctlCalls().slice(1), [`--user stop ${unitOf(f.runCalls()[0])}`]);
+  assert.deepEqual(readdirSync(join(f.stateDir, 'doctor-probes')), []);
+});
+
+// The reviewer's case: the transient unit belongs to the user manager, so killing the systemd-run
+// client does not stop it, and something holding the client's output open must not keep doctor
+// waiting. Here a process in its own session holds systemd-run's stdout and stderr open.
+test('doctor: a probe that hangs with its output held open returns within the bound, and its unit is stopped by name', async t => {
+  const f = probeFixture(t), holder = join(f.env.base, 'holder.pid');
+  // Read now: the fixture directory is removed by an earlier-registered cleanup.
+  let holderPid = null; const release = () => { try { holderPid ??= Number(readFileSync(holder, 'utf8')); } catch {} if (holderPid) { try { process.kill(holderPid, 'SIGKILL'); } catch {} } };
+  t.after(release);
+  writeFileSync(join(f.env.standIn, 'systemd-run'), `#!/bin/sh\necho "$@" >> ${sh(join(f.env.base, 'systemd-run.calls'))}\nsetsid sh -c 'echo $$ > ${holder.replace(/'/g, '')}; exec sleep 600' &\nexec sleep 600\n`, { mode: 0o755 });
+  const started = Date.now();
+  const probed = await f.probe({ timeoutMs: 2000 });
+  const elapsed = Date.now() - started;
+  await until(() => existsSync(holder)); release();
+  assert.ok(elapsed < 2000 + 3000 + 2500, `returned after ${elapsed} ms`);
+  assert.equal(probed.record.status, 'unverified'); assert.deepEqual(probed.reasons, []);
+  assert.match(probed.warnings.join(), /Could not check which node and git an attempt unit runs \(systemd-run did not return within 5 s\)/);
+  const [call] = f.runCalls();
+  assert.match(call, /--property=RuntimeMaxSec=1 /, 'the unit has a runtime limit shorter than doctor\'s wait');
+  assert.deepEqual(f.systemctlCalls().slice(1), [`--user stop ${unitOf(call)}`], 'exactly that unit, never a pattern');
 });
