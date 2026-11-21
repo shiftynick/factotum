@@ -539,6 +539,7 @@ Findings from the dev.81 readiness trial (records in `docs/changes/`):
 - **Operator decisions (2026-11-21):**
   - **Backups while paused:** the third adopter reported that a paused project ran no scheduled `maintenance.backup` for about two days, because schedules are dispatched only when not held. A due backup schedule will now run while admission is paused; a drain, recovery hold or retention hold still holds it, and any other held schedule that misses an occurrence raises a notice. Being built for dev.103.
   - **Must-fix shadow trial:** the third adopter runs `reviewBar: shadow` on its normal work, plus one planted stale-output false-pass task, when its operator chooses. Slice 6 (enabling `must-fix`) waits for that data.
+    - The third adopter confirmed `reviewBar: shadow` is active on dev.102. Its planted stale-output task runs, alone and never merged, after its first Factotum task merges.
 - **Operator decision (2026-11-17):** OS containment of builder and check processes is **not needed now**. The documented same-account trust model is accepted, and containment is revisited only on need. The runtime follow-up stays recorded.
 - **Merged:** upkeep confusable-text matching (890ed3b), the second slice 6 precondition.
   - **What changed:** text rules now also match a UTS #39 reading, using a vendored, trimmed Unicode 18.0.0 table (1,109 rows) that its generator self-checks against the full source. Look-alike digits and symbols can be read as a letter or as a gap, with gaps capped at four characters.
