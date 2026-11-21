@@ -4,6 +4,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { atomicJSON, assert, digest, fileDigest, now } from './contracts.mjs';
 import { processIdentity } from './process-identity.mjs';
+import { supervisedEnvironment } from './attempt-environment.mjs';
 
 // Who a surviving descendant is and what launched it: parent, process group,
 // session, executable and the first few arguments (never the environment).
@@ -28,6 +29,10 @@ export async function supervise(intentPath) {
   const { intentDigest, ...intent } = spec;
   assert(digest(intent) === intentDigest, 'intent digest mismatch');
   assert(typeof intent.synthetic === 'boolean' && intent.maxCostMicros === 0, 'only verified zero incremental API cost modes supported');
+  // The project service's environment, recorded in the intent: a systemd attempt unit's own
+  // environment is the user manager's (core/attempt-environment.mjs). A malformed one is refused
+  // here, before the claim, so nothing is started.
+  const env = supervisedEnvironment(intent);
   const dir = dirname(intentPath);
   // Exclusive claim is never removed: a second supervisor cannot repeat this intent.
   const lock = openSync(join(dir, 'claim'), 'wx', 0o600);
@@ -63,8 +68,6 @@ export async function supervise(intentPath) {
       signalReason = 'abort';
       result = { exitCode: null, signal: null, effectStarted: false };
     } else {
-      const allowed = ['HOME','USER','LOGNAME','SHELL','XDG_RUNTIME_DIR','XDG_CONFIG_HOME','XDG_DATA_HOME','DBUS_SESSION_BUS_ADDRESS','SSH_AUTH_SOCK'];
-      const env = { PATH: process.env.PATH ?? '/usr/bin:/bin', LANG: 'C.UTF-8', PYTHONDONTWRITEBYTECODE: '1', FACTOTUM_SYNTHETIC: String(intent.synthetic), ...(!intent.synthetic ? Object.fromEntries(allowed.filter(k => process.env[k]).map(k => [k, process.env[k]])) : {}) };
       child = spawn(intent.argv[0], intent.argv.slice(1), { cwd: intent.cwd, env, detached: true, stdio: ['ignore', stdout, stderr] });
       const timeout = setTimeout(() => terminate('timeout'), intent.timeoutMs);
       const logBound = setInterval(() => {

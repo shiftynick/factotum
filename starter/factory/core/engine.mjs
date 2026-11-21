@@ -2,6 +2,7 @@ import { targetHealth, targetHealthVersion, pendingTargetSync, targetSyncHolds, 
 import { answerChoices } from '../operations/answer-labels.mjs';
 import { hasScheduledTier, tierPayload } from '../operations/main-tiers.mjs';
 import { readFileSync, existsSync } from 'node:fs';
+import { serviceEnvironment } from './attempt-environment.mjs';
 import { join } from 'node:path';
 import { Store } from './store.mjs';
 import { assert, digest, fileDigest, now, uid, validateWorkflow } from './contracts.mjs';
@@ -602,7 +603,10 @@ export class Engine {
       const specification = node.action ? actionSpecification(s, flow, node, artifactDir) : { argv: node.argv, cwd: workingRoot(s, flow), synthetic: true };
       const identity = repositoryIdentity(specification.cwd);
       const unit = `factotum-${project.projectId.slice(0, 8)}-${attemptId}`;
-      const intent = { version: 1, attemptId, projectId: project.projectId, flowId, step: flow.step, ...specification, projectRoot: project.root, timeoutMs: node.timeoutMs, maxCostMicros: 0, executorDigest: flow.executorDigest, inputIdentity: identity, unit, containment: project.supervisor };
+      // The service's own PATH and account variables are recorded in the intent, under its digest: an
+      // attempt never runs with the environment of whatever started its supervisor (a systemd unit
+      // inherits the user manager's). See core/attempt-environment.mjs.
+      const intent = { version: 1, attemptId, projectId: project.projectId, flowId, step: flow.step, ...specification, projectRoot: project.root, timeoutMs: node.timeoutMs, maxCostMicros: 0, executorDigest: flow.executorDigest, inputIdentity: identity, unit, containment: project.supervisor, environment: serviceEnvironment(process.env, { synthetic: specification.synthetic }) };
       const attempt = { id: attemptId, flowId, step: flow.step, status: 'prepared', intent, intentDigest: digest(intent), reservedMicros: 0, createdAt: now(), unit };
       // Save the dispatch intent first. Files can be safely reconstructed only while prepared.
       const prepared = s.tx(() => {

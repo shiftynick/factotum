@@ -2,6 +2,25 @@
 
 Development builds of the reference implementation. Each entry lists changes an adopter needs to act on. "The main thread" in review notes is the coordinating agent session; see [how the change records were written](changes/README.md#how-these-records-were-written).
 
+## 0.2.0-dev.20261022.104
+
+Includes dev.103. **Attempt units now run with the project service's environment.** Reported by the third adopter: each attempt runs in a unit started with `systemd-run --user`, and that unit inherited the user manager's environment rather than the project service's. The service's `Environment=PATH=` put a pinned Node 24 first; the user manager's `PATH` started with a version manager's shims, which resolved `node` to Node 26. Main checks therefore ran Node 26, where a corepack-based gate failed, and `main.verify` went falsely red. Builders and the other provider roles got the same `PATH`. Nothing to migrate; queued tasks need no re-approval.
+
+**Fixed** See [persistent services](running.md#persistent-services).
+
+- **The intent records the service's environment.** When the service prepares an attempt it records its own `PATH`, and for a real attempt `HOME`, `USER`, `LOGNAME`, `SHELL`, `XDG_RUNTIME_DIR`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `DBUS_SESSION_BUS_ADDRESS` and `SSH_AUTH_SOCK` (those it has), in the attempt's intent as `environment`. The intent digest binds it, so it cannot be changed after preparation. These are exactly the variables a supervisor already passed on; no credential or token is recorded, and a recorded environment with any other variable is refused before anything starts.
+- **The supervisor uses only the recorded values.** It no longer reads `PATH` or the other variables from its own environment (the user manager's, in a systemd unit), and a variable the service does not have is not taken from the unit. What checks receive is unchanged: `PATH` and `HOME` (now the service's), a fixed `LANG` and the `FACTOTUM_*` variables. Providers get their usual subset, now from the service. An attempt prepared before the upgrade records no environment and keeps the old behaviour.
+- **The `process` supervisor** starts attempts from the service process, so it already passed the service's environment; it now uses the recorded values as well.
+- **Doctor checks it.** With the real provider probes, doctor starts one short transient unit (`systemd-run --user --wait`, about a second; no provider, check or Git process) that builds its environment as a supervisor does from the project unit's own environment and reports what `node` and `git` resolve to. A different `node` or `git` from the service's is a blocking reason naming both paths and the remedy; a service `PATH` with no `node` or `git`, or a probe that cannot run, is a warning. The commissioning record's `attemptEnvironment` keeps what was found, including what the user manager's own `PATH` would have given. New progress phase: `attempt environment check`.
+
+**What to do.** After upgrading, a drop-in that sets `PATH` (or other environment) for this project's attempt units (`factotum-<project prefix>-*.service.d/`) as a workaround can be removed; run `systemctl --user daemon-reload` and then `doctor`, which confirms that attempt units resolve the service's `node` and `git`. Keep the toolchain the checks need first on the project service's `PATH` (`service install project --replace` from a shell with that `PATH`, or a drop-in for the service unit itself). Drain before upgrading, as for any release.
+
+**Validation**
+
+- **Local validation:** TBD.
+- **Review:** TBD.
+- **New tests:** `tests/attempt-environment.test.mjs`. With a stand-in `systemd-run` on `PATH` that starts its command with a different `PATH` and `HOME` (the real user manager is never used): a main check of a `main.verify` prepared by the engine and launched through `launch()` in systemd mode sees the service's `PATH`, `HOME` and `node`, and the verification is green; a provider CLI started by the dispatcher's own provider adapter inside such a unit is the service `PATH`'s, with the service `HOME`; the supervisor passes the recorded values and nothing from its own environment; an intent records the service environment under its digest, a swapped one is refused by the digest, and one carrying a variable outside the allowlist is refused before the claim; doctor's probe passes when the unit resolves the service's `node` and `git`, blocks with both paths and the remedy when it does not, and warns when the probe cannot run. The first four fail on dev.103. Doctor blocks on a probe reason and records `attemptEnvironment` (`tests/commission-maintenance.test.mjs`).
+
 ## 0.2.0-dev.20261022.103
 
 Includes dev.102. **Behaviour change for paused projects:** a scheduled backup now runs while admission is paused, and a schedule held by a pause or another hold no longer misses its occurrences silently. Reported by the third adopter: a paused project's daily `maintenance.backup` schedule never fired for about two days (`runs: 0`, no backup written), because a pause held every schedule. Nothing to migrate; queued tasks need no re-approval.

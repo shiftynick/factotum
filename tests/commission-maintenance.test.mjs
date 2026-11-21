@@ -229,3 +229,19 @@ test('dev.85 review: doctor\'s time bound includes workspace setup at its config
   assert.equal(bound.parts.setupMs, 90 * 60_000 + 1000);
   assert.ok(bound.timeoutMs >= bound.parts.permitWaitMs + bound.parts.probesMs + bound.parts.setupMs + bound.parts.mainChecksMs, 'a 90-minute setup fits inside the doctor limit');
 });
+// dev.104: doctor checks that an attempt unit runs the service's node and git
+// (operations/attempt-environment-probe.mjs, tested with stand-ins in attempt-environment.test.mjs).
+test('doctor blocks when an attempt unit would run a different node than the project service, and records what it found', async t => {
+  const f = fixture(t), asked = [];
+  const reason = 'An attempt unit resolves node to /fictional/shims/node, but the project service resolves it to /fictional/node24/bin/node (service PATH from factotum-project-fictiona.service), so checks and providers would run a different node than the service.';
+  const attemptEnvironmentProbe = async options => { asked.push(options); return { reasons: [reason], warnings: [], record: { status: 'differs', pathFrom: 'factotum-project-fictiona.service' } }; };
+  const result = await doctor(f.stateDir, { providerPreflight, forgeTransport, attemptEnvironmentProbe });
+  assert.equal(result.ready, false); assert.ok(result.reasons.includes(reason), result.reasons.join(' | '));
+  assert.equal(asked.length, 1); assert.equal(asked[0].stateDir, f.stateDir); assert.equal(asked[0].project.projectId, f.store.meta('project').projectId);
+  assert.deepEqual(f.store.meta('commissioning').attemptEnvironment, { status: 'differs', pathFrom: 'factotum-project-fictiona.service' });
+  const same = await doctor(f.stateDir, { providerPreflight, forgeTransport, attemptEnvironmentProbe: async () => ({ reasons: [], warnings: [], record: { status: 'same' } }) });
+  assert.equal(same.ready, true, JSON.stringify(same.reasons)); assert.equal(same.attemptEnvironment.status, 'same');
+  // With faked providers and no probe given, no transient unit is started.
+  const unprobed = await doctor(f.stateDir, { providerPreflight, forgeTransport });
+  assert.equal(unprobed.ready, true); assert.equal(unprobed.attemptEnvironment, undefined);
+});
