@@ -51,7 +51,7 @@ export function syncScheduledTaskRecords(store, config) {
     const prior = store.get('schedule', scheduleId), enabled = row.configEnabled && !prior?.paused;
     if (prior?.revision === row.revision && prior.enabled === enabled && !prior.removedAt) continue;
     const s = row.schedule, timing = s.type === 'interval' ? { type: 'interval', everyMs: s.everyMs, anchorMs: Date.parse(at) } : { type: 'daily', timeOfDay: s.timeOfDay, timezone: s.timezone, ...(s.type === 'weekly' ? { weekdays: s.weekdays } : {}) };
-    store.put('schedule', { id: scheduleId, source: 'config', ...row.owner, operation: row.operation, payload: {}, ...timing, enabled, configEnabled: row.configEnabled, ...(prior?.paused ? { paused: prior.paused } : {}), revision: row.revision, createdAt: prior?.createdAt ?? at, lastScannedAt: at });
+    store.put('schedule', { id: scheduleId, source: 'config', ...row.owner, operation: row.operation, payload: {}, ...timing, enabled, configEnabled: row.configEnabled, ...(prior?.paused ? { paused: prior.paused } : {}), ...(prior?.heldNotice ? { heldNotice: prior.heldNotice, heldScannedAt: prior.heldScannedAt } : {}), revision: row.revision, createdAt: prior?.createdAt ?? at, lastScannedAt: at });
     store.event('schedule.configured', { scheduleId, ...row.owner, revision: row.revision });
   }
   for (const prior of store.all('schedule').filter(row => row.source === 'config' && !wanted.has(row.id) && !row.removedAt)) {

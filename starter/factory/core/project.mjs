@@ -1213,7 +1213,10 @@ export function applyOperationInTransaction(store, { operation, payload: p, acto
       if (type === 'interval') assert(Number.isSafeInteger(schedule.everyMs) && schedule.everyMs >= 1000, 'invalid interval');
       else { assert(typeof schedule.timezone === 'string' && /^\d\d:\d\d$/.test(schedule.timeOfDay), 'timezone and time required'); new Intl.DateTimeFormat('en', { timeZone: schedule.timezone }); }
       const record = { ...schedule, type, enabled: schedule.enabled !== false, anchorMs: schedule.anchorMs ?? Date.now(), createdAt: store.get('schedule', schedule.id)?.createdAt ?? now() };
+      delete record.heldNotice; delete record.heldScannedAt;
       record.revision = digest({ ...record, lastScannedAt: null, revision: null });
+      // A notice for occurrences missed under a hold stays with the schedule (operations/schedules.mjs).
+      for (const key of ['heldNotice', 'heldScannedAt']) if (prior?.[key]) record[key] = prior[key];
       if (store.get('schedule', record.id)?.revision !== record.revision) for (const flow of store.all('flow')) { const task = store.get('task', flow.taskId); if (task?.approvalKind === 'schedule' && task.scheduleId === record.id) stopFlow(store, flow, 'scheduled authority replaced', true); }
       store.put('schedule', record); store.event('schedule.updated', { scheduleId: record.id }); return record;
     }
