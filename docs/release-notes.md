@@ -2,6 +2,24 @@
 
 Development builds of the reference implementation. Each entry lists changes an adopter needs to act on. "The main thread" in review notes is the coordinating agent session; see [how the change records were written](changes/README.md#how-these-records-were-written).
 
+## 0.2.0-dev.20261022.103
+
+Includes dev.102. **Behaviour change for paused projects:** a scheduled backup now runs while admission is paused, and a schedule held by a pause or another hold no longer misses its occurrences silently. Reported by the third adopter: a paused project's daily `maintenance.backup` schedule never fired for about two days (`runs: 0`, no backup written), because a pause held every schedule. Nothing to migrate; queued tasks need no re-approval.
+
+**Changed** See [schedules under a hold](operations.md#durable-schedules).
+
+- **Backups keep running while paused.** While admission is paused, an enabled `maintenance.backup` schedule still fires (`schedule.triggered`) and its job starts, with the usual grant and schedule-revision checks: a paused backup job whose schedule changed is revoked. Every other schedule (recurring tasks included), every manually queued job and task admission stay held exactly as before. A backup copies the project's own state into `backupRoot` and makes no provider, forge, Git or network call.
+- **Holds that still stop a backup.** A recovery hold, a retention hold, a maintenance hold (`pause` with `holdMaintenance`, which `upgrade apply --when-drained` sets) and an upgrade in progress (`upgradeRecovery`) still hold scheduled backups.
+- **A held schedule raises a notice.** When an occurrence falls due while a schedule is held, one operator notice `schedule-held:<scheduleId>` names the schedule, the first missed occurrence and the holds (event `schedule.held`). It is kept current while the hold lasts and resolved on the first tick after the hold lifts (event `schedule.hold-released`), when the usual catch-up within `windowMs` (24 hours) has run; a schedule disabled meanwhile supersedes it. Catch-up itself is unchanged.
+- **Text.** The `pause` command help, the console's pause and resume form, [operations](operations.md#durable-schedules) and [running](running.md) say what still runs while paused.
+
+**What to do.** Nothing, unless a paused project should not take backups: disable its backup schedule (`schedule.remove`) or pause with `holdMaintenance`. Drain before upgrading, as for any release.
+
+**Validation**
+
+- **Local validation:** TBD.
+- **New tests:** a paused project with a due backup schedule writes the backup and records `schedule.triggered`; drain, recovery and retention holds (with or without a pause) each still hold it, and so does an upgrade in progress; an idle tick still reads nothing more than before; a paused backup job whose schedule changed is revoked; a non-backup schedule stays held while paused, raises exactly one notice over several ticks (kept when the schedule is saved again) and that notice is resolved after resume; a schedule removed while held supersedes its notice; resume still catches up within `windowMs`; task admission and other maintenance jobs stay held while paused.
+
 ## 0.2.0-dev.20261022.102
 
 Includes dev.101. The fifth slice of the [must-fix review design](designs/review-must-fix.md): the strict requirement, the decision guard, the console evidence and the review restriction, **for test fixtures only**. `policy.reviewBar: must-fix` is still refused by configuration validation, so no project can reach this code; only fixtures that pin a flow to `must-fix` directly do. **Severity flows (the default) are unchanged**: the dev.98 golden capture still matches without edits, and a severity flow's merge question, strict requirement, answer and merge authorization carry nothing new. **Shadow flows keep today's route, verdict, evidence, attempt outcome, merge authorization and decision delegation.** The reference graphs are unchanged, so queued tasks need no re-approval. Nothing to migrate.

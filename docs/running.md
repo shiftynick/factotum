@@ -135,7 +135,7 @@ Doctor reports which gh it would use (`gh.path` and `gh.realPath`). With `ghPath
 
 ## Recovery and current boundaries
 
-Stop and pause are separate: `pause` changes admissions, while `stop` fences one flow's progression. `stop.all` names one project's active flows and pauses admissions. `abort:true` requests owned-process cancellation. Late receipts still record outcomes/costs. `resume` requires a `note`, valid authority and resolved attempts; unpausing cannot restart a stopped flow.
+Stop and pause are separate: `pause` changes admissions, while `stop` fences one flow's progression. While paused, schedules and queued maintenance jobs are held too, except a scheduled `maintenance.backup`, which still runs; a held schedule that misses an occurrence raises a notice (see [schedules under a hold](operations.md#durable-schedules)). `stop.all` names one project's active flows and pauses admissions. `abort:true` requests owned-process cancellation. Late receipts still record outcomes/costs. `resume` requires a `note`, valid authority and resolved attempts; unpausing cannot restart a stopped flow.
 
 **"has not settled, so the flow cannot resume yet".** `resume` is refused while the flow's last step still owns an attempt that has not settled. The refusal names the attempt, its step and flow, and says which of three cases it is (before dev.83 every case said only "attempt requires reconciliation before resume"):
 

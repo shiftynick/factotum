@@ -46,6 +46,21 @@ import { ensureUpkeepRoutePinnedInTransaction } from '../operations/upkeep-route
 import { startUpkeepRunInTransaction, upkeepTickInTransaction } from '../operations/upkeep-runs.mjs';
 const allowed = new Set(['forge.lifecycle', UPKEEP_CLOSE_OPERATION, 'main.verify', 'queue.dispatch', 'maintenance.backup', 'audit', 'retrospective', 'machine.sample', 'retention.archive', 'source.sync', 'source.create', 'source.promote', 'target.sync', UPKEEP_OPERATION, LEARNINGS_CHECK_OPERATION]);
 export function scheduleGrantDigest(schedule) { return schedule.revision ?? digest(Object.fromEntries(['id','operation','payload','type','everyMs','anchorMs','timeOfDay','timezone','weekdays','enabled'].filter(key => schedule[key] !== undefined).map(key => [key,schedule[key]]))); }
+// What keeps a schedule from firing now, by name (none: it fires). Admission pause, recovery hold and
+// retention hold hold every schedule, as before dev.103. A scheduled maintenance.backup is held only
+// by the holds that make a backup unsafe or unwanted: recovery, retention, a drain (maintenanceHeld)
+// and an upgrade in progress (upgradeRecovery); a pause alone does not hold it.
+export const runsWhilePaused = schedule => schedule?.operation === 'maintenance.backup' && !schedule.recurringTask;
+// `paused` and `recoveryHold` are the values the caller has just read, when it has; the other holds
+// are read only when one of these applies, so a tick with nothing held reads no more than it did.
+export function scheduleHolds(store, { paused = store.meta('paused'), recoveryHold = store.meta('recoveryHold') } = {}) {
+  const retention = store.meta('retentionHold') && 'retention hold';
+  if (!paused && !recoveryHold && !retention) return () => [];
+  const recovery = (recoveryHold || paused && store.meta('recoveryHold')) && 'recovery hold', drain = paused && store.meta('maintenanceHeld') && 'maintenance hold (drain)';
+  const general = [recovery, retention, paused && (drain ? 'admission paused with maintenance held (drain)' : 'admission paused')].filter(Boolean);
+  const backup = [recovery, retention, drain, store.meta('upgradeRecovery', null) && 'upgrade in progress'].filter(Boolean);
+  return schedule => runsWhilePaused(schedule) ? backup : general;
+}
 const fetchTransport = async ({ url, payload, headers, signal }) => fetch(url, { method: 'POST', body: payload, headers, signal });
 export async function operationalTick(store, { transport = fetchTransport, nowMs } = {}) {
   store.tx(() => backfillFinishedAt(store));
@@ -61,7 +76,7 @@ export async function operationalTick(store, { transport = fetchTransport, nowMs
   // A prompt channel's presentation of a question ends on its own timer; the question stays open.
   store.tx(()=>settlePresentations(store));
   const config = store.meta('config'); if (config?.mode !== 'delivery') return { skipped: 'not delivery mode' };
-  const held = store.meta('paused') || store.meta('recoveryHold');
+  const paused = store.meta('paused'), recoveryHold = !paused && store.meta('recoveryHold'), held = paused || recoveryHold;
   // Knowledge upkeep (operations/upkeep-runs.mjs). One meta read says whether any run is pending,
   // queued or running; with none, upkeep does nothing more in this tick and starts no process.
   // With some, receipts are closed at their deadlines, queued once their retrospective exists and
@@ -69,10 +84,10 @@ export async function operationalTick(store, { transport = fetchTransport, nowMs
   // assessment is asked to stop. This runs while paused too: a drain must not wait on it.
   // The same row names the pull requests being closed for follow-ups the factory ended
   // (operations/upkeep-pr-close.mjs): a revoked, failed or abandoned close job is queued again here.
-  const { runs: upkeepRuns, closes: upkeepCloses } = upkeepWorkState(store), upkeepNow = () => nowMs ?? Date.now();
+  const { runs: upkeepRuns, closes: upkeepCloses } = upkeepWorkState(store), tickNow = () => nowMs ?? Date.now();
   // A failure that repeats on every tick is recorded once, and again only when its reason changes (dev.91, O5).
   // With no work of a kind left, its problem is over too, so a later failure is a new event (review of 56d49a9, P3).
-  if (upkeepRuns.length) { try { store.tx(() => upkeepTickInTransaction(store, upkeepRuns, { nowMs: upkeepNow(), config })); clearTickProblem(store, 'upkeep-runs'); } catch (error) { recordTickProblem(store, 'upkeep-runs', 'upkeep.tick-failed', error.message); } }
+  if (upkeepRuns.length) { try { store.tx(() => upkeepTickInTransaction(store, upkeepRuns, { nowMs: tickNow(), config })); clearTickProblem(store, 'upkeep-runs'); } catch (error) { recordTickProblem(store, 'upkeep-runs', 'upkeep.tick-failed', error.message); } }
   else clearTickProblem(store, 'upkeep-runs');
   if (upkeepCloses.length) { try { store.tx(() => upkeepCloseTickInTransaction(store, upkeepCloses)); clearTickProblem(store, 'upkeep-closes'); } catch (error) { recordTickProblem(store, 'upkeep-closes', 'upkeep.tick-failed', error.message); } }
   else clearTickProblem(store, 'upkeep-closes');
@@ -85,25 +100,26 @@ export async function operationalTick(store, { transport = fetchTransport, nowMs
   // Paused or under a recovery hold nothing is admitted, but an open merge question can still be
   // answered: its target is still read (one bounded remote read; it only records a moved head).
   if (held) await probeTargetHead(store, { mergeQuestionsOnly: true });
-  if (!held) {
-    if(!store.meta('retentionHold'))dispatchSchedules(store, { dispatch: (schedule, occurrence) => {
-      if (schedule.recurringTask) return { commandId: createRecurringOccurrence(store, config, schedule.recurringTask, occurrence).taskId };
-      assert(allowed.has(schedule.operation) || installedOperation(config,schedule.operation) || isScheduledOperation(config,schedule.operation), 'unsupported scheduled maintenance operation');
-      const id = digest(occurrence.key), scheduleRevision = scheduleGrantDigest(schedule);
-      store.put('job', { id, operation: schedule.operation, payload: schedule.payload ?? {}, scheduleId: schedule.id, scheduleRevision, status: 'queued', createdAt: now() }); return { commandId: id };
-    } });
-    // Keep main health current while queued work waits on it, and tell open merge questions when their target moved.
-    await probeTargetHead(store);
-    store.tx(() => ensureMainVerification(store, { conflictScope }));
-    // Keep synced branches up to date after merges made outside the factory too.
-    await ensureTargetSync(store);
-    // A completed flow whose cleanup failed is retried, then raised as an operator to-do.
-    await retryPendingCleanups(store);
-    // An ended adoption's private refs are deleted once nothing of the flow keeps them.
-    // Bounded and never waited on for long: see operations/adoption-refs.mjs.
-    await sweepAdoptionRefs(store);
+  // Schedules (dev.103). A pause, a recovery hold or a retention hold keeps a schedule from firing, as
+  // before, with one exception: while admission is only paused, a scheduled maintenance.backup still
+  // fires and its job starts. A backup copies the project's own state to backupRoot (VACUUM INTO and a
+  // copy of attempt and reconciliation files): no provider, forge, Git or network effect. It is still
+  // held by a recovery hold (the state is in doubt), a retention hold (archive retention moves the
+  // files it copies), a maintenance hold (a drain: it would be new work the drain waits for) and an
+  // upgrade in progress (upgradeRecovery; the upgrade takes its own backup). A held schedule that
+  // misses an occurrence raises one notice until the hold lifts (operations/schedules.mjs).
+  const holdsFor = scheduleHolds(store, { paused, recoveryHold });
+  dispatchSchedules(store, { nowMs: tickNow(), holdsFor, dispatch: (schedule, occurrence) => {
+    if (schedule.recurringTask) return { commandId: createRecurringOccurrence(store, config, schedule.recurringTask, occurrence).taskId };
+    assert(allowed.has(schedule.operation) || installedOperation(config,schedule.operation) || isScheduledOperation(config,schedule.operation), 'unsupported scheduled maintenance operation');
+    const id = digest(occurrence.key), scheduleRevision = scheduleGrantDigest(schedule);
+    store.put('job', { id, operation: schedule.operation, payload: schedule.payload ?? {}, scheduleId: schedule.id, scheduleRevision, status: 'queued', createdAt: now() }); return { commandId: id };
+  } });
+  // Revoke stale grants, then start at most one queued job per lane. `only` limits both to the jobs
+  // it accepts: while paused, scheduled backups alone; any other queued job is left as it is.
+  const startMaintenance = (only, { upkeep = upkeepRuns.length > 0 } = {}) => {
     // Revoke stale grants rather than letting one stale head poison every later tick.
-    for (const pending of store.live('job').filter(j => j.status === 'queued')) {
+    for (const pending of store.live('job').filter(j => j.status === 'queued' && only(j))) {
       const schedule = pending.scheduleId ? store.get('schedule', pending.scheduleId) : null;
       const valid = pending.scheduleId ? schedule?.enabled && scheduleGrantDigest(schedule) === pending.scheduleRevision : manualJobGrant(pending.grant) && pending.grant.note && pending.grant.configDigest === store.meta('configDigest');
       if (!valid) store.tx(() => { pending.status = 'revoked'; pending.reason = 'approved scope changed or was revoked'; store.put('job', pending); store.event('maintenance.revoked', { jobId: pending.id }); });
@@ -116,7 +132,7 @@ export async function operationalTick(store, { transport = fetchTransport, nowMs
     // or after an upkeep job is chosen exactly as it would be without one. The upkeep lane is looked
     // at only when the meta row read above names a run, and its job starts after the built-in one.
     const queuedJobs = store.live('job').filter(j => j.status === 'queued');
-    const candidates = [queuedJobs.find(j => !isUpkeepJob(j) && canStart(j)), upkeepRuns.length ? queuedJobs.find(j => isUpkeepJob(j) && canStart(j)) : null].filter(Boolean);
+    const candidates = [queuedJobs.find(j => !isUpkeepJob(j) && only(j) && canStart(j)), upkeep ? queuedJobs.find(j => isUpkeepJob(j) && only(j) && canStart(j)) : null].filter(Boolean);
     for (const candidate of candidates) store.tx(() => {
       const job = store.need('job', candidate.id); assert(allowed.has(job.operation) || installedOperation(config,job.operation) || isScheduledOperation(config,job.operation), 'unsupported maintenance job');
       assert(canStart(job), 'maintenance capacity changed');
@@ -164,18 +180,33 @@ export async function operationalTick(store, { transport = fetchTransport, nowMs
       catch (error) { job.status = 'failed'; job.reason = error.message; job.finishedAt = now(); store.put('job', job); store.event('maintenance.refused', { jobId: job.id, reason: error.message }); return; }
       // A provider usage hold does not start an upkeep job and does not move it to another provider:
       // it waits in the queue until its run-by deadline (design 5.3). Nothing is written.
-      if (isUpkeepJob(job) && routeHoldReasons(store, flow.modelRoutes, upkeepNow()).length) return;
+      if (isUpkeepJob(job) && routeHoldReasons(store, flow.modelRoutes, tickNow()).length) return;
       // An upkeep job starts only as the queued job of its run, before its run-by deadline.
-      if (isUpkeepJob(job)) { const refused = startUpkeepRunInTransaction(store, job, flow, { nowMs: upkeepNow(), config }); if (refused) { job.status = 'revoked'; job.reason = refused; job.finishedAt = now(); store.put('job', job); store.event('maintenance.revoked', { jobId: job.id, reason: refused }); return; } }
+      if (isUpkeepJob(job)) { const refused = startUpkeepRunInTransaction(store, job, flow, { nowMs: tickNow(), config }); if (refused) { job.status = 'revoked'; job.reason = refused; job.finishedAt = now(); store.put('job', job); store.event('maintenance.revoked', { jobId: job.id, reason: refused }); return; } }
       flow.modelSelection.by = job.grant?.actor ?? 'schedule';
       store.put('task', task); store.put('flow', flow); if(job.operation==='retention.archive'&&store.meta('retentionHold')?.operationId===job.payload?.operationId)store.setMeta('retentionHold',{...store.meta('retentionHold'),flowId:flow.id}); job.status = 'running'; job.flowId = flow.id; store.put('job', job); store.event('maintenance.admitted', { jobId: job.id, flowId: flow.id });
     });
+  };
+  if (!held) {
+    // Keep main health current while queued work waits on it, and tell open merge questions when their target moved.
+    await probeTargetHead(store);
+    store.tx(() => ensureMainVerification(store, { conflictScope }));
+    // Keep synced branches up to date after merges made outside the factory too.
+    await ensureTargetSync(store);
+    // A completed flow whose cleanup failed is retried, then raised as an operator to-do.
+    await retryPendingCleanups(store);
+    // An ended adoption's private refs are deleted once nothing of the flow keeps them.
+    // Bounded and never waited on for long: see operations/adoption-refs.mjs.
+    await sweepAdoptionRefs(store);
+    startMaintenance(() => true);
     // A claim refused after its task passed every admission reason (a check only admitFlow makes) is
     // a hold: recorded once with the task, and again only when the reason changes, never on every
     // tick (dev.91, O5). Queue status shows it until a claim goes through.
     // It moves past a task refused at final admission to the next eligible one (operations/queue-claim.mjs).
     if (config.policy?.autoQueue && store.meta('commissioning')?.ready) claimQueue(store, { admit: (task, s) => admitFlow(s, task, { revision: task.revision }) });
   }
+  // Paused: a scheduled backup still starts, with its grant and schedule revision checked as usual.
+  else if (!holdsFor({ operation: 'maintenance.backup' }).length) startMaintenance(job => job.operation === 'maintenance.backup' && Boolean(job.scheduleId), { upkeep: false });
   conflictScope = observeWorkspaces();
   observeQueue(store, { reasonsForTask: task => admissionReasons(store, task, { conflictScope }) });
   queueInboxDeliveries(store);
