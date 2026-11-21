@@ -5,6 +5,7 @@ import { setTargetHealth } from '../operations/targets.mjs';
 import { compileCatalog, commissionedGraphs } from '../core/catalog.mjs';
 import { modelDefaults, modelSettingsVersion, modelSettingsView, selectFlowModels } from '../operations/model-settings.mjs';
 import { unitDiagnostics } from '../operations/services.mjs';
+import { probeAttemptEnvironment } from '../operations/attempt-environment-probe.mjs';
 import { adoptionCheck } from '../distribution.mjs';
 import { readAnchor, recordAuthentication } from '../core/adoption-anchor.mjs';
 import { inspectGhBinary } from '../adapters/github/environment.mjs';
@@ -252,18 +253,21 @@ export async function doctor(stateDir, options = {}) {
 // onProgress(phase, detail) is told as doctor enters each long phase (the CLI prints it as
 // "doctor: [<phase>] <detail>", which upgrade apply reads back to say where a doctor it ran stopped):
 // "permit wait", "probe of <route> (<provider>/<model>)", "forge check", "checkout check" and
-// "main verification".
+// "main verification"; with the real providers also "attempt environment check".
 export const doctorProgressLine = (phase, detail = '') => `doctor: [${phase}] ${detail}`.trimEnd();
 // sandboxProbe: the offline Codex sandbox check (dev.91, O2). It runs the real `codex sandbox` only with
 // the real provider preflight; a caller that fakes the providers gives its own or none.
-async function doctorScoped(stateDir, { providerPreflight = preflight, sandboxProbe = providerPreflight === preflight ? codexSandboxSpawnProbe : null, forgeTransport, run = runProcess, resourceWaitMs = LEASE_HOLD_BOUND_MS, onResourceWait, onProgress, retryPauseMs = PROBE_RETRY_PAUSE_MS } = {}) {
+// attemptEnvironmentProbe: whether an attempt unit resolves the service's node and git (dev.104,
+// operations/attempt-environment-probe.mjs). Like the sandbox check, it starts a real transient unit
+// only with the real provider preflight; a caller that fakes the providers gives its own or none.
+async function doctorScoped(stateDir, { providerPreflight = preflight, sandboxProbe = providerPreflight === preflight ? codexSandboxSpawnProbe : null, attemptEnvironmentProbe = providerPreflight === preflight ? probeAttemptEnvironment : null, forgeTransport, run = runProcess, resourceWaitMs = LEASE_HOLD_BOUND_MS, onResourceWait, onProgress, retryPauseMs = PROBE_RETRY_PAUSE_MS } = {}) {
   // Every string doctor reports (progress, reasons, warnings, provider entries, the event) is
   // redacted whole with the known secrets: the environment's until the configuration is read, then
   // the configuration's too. A route, provider or model that equals a secret is removed with it.
   let secrets = knownSecrets({});
   const progress = (phase, detail = '') => { try { onProgress?.(redactSecretText(phase, secrets), redactSecretText(detail, secrets)); } catch {} };
   const runGit = async (args, options) => { const prepared = await prepareGitInvocation(args, { cwd: options.cwd, env: options.env }); return run('git', prepared.args, { ...options, env: prepared.env }); };
-  const store = new Store(stateDir); const checkedConfigDigest = store.meta('configDigest'), checkedModelVersion = modelSettingsVersion(store); const checkedAt = now(), reasons = [], warnings = [], providers = {}; let gh = {}; let config, mainHealth, codexSandbox = null;
+  const store = new Store(stateDir); const checkedConfigDigest = store.meta('configDigest'), checkedModelVersion = modelSettingsVersion(store); const checkedAt = now(), reasons = [], warnings = [], providers = {}; let gh = {}; let config, mainHealth, codexSandbox = null, attemptEnvironment = null;
   try {
     assert(!store.live('flow').some(f => blocksDrain(store, f)), 'doctor requires drained or abandoned flows (task flows waiting on a question may stay)');
     assert(store.live('attempt').every(a => a.settledAt || ['passed','failed','not-dispatched','aborted'].includes(a.status)), 'doctor requires reconciled attempts');
@@ -283,6 +287,12 @@ async function doctorScoped(stateDir, { providerPreflight = preflight, sandboxPr
     const missing=identityKeys.filter((key,i)=>identity[i].code!==0||!identity[i].stdout.trim());
     assert(!missing.length,`Git identity missing or empty in factory scope: ${missing.join(', ')}. Set each with git config --local; global configuration is ignored.`);
     reasons.push(...unitDiagnostics(project, stateDir));
+    // Checks and providers must run the service's node and git, not the user manager's.
+    if (attemptEnvironmentProbe) {
+      progress('attempt environment check', 'which node and git an attempt unit runs');
+      const probed = await attemptEnvironmentProbe({ project, stateDir, run });
+      reasons.push(...probed.reasons); warnings.push(...probed.warnings); attemptEnvironment = probed.record;
+    }
     // Running code must be the adopted release: an installed file that differs from the lock (edited,
     // missing, or rewritten on checkout by an attribute or smudge filter) blocks commissioning.
     // The stored root may reach the checkout through a symlinked folder; the check needs its real path.
@@ -388,7 +398,7 @@ async function doctorScoped(stateDir, { providerPreflight = preflight, sandboxPr
     return store.tx(() => {
       if (store.meta('configDigest') !== checkedConfigDigest) reasons.push('configuration changed during commissioning; rerun doctor');
       if (modelSettingsVersion(store) !== checkedModelVersion) reasons.push('model defaults changed during commissioning; rerun doctor');
-      const record = { ready: reasons.length === 0, configDigest: checkedConfigDigest, checkedAt, ...(codexSandbox ? { codexSandbox } : {}), ...redactSecretValues({ providers, reasons, warnings, gh: { path: gh.path ?? null, realPath: gh.realPath ?? null, pinned: gh.pinned ?? false } }, secrets) };
+      const record = { ready: reasons.length === 0, configDigest: checkedConfigDigest, checkedAt, ...(codexSandbox ? { codexSandbox } : {}), ...(attemptEnvironment ? { attemptEnvironment: redactSecretValues(attemptEnvironment, secrets) } : {}), ...redactSecretValues({ providers, reasons, warnings, gh: { path: gh.path ?? null, realPath: gh.realPath ?? null, pinned: gh.pinned ?? false } }, secrets) };
       store.setMeta('commissioning', record); if (mainHealth && store.meta('configDigest') === checkedConfigDigest) setTargetHealth(store, null, mainHealth);
       store.event('project.doctor', { ready: record.ready, reasons: record.reasons }); return record;
     });
