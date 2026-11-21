@@ -2,6 +2,19 @@
 
 Date: 2026-10-22. Target: one trusted Linux account, local project sockets, GitHub, and subscription-backed Codex/Claude CLIs. This record separates executed observations from adapter contracts and installation prerequisites. "The main thread" and "the parent" below mean the coordinating agent session; see [how the change records were written](changes/README.md#how-these-records-were-written).
 
+## Paused backup release, 2026-11-21
+
+Dev.103 passed **2,003 tests, zero failures and one skip** on its second full run, plus both fictional process-evaluation projects and the shared console (`npm run eval`). The first full run failed two files that pass alone; see the open issue in the progress record.
+
+- **Manifest:** `9c08fcc7950a696b52b60f7a7f78ece52aad5297197690e4af1262e2ebff0f10`.
+- **Payload:** `707cffa20e5526fd27079e50ba6db58f6c81f99ae61ea0e56da25b661393d06e`.
+- **Source:** built from clean commit `d1fe54de81b7cc84f79c306eb7e649c460fa01b1`, with no test files in the payload.
+- **Install check:** the release's own CLI adopted it at the root and under a prefix. `adopt status` was clean and authenticated in both.
+
+**Not qualified:**
+- a paused backup on the third adopter's real project;
+- the cause of the intermittent full-suite file failures.
+
 ## Must-fix decision guard release, 2026-11-17
 
 Dev.102 passed **1,986 tests, zero failures and one skip**, plus both fictional process-evaluation projects and the shared console (`npm run eval`). The suite ran with stand-in provider commands first on PATH.
