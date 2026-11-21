@@ -19,7 +19,15 @@ import { placeRecoveryHold, recordOperationsFault, clearOperationsFault } from '
 import { grantView } from '../core/grants.mjs';
 import { migrateStateLayout } from '../operations/state-layout.mjs';
 
-export async function startProjectService({ stateDir, socketPath, tickMs = 75, run = true, operationalIntervalMs = 1000, operationTick = operationalTick }) {
+// environmentCheck: the attempt-environment check (dev.105, operations/attempt-environment-probe.mjs
+// checkAttemptEnvironment), called as environmentCheck(store, { trigger, closing }). The CLI's `serve`
+// passes the real one; without it (tests, evaluations) no check runs. It runs in the background once
+// the socket is served, again when the configuration digest changes, one at a time, and never delays
+// startup or a tick: its own bounds (a runtime limit on its unit, a deadline, a stop by exact unit
+// name) end it. Closing waits for it at most ENVIRONMENT_CHECK_CLOSE_WAIT_MS; a check still running
+// then records nothing.
+const ENVIRONMENT_CHECK_CLOSE_WAIT_MS = 2000;
+export async function startProjectService({ stateDir, socketPath, tickMs = 75, run = true, operationalIntervalMs = 1000, operationTick = operationalTick, environmentCheck = null }) {
   const store = new Store(stateDir), engine = new Engine(store);
   const socket = resolve(socketPath);
   assert(Buffer.byteLength(socket) <= 100, 'Unix socket path too long; choose a shorter private runtime path');
@@ -82,7 +90,18 @@ export async function startProjectService({ stateDir, socketPath, tickMs = 75, r
       catch (recordError) { console.error(`runner fault could not be recorded: ${recordError.message}`); }
     }).finally(() => { pending = null; });
   };
+  // The attempt-environment check: at start, and after the configuration changes (read once per
+  // operations interval only when a check is configured).
+  let environmentChecking = null, environmentCheckedConfig;
+  const checkEnvironment = trigger => {
+    if (!environmentCheck || closing || environmentChecking) return;
+    try { environmentCheckedConfig = store.meta('configDigest') ?? null; } catch { return; }
+    environmentChecking = new Promise(resolve => setImmediate(resolve)).then(() => closing ? null : environmentCheck(store, { trigger, closing: () => closing }))
+      .catch(error => { if (!closing) { try { store.tx(() => store.event('attempt-environment.check-failed', { trigger, error: String(error?.message ?? error).slice(0, 300) })); } catch (recordError) { console.error(`attempt environment check failed and could not be recorded: ${error?.message}; ${recordError.message}`); } } })
+      .finally(() => { environmentChecking = null; });
+  };
   const operations = () => {
+    if (environmentCheck && !closing && !environmentChecking) { try { if ((store.meta('configDigest') ?? null) !== environmentCheckedConfig) checkEnvironment('configuration'); } catch {} }
     if (closing || pendingOperations || store.meta('config', {}).mode !== 'delivery') return;
     // Only a fault that leaves state integrity in doubt places a recovery hold (operations/recovery-hold.mjs).
     pendingOperations = Promise.resolve().then(() => operationTick(store)).then(() => clearOperationsFault(store)).catch(error => {
@@ -91,12 +110,13 @@ export async function startProjectService({ stateDir, socketPath, tickMs = 75, r
   };
   const timer = run ? setInterval(tick, tickMs) : null;
   const operationsTimer = run ? setInterval(operations, operationalIntervalMs) : null;
-  if (run) { tick(); operations(); }
+  if (run) { checkEnvironment('start'); tick(); operations(); }
   return { server, socketPath: socket, store, async close() {
     closing = true;
     if (timer) clearInterval(timer);
     if (operationsTimer) clearInterval(operationsTimer);
     await Promise.all([pending, pendingOperations].filter(Boolean));
+    if (environmentChecking) await Promise.race([environmentChecking, new Promise(resolve => setTimeout(resolve, ENVIRONMENT_CHECK_CLOSE_WAIT_MS).unref())]);
     await new Promise(resolve => { server.close(resolve); server.closeAllConnections(); });
     if (existsSync(socket)) unlinkSync(socket);
     await new Promise(resolve => lock.close(resolve));

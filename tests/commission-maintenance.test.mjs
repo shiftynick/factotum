@@ -245,3 +245,17 @@ test('doctor blocks when an attempt unit would run a different node than the pro
   const unprobed = await doctor(f.stateDir, { providerPreflight, forgeTransport });
   assert.equal(unprobed.ready, true); assert.equal(unprobed.attemptEnvironment, undefined);
 });
+// dev.105: doctor reads the result the project service recorded. During `upgrade apply` the service
+// is stopped and has not checked this code: unverified, a warning with the next-start message, and
+// doctor still passes. A difference the service recorded under this code blocks.
+test('doctor with the service stopped and no check for this release is unverified, never refused; a recorded difference blocks', async t => {
+  const f = fixture(t), { recordedAttemptEnvironment, NOT_YET_CHECKED } = await import('../starter/factory/operations/attempt-environment-record.mjs'), { executorDigest } = await import('../starter/factory/core/effects.mjs');
+  f.store.setMeta('attemptEnvironmentCheck', { status: 'same', checkedAt: '2026-11-20T10:00:00.000Z', executorDigest: 'the-release-before', reasons: [], warnings: [] });
+  const upgrading = await doctor(f.stateDir, { providerPreflight, forgeTransport, attemptEnvironmentProbe: recordedAttemptEnvironment });
+  assert.equal(upgrading.ready, true, JSON.stringify(upgrading.reasons)); assert.ok(upgrading.warnings.includes(NOT_YET_CHECKED), upgrading.warnings.join(' | '));
+  assert.equal(upgrading.attemptEnvironment.status, 'unverified');
+  const reason = 'An attempt unit resolves node to /fictional/shims/node, but the project service resolves it to /fictional/node24/bin/node';
+  f.store.setMeta('attemptEnvironmentCheck', { status: 'differs', checkedAt: '2026-11-21T10:00:00.000Z', executorDigest: executorDigest(), reasons: [reason], warnings: [] });
+  const differs = await doctor(f.stateDir, { providerPreflight, forgeTransport, attemptEnvironmentProbe: recordedAttemptEnvironment });
+  assert.equal(differs.ready, false); assert.ok(differs.reasons.includes(reason)); assert.equal(differs.attemptEnvironment.status, 'differs');
+});

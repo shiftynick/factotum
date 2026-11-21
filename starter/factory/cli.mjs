@@ -22,6 +22,7 @@ import { previewAuthorityMigration, applyAuthorityMigration } from './operations
 import { inlineLayout, layoutStatus, migrateLayout } from './operations/state-layout.mjs';
 import { authorityStatus } from './core/decision-authority.mjs';
 import { startProjectService, publicValue } from './service/project-service.mjs';
+import { checkAttemptEnvironment } from './operations/attempt-environment-probe.mjs';
 import { dashboardSnapshot } from './service/dashboard.mjs';
 import { stateView } from './operations/state-view.mjs';
 import { startConsole, registerProject, unregisterProject } from './console/console.mjs';
@@ -271,7 +272,7 @@ async function main() {
     }
     case 'serve': {
       const stateDir = resolve(required('state'));
-      const service = await startProjectService({ stateDir, socketPath: values.socket ?? join(stateDir, 'project.sock') });
+      const service = await startProjectService({ stateDir, socketPath: values.socket ?? join(stateDir, 'project.sock'), environmentCheck: checkAttemptEnvironment });
       print({ socketPath: service.socketPath, projectId: service.store.meta('project').projectId });
       shutdown(service.close); break;
     }

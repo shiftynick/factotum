@@ -1,3 +1,4 @@
+import { attemptEnvironmentView } from '../operations/attempt-environment-record.mjs';
 import { cliCommand } from './install-layout.mjs';
 import { failureRouteWarning, unsettledAttemptMessage } from './unsettled-attempt.mjs';
 import { projectTargets, setTargetHealth } from '../operations/targets.mjs';
@@ -86,7 +87,7 @@ export function snapshot(store) {
     sourceSync:{...store.meta('sourceSync',{}),capabilities:hintCapabilities(store.meta('config',{})),type:sourceSettings(store.meta('config',{})).type,enabled:store.meta('config',{}).mode==='delivery'&&sourceSettings(store.meta('config',{})).enabled,configurationCurrent:store.meta('sourceSync',{}).configDigest?store.meta('sourceSync',{}).configDigest===store.meta('configDigest'):null},
     editPreconditions: { operatorPresenceVersion:true,taskRevision: true, scheduleGrant: true, queueOrder: true },
     projectId: p.projectId, name: p.name, revision: store.meta('revision', 0), paused: store.meta('paused'), recoveryHold: store.meta('recoveryHold'), recoveryHoldReason: recoveryHoldReason(store),
-    health: { operationsFault: store.meta('operationsFault', null) ?? null, notifications: notificationHealth(store) },
+    health: { operationsFault: store.meta('operationsFault', null) ?? null, notifications: notificationHealth(store), attemptEnvironment: attemptEnvironmentView(store) },
     commissioningRequired: store.meta('config', {}).mode === 'delivery' && !(store.meta('commissioning')?.ready && store.meta('commissioning')?.configDigest === store.meta('configDigest')),
     tasks: recentProjectTasks(store, 100).map(t => taskView(store, t, { conflictScope })), taskCount: projectTaskCount(store), maintenanceTaskCount: store.count('task') - projectTaskCount(store), approvalNeededCount: store.live('task').filter(t => !isMaintenanceTask(t) && needsApproval(t)).length,
     flows: store.recent('flow', 100).map(publicFlow), inbox: store.recent('inbox', 100),

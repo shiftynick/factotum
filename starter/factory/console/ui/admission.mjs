@@ -8,7 +8,7 @@ import { commandButton } from './actions.mjs';
 
 const HELD = { paused: 'admission is paused (resume it from Overview)', recovery: 'a recovery hold needs reconciliation (see Health)', retention: 'a retention hold is in place (see Health)' };
 // A hold on the queue, in the words Overview uses for it ("The rest of the queue is held too: …").
-export const QUEUE_HOLD = { paused: 'admission is paused', recovery: 'a recovery hold is in place', retention: 'a retention hold is in place', money: 'a spending hold is in place', doctor: 'doctor has not passed for the current configuration', 'launch-stalled': 'a flow launch has stalled', claim: 'automatic admission failed', main: 'main is not verified green', merge: 'a merge is in flight', 'target-sync': 'a target sync is waiting' };
+export const QUEUE_HOLD = { paused: 'admission is paused', recovery: 'a recovery hold is in place', retention: 'a retention hold is in place', money: 'a spending hold is in place', doctor: 'doctor has not passed for the current configuration', 'attempt-environment': 'attempt units run a different node or git than the project service', 'launch-stalled': 'a flow launch has stalled', claim: 'automatic admission failed', main: 'main is not verified green', merge: 'a merge is in flight', 'target-sync': 'a target sync is waiting' };
 export const listed = parts => parts.length < 3 ? parts.join(' and ') : `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}`;
 // A recorded reason "project held" (an admission observation in Queue: a pause, a recovery hold or a
 // retention hold on the whole project) named by the holds the project reports now, in Overview's

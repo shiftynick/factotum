@@ -1,3 +1,4 @@
+import { attemptEnvironmentView } from '../operations/attempt-environment-record.mjs';
 import { recoveryHoldReason } from '../operations/recovery-hold.mjs';
 import { notificationHealth } from '../operations/notifications.mjs';
 import { isMaintenanceTask, needsApproval, queueRevision, scheduleView, scheduledRows } from '../core/project.mjs';
@@ -136,7 +137,7 @@ export function dashboardSnapshot(store) {
   const source = sourceSettings(config), sync = store.meta('sourceSync',{});
   return {
     snapshotView:'dashboard-v1', projectId:project.projectId, name:project.name, revision:store.meta('revision',0), paused:store.meta('paused'), recoveryHold:store.meta('recoveryHold'), recoveryHoldReason:recoveryHoldReason(store),
-    health:{operationsFault:store.meta('operationsFault',null)??null,notifications:notificationHealth(store)},
+    health:{operationsFault:store.meta('operationsFault',null)??null,notifications:notificationHealth(store),attemptEnvironment:attemptEnvironmentView(store)},
     spending:spendingSnapshot(config,project.projectId), operatorPresence:operatorPresence(store), orchestratorSession:hint(()=>orchestratorSessionView(store),null),
     sourceSync:{...sync,capabilities:hint(()=>config.mode==='delivery'?sourceCapabilities(config):null,null),type:source.type,enabled:config.mode==='delivery'&&source.enabled,configurationCurrent:sync.configDigest?sync.configDigest===store.meta('configDigest'):null},
     editPreconditions:{operatorPresenceVersion:true,taskRevision:true,scheduleGrant:true,queueOrder:true},

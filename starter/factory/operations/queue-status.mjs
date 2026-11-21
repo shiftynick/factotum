@@ -8,6 +8,7 @@ import { capacityView } from './capacity.mjs';
 import { contextProviderHold } from './admission.mjs';
 import { openContextTask } from './upkeep-tasks.mjs';
 import { tickProblems } from './tick-problems.mjs';
+import { attemptEnvironmentCheck, attemptEnvironmentHold } from './attempt-environment-record.mjs';
 
 // What stops the queue as a whole from moving, for the Queue tab: holds, qualification and
 // main health, plus whether admission is automatic and the last manual dispatch's outcome.
@@ -23,6 +24,8 @@ export function queueStatus(store, { nowMs = Date.now() } = {}) {
   if (store.meta('retentionHold')) holds.push({ kind: 'retention', text: 'A retention hold is in place; see Operations.' });
   if (store.meta('moneyHold', false)) holds.push({ kind: 'money', text: 'A spending overrun hold is in place; see Operations.' });
   if (delivery && !(store.meta('commissioning')?.ready && store.meta('commissioning')?.configDigest === store.meta('configDigest'))) holds.push({ kind: 'doctor', text: 'The current configuration has not passed doctor yet; run doctor.' });
+  // The project service's attempt-environment check found another node or git (dev.105).
+  if (delivery) { const check = attemptEnvironmentCheck(store), held = attemptEnvironmentHold(store, check); if (held) holds.push({ kind: 'attempt-environment', times: [check.checkedAt].filter(Boolean), text: `Attempt units resolve a different node or git than the project service (checked at ${check.checkedAt}), so nothing new is admitted: ${check.reasons[0] ?? 'see status health.attemptEnvironment'}. It lifts when the project service next finds no difference (it checks at each start).` }); }
   const maxAge = config.policy?.mainHealthMaxAgeMs ?? 3600000, targets = projectTargets(store);
   for (const target of delivery ? targets : []) {
     for (const hold of targetSyncHolds(store, target)) holds.push({ kind:'target-sync', scope:'change', target, text:`${hold.from} → ${hold.into}: ${hold.reason}` });
