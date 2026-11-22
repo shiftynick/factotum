@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,7 +11,17 @@ import { attemptDir, launch } from '../starter/factory/core/effects.mjs';
 import { repositoryIdentity } from '../starter/factory/core/repository.mjs';
 import { validateConfig } from '../starter/factory/core/configuration.mjs';
 import { ATTEMPT_ENVIRONMENT_KEYS, serviceEnvironment, supervisedEnvironment } from '../starter/factory/core/attempt-environment.mjs';
-import { probeAttemptEnvironment } from '../starter/factory/operations/attempt-environment-probe.mjs';
+import { checkAttemptEnvironment, probeAttemptEnvironment } from '../starter/factory/operations/attempt-environment-probe.mjs';
+import { NOT_YET_CHECKED, attemptEnvironmentHold, attemptEnvironmentState, attemptEnvironmentView, beginAttemptEnvironmentRun, endAttemptEnvironmentRun, environmentFreeOperation, recordAttemptEnvironmentCheck, recordedAttemptEnvironment } from '../starter/factory/operations/attempt-environment-record.mjs';
+import { Store, initProject } from '../starter/factory/core/store.mjs';
+import { executorDigest } from '../starter/factory/core/effects.mjs';
+import { runProcess } from '../starter/factory/adapters/providers/index.mjs';
+import { startProjectService } from '../starter/factory/service/project-service.mjs';
+import { dashboardSnapshot } from '../starter/factory/service/dashboard.mjs';
+import { requestProject } from '../starter/factory/console/client.mjs';
+import { snapshot } from '../starter/factory/core/project.mjs';
+import { admissionReasons } from '../starter/factory/operations/admission.mjs';
+import { queueStatus } from '../starter/factory/operations/queue-status.mjs';
 import { setTargetHealth } from '../starter/factory/operations/targets.mjs';
 import { operationalTick } from '../starter/factory/workflows/maintenance.mjs';
 
@@ -146,71 +156,49 @@ test('a provider CLI started inside a systemd attempt unit is resolved from the 
   for (const call of calls) { assert.equal(call.who, 'service', 'never the manager PATH\'s claude'); assert.equal(call.PATH, env.servicePath); assert.equal(call.HOME, env.base); }
 });
 
-// Doctor's check. Stand-ins: systemctl (the running service's MainPID, and `stop`), systemd-run
-// (the user manager, which starts the probe with its own PATH and HOME) and a fake /proc with the
-// service's main process.
-function probeFixture(t, { mainPid = '4242', selfInService = false, pidCgroup = 'factotum-project-fictiona.service' } = {}) {
-  const env = toolchains(t), stateDir = join(env.base, 'state'), proc = join(env.base, 'proc'), calls = join(env.base, 'systemctl.calls'); mkdirSync(stateDir);
-  // The unit's configured Environment= is stale (edited, reloaded, not restarted); it must not be used.
-  writeFileSync(join(env.standIn, 'systemctl'), `#!/bin/sh\necho "$@" >> ${sh(calls)}\n[ "$2" = "show" ] && [ "$4" = "MainPID" ] && { echo ${sh(mainPid)}; exit 0; }\n[ "$2" = "show" ] && [ "$4" = "Environment" ] && { echo 'PATH=/stale/configured/bin'; exit 0; }\n[ "$2" = "stop" ] && exit 0\nexit 1\n`, { mode: 0o755 });
-  mkdirSync(join(proc, 'self'), { recursive: true }); mkdirSync(join(proc, '4242'));
-  writeFileSync(join(proc, 'self', 'cgroup'), `0::/user.slice/user-1000.slice/user@1000.service/app.slice/${selfInService ? 'factotum-project-fictiona.service' : 'fictional-terminal.scope'}\n`);
-  writeFileSync(join(proc, '4242', 'cgroup'), `0::/user.slice/user-1000.slice/user@1000.service/app.slice/${pidCgroup}\n`);
-  // The running service's environment: its PATH (from an EnvironmentFile=, say) and a credential that must not travel.
-  writeFileSync(join(proc, '4242', 'environ'), [`PATH=${env.servicePath}`, `HOME=${env.base}`, 'USER=fictional-service', 'GITHUB_TOKEN=ghp_fictional', 'LD_PRELOAD=/fictional.so', ''].join('\0'));
+// The project service's own check (dev.105). Stand-ins only: `systemctl` (for `stop`) and
+// `systemd-run` (the user manager, which starts the probe with its own PATH and HOME), reached
+// through an injected run that refuses any other command, so the real ones are never started.
+const SERVICE_SOURCE = env => ({ PATH: env.servicePath, HOME: env.base, USER: 'fictional-service', GITHUB_TOKEN: 'ghp_fictional', LD_PRELOAD: '/fictional.so' });
+function probeFixture(t) {
+  const env = toolchains(t), stateDir = join(env.base, 'state'), calls = join(env.base, 'systemctl.calls'); mkdirSync(stateDir);
+  writeFileSync(join(env.standIn, 'systemctl'), `#!/bin/sh\necho "$@" >> ${sh(calls)}\n[ "$2" = "stop" ] && exit 0\nexit 1\n`, { mode: 0o755 });
+  const run = (command, args, options) => { assert.ok(['systemd-run', 'systemctl'].includes(command), `unexpected command ${command}`); return runProcess(join(env.standIn, command), args, options); };
   const systemctlCalls = () => existsSync(calls) ? readFileSync(calls, 'utf8').trim().split('\n') : [];
   const runCalls = () => existsSync(join(env.base, 'systemd-run.calls')) ? readFileSync(join(env.base, 'systemd-run.calls'), 'utf8').trim().split('\n') : [];
-  const probe = (options = {}) => withPathAsync(`${env.standIn}:${env.managerPath}`, () => probeAttemptEnvironment({ project: { projectId: 'fictional0123456789', root: env.base }, stateDir, procRoot: proc, source: { ...process.env, PATH: env.managerPath }, ...options }));
-  return { env, stateDir, proc, probe, systemctlCalls, runCalls };
+  const probe = (options = {}) => probeAttemptEnvironment({ project: { projectId: 'fictional0123456789', root: env.base }, stateDir, environment: SERVICE_SOURCE(env), run, ...options });
+  return { env, stateDir, probe, run, systemctlCalls, runCalls };
 }
 // The user manager stand-in for the probe: keeps a copy of the request, then runs the probe in the foreground.
 function standInProbeRun(env) {
   writeFileSync(join(env.standIn, 'systemd-run'), `#!/bin/sh\necho "$@" >> ${sh(join(env.base, 'systemd-run.calls'))}\nfor a; do last="$a"; done\ncp "$last" ${sh(join(env.base, 'request-copy.json'))}\nwhile [ $# -gt 0 ]; do case "$1" in --*) shift;; *) break;; esac; done\nexec env -i PATH=${sh(env.managerPath)} HOME=${sh(env.managerHome)} "$@"\n`, { mode: 0o755 });
 }
+// A unit that ignores the recorded environment (as attempt units did before dev.104, or with a drop-in that replaces PATH).
+function standInIgnoringRun(env) {
+  const resolver = new URL('../starter/factory/core/attempt-environment.mjs', import.meta.url).href;
+  writeFileSync(join(env.standIn, 'systemd-run'), `#!${process.execPath}\nconst { dirname, join } = require('node:path'), request = process.argv[process.argv.length - 1];\nimport(${JSON.stringify(resolver)}).then(({ resolveCommand }) => { const path = ${JSON.stringify(env.managerPath)}; const r = { node: resolveCommand('node', path), git: resolveCommand('git', path) }; require('node:fs').writeFileSync(join(dirname(request), 'result.json'), JSON.stringify({ attempt: r, manager: r })); });\n`, { mode: 0o755 });
+}
+// A systemd-run client that never returns.
+function standInHangingRun(env) { writeFileSync(join(env.standIn, 'systemd-run'), `#!/bin/sh\necho "$@" >> ${sh(join(env.base, 'systemd-run.calls'))}\nexec sleep 600\n`, { mode: 0o755 }); }
 const unitOf = line => line.match(/--unit=(\S+)/)[1];
 
-test('doctor: the probe uses the running service\'s environment, has a runtime limit, no --pipe, and passes when the unit resolves the service node and git', async t => {
+test('the probe uses the service\'s own allowlisted environment, has a runtime limit, no --pipe, and finds the same node and git', async t => {
   const f = probeFixture(t); standInProbeRun(f.env);
   const probed = await f.probe();
   assert.deepEqual(probed.reasons, []); assert.deepEqual(probed.warnings, []);
-  assert.equal(probed.record.status, 'same'); assert.equal(probed.record.pathFrom, 'factotum-project-fictiona.service (running, process 4242)');
+  assert.equal(probed.record.status, 'same'); assert.equal(probed.record.pathFrom, 'the project service');
   assert.equal(probed.record.service.node.path, join(f.env.serviceBin, 'node')); assert.equal(probed.record.attempt.node.realPath, realpathSync(process.execPath));
   assert.equal(probed.record.manager.node.path, join(f.env.managerBin, 'node'), 'the unit\'s own (manager) PATH would have given the shim');
-  // The running process's allowlisted variables, not the unit's configured Environment= and no credential.
-  assert.deepEqual(JSON.parse(readFileSync(join(f.env.base, 'request-copy.json'), 'utf8')), { environment: { PATH: f.env.servicePath, HOME: f.env.base, USER: 'fictional-service' } });
-  assert.deepEqual(f.systemctlCalls(), ['--user show -p MainPID --value factotum-project-fictiona.service'], 'nothing stopped after a probe that finished');
+  assert.deepEqual(JSON.parse(readFileSync(join(f.env.base, 'request-copy.json'), 'utf8')), { environment: { PATH: f.env.servicePath, HOME: f.env.base, USER: 'fictional-service' } }, 'no credential travels');
+  assert.deepEqual(f.systemctlCalls(), [], 'nothing stopped after a probe that finished');
   const [call] = f.runCalls();
-  assert.match(call, /^--user --wait --collect --quiet --unit=factotum-fictiona-doctor-env-[0-9a-f]{8} --property=Type=exec --property=RuntimeMaxSec=15 \S+ \S+attempt-environment-probe\.mjs \S+\/doctor-probes\/attempt-environment-[^/]+\/request\.json$/);
+  assert.match(call, /^--user --wait --collect --quiet --unit=factotum-fictiona-env-probe-[0-9a-f]{8} --property=Type=exec --property=RuntimeMaxSec=15 \S+ \S+attempt-environment-probe\.mjs \S+\/environment-probes\/attempt-environment-[^/]+\/request\.json$/);
   assert.doesNotMatch(call, /--pipe/);
-  assert.deepEqual(readdirSync(join(f.stateDir, 'doctor-probes')), [], 'the private probe directory is removed');
+  assert.deepEqual(readdirSync(join(f.stateDir, 'environment-probes')), [], 'the private probe directory is removed');
 });
 
-test('doctor: run inside the project service, the probe uses the service\'s own environment', async t => {
-  const f = probeFixture(t, { selfInService: true }); standInProbeRun(f.env);
-  const probed = await f.probe({ source: { PATH: f.env.servicePath, HOME: f.env.base, GITHUB_TOKEN: 'ghp_fictional' } });
-  assert.equal(probed.record.status, 'same'); assert.equal(probed.record.pathFrom, 'factotum-project-fictiona.service (doctor runs in it)');
-  assert.deepEqual(JSON.parse(readFileSync(join(f.env.base, 'request-copy.json'), 'utf8')).environment, { PATH: f.env.servicePath, HOME: f.env.base });
-  assert.deepEqual(f.systemctlCalls(), []);
-});
-
-test('doctor: when the running service\'s environment cannot be established the check is unverified, never same', async t => {
-  for (const [options, why] of [[{ mainPid: '0' }, /factotum-project-fictiona\.service is not running/], [{ pidCgroup: 'another.service' }, /process 4242 is not in factotum-project-fictiona\.service/]]) {
-    const f = probeFixture(t, options); standInProbeRun(f.env);
-    const probed = await f.probe();
-    assert.equal(probed.record.status, 'unverified'); assert.deepEqual(probed.reasons, []);
-    assert.equal(probed.warnings.length, 1); assert.match(probed.warnings[0], /^Not verified that attempt units run the project service's node and git: /); assert.match(probed.warnings[0], why);
-    assert.deepEqual(f.runCalls(), [], 'no probe unit is started');
-  }
-  const unreadable = probeFixture(t); standInProbeRun(unreadable.env); rmSync(join(unreadable.proc, '4242', 'environ'));
-  const probed = await unreadable.probe();
-  assert.equal(probed.record.status, 'unverified'); assert.match(probed.warnings[0], /could not be read \(ENOENT\)/);
-});
-
-test('doctor: an attempt unit that resolves a different node or git is a blocking reason with the remedy', async t => {
-  const f = probeFixture(t);
-  // A unit that ignores the recorded environment (as attempt units did before dev.104).
-  const resolver = new URL('../starter/factory/core/attempt-environment.mjs', import.meta.url).href;
-  writeFileSync(join(f.env.standIn, 'systemd-run'), `#!${process.execPath}\nconst { dirname, join } = require('node:path'), request = process.argv[process.argv.length - 1];\nimport(${JSON.stringify(resolver)}).then(({ resolveCommand }) => { const path = ${JSON.stringify(f.env.managerPath)}; const r = { node: resolveCommand('node', path), git: resolveCommand('git', path) }; require('node:fs').writeFileSync(join(dirname(request), 'result.json'), JSON.stringify({ attempt: r, manager: r })); });\n`, { mode: 0o755 });
+test('an attempt unit that resolves a different node or git is a reason with the remedy', async t => {
+  const f = probeFixture(t); standInIgnoringRun(f.env);
   const probed = await f.probe();
   assert.equal(probed.record.status, 'differs');
   assert.equal(probed.reasons.length, 2, probed.reasons.join(' | '));
@@ -219,20 +207,20 @@ test('doctor: an attempt unit that resolves a different node or git is a blockin
   assert.match(probed.reasons[1], /resolves git to .*manager-bin\/git/);
 });
 
-test('doctor: a failed probe unit is stopped by its exact name and reported as a warning', async t => {
+test('a failed probe unit is stopped by its exact name and reported as a warning', async t => {
   const f = probeFixture(t);
   writeFileSync(join(f.env.standIn, 'systemd-run'), `#!/bin/sh\necho "$@" >> ${sh(join(f.env.base, 'systemd-run.calls'))}\necho "Failed to connect to bus" >&2\nexit 1\n`, { mode: 0o755 });
   const probed = await f.probe();
   assert.deepEqual(probed.reasons, []); assert.equal(probed.record.status, 'unverified');
   assert.match(probed.warnings.join(), /Could not check which node and git an attempt unit runs \(systemd-run exited 1: Failed to connect to bus\)/);
-  assert.deepEqual(f.systemctlCalls().slice(1), [`--user stop ${unitOf(f.runCalls()[0])}`]);
-  assert.deepEqual(readdirSync(join(f.stateDir, 'doctor-probes')), []);
+  assert.deepEqual(f.systemctlCalls(), [`--user stop ${unitOf(f.runCalls()[0])}`]);
+  assert.deepEqual(readdirSync(join(f.stateDir, 'environment-probes')), []);
 });
 
-// The reviewer's case: the transient unit belongs to the user manager, so killing the systemd-run
-// client does not stop it, and something holding the client's output open must not keep doctor
-// waiting. Here a process in its own session holds systemd-run's stdout and stderr open.
-test('doctor: a probe that hangs with its output held open returns within the bound, and its unit is stopped by name', async t => {
+// The transient unit belongs to the user manager, so killing the systemd-run client does not stop
+// it, and something holding the client's output open must not keep the service waiting. Here a
+// process in its own session holds systemd-run's stdout and stderr open.
+test('a probe that hangs with its output held open returns within the bound, and its unit is stopped by name', async t => {
   const f = probeFixture(t), holder = join(f.env.base, 'holder.pid');
   // Read now: the fixture directory is removed by an earlier-registered cleanup.
   let holderPid = null; const release = () => { try { holderPid ??= Number(readFileSync(holder, 'utf8')); } catch {} if (holderPid) { try { process.kill(holderPid, 'SIGKILL'); } catch {} } };
@@ -246,6 +234,262 @@ test('doctor: a probe that hangs with its output held open returns within the bo
   assert.equal(probed.record.status, 'unverified'); assert.deepEqual(probed.reasons, []);
   assert.match(probed.warnings.join(), /Could not check which node and git an attempt unit runs \(systemd-run did not return within 5 s\)/);
   const [call] = f.runCalls();
-  assert.match(call, /--property=RuntimeMaxSec=1 /, 'the unit has a runtime limit shorter than doctor\'s wait');
-  assert.deepEqual(f.systemctlCalls().slice(1), [`--user stop ${unitOf(call)}`], 'exactly that unit, never a pattern');
+  assert.match(call, /--property=RuntimeMaxSec=1 /, 'the unit has a runtime limit shorter than the service\'s wait');
+  assert.deepEqual(f.systemctlCalls(), [`--user stop ${unitOf(call)}`], 'exactly that unit, never a pattern');
+});
+
+// The running project service makes the check itself, in the background, and records it.
+function serviceFixture(t) {
+  const f = probeFixture(t), s = sandbox(t);
+  const providers = { planner: { provider: 'codex', model: 'fictional' }, builder: { provider: 'codex', model: 'fictional' }, reviewer: { provider: 'claude', model: 'fictional' } };
+  const config = validateConfig({ version: 1, mode: 'delivery', repository: { slug: 'fictional/environment', account: 'fictional', target: 'main', remote: 'origin' }, providers, mainChecks: [{ id: 'unit', argv: ['true'], timeoutMs: 60000 }], checks: [{ id: 'acceptance', argv: ['true'], timeoutMs: 60000 }], context: { files: [], maxChars: 1000 }, policy: { planning: false } });
+  s.store.setMeta('config', config); s.store.setMeta('configDigest', digest(config)); s.store.setMeta('commissioning', { ready: true, configDigest: digest(config) });
+  s.store.setMeta('project', { ...s.store.meta('project'), supervisor: 'systemd' });
+  s.command('task.approve', { taskId: s.task.id, revision: s.store.need('task', s.task.id).revision });
+  const checks = [];
+  const realCheck = (store, context) => { checks.push(context.trigger); return checkAttemptEnvironment(store, { ...context, source: SERVICE_SOURCE(f.env), run: f.run }); };
+  // timeoutMs: the service's probe timeout; check: another check in place of the real one with stand-ins.
+  const start = async ({ timeoutMs, check = realCheck } = {}, socket = `p${checks.length}-${uid().slice(0, 4)}.sock`) => {
+    const app = await startProjectService({ stateDir: s.stateDir, socketPath: join(s.base, socket), tickMs: 20, operationalIntervalMs: 20, operationTick: async () => {}, environmentCheck: check, ...(timeoutMs ? { environmentCheckTimeoutMs: timeoutMs } : {}) });
+    let closed = false; const close = async () => { if (!closed) { closed = true; await app.close(); } }; t.after(close);
+    return { app, close };
+  };
+  const held = () => ({ admission: admissionReasons(s.store, s.store.need('task', s.task.id)).filter(reason => /^attempt (units resolve a different node or git|environment check pending)/.test(reason)), queue: queueStatus(s.store).holds.filter(row => row.kind === 'attempt-environment') });
+  return { ...f, s, start, checks, held };
+}
+
+test('the running service checks its attempt environment at start and records same with paths, time, run and executor', async t => {
+  const f = serviceFixture(t); standInProbeRun(f.env);
+  const { close } = await f.start();
+  await until(() => f.s.store.meta('attemptEnvironmentCheck'));
+  const record = f.s.store.meta('attemptEnvironmentCheck');
+  assert.equal(record.status, 'same'); assert.equal(record.trigger, 'start'); assert.equal(record.supervisor, 'systemd');
+  assert.equal(record.serviceRunId, f.s.store.meta('attemptEnvironmentRun').id);
+  assert.equal(record.executorDigest, executorDigest()); assert.equal(record.configDigest, f.s.store.meta('configDigest'));
+  assert.ok(Number.isFinite(Date.parse(record.checkedAt)));
+  assert.equal(record.service.node.path, join(f.env.serviceBin, 'node')); assert.equal(record.attempt.node.realPath, realpathSync(process.execPath));
+  assert.deepEqual(f.held(), { admission: [], queue: [] });
+  assert.equal(snapshot(f.s.store).health.attemptEnvironment.status, 'same'); assert.equal(snapshot(f.s.store).health.attemptEnvironment.current, true);
+  assert.ok(f.s.store.events().some(e => e.type === 'attempt-environment.checked' && e.payload.status === 'same'));
+  // After a configuration change the service checks again.
+  const changed = { ...f.s.store.meta('config'), policy: { ...f.s.store.meta('config').policy, maxFlows: 2 } };
+  f.s.store.setMeta('config', changed); f.s.store.setMeta('configDigest', digest(changed));
+  await until(() => f.s.store.meta('attemptEnvironmentCheck').trigger === 'configuration');
+  assert.deepEqual(f.checks, ['start', 'configuration']);
+  assert.equal(f.s.store.meta('attemptEnvironmentCheck').configDigest, digest(changed));
+  // Doctor inside the running service reads that result: same.
+  const read = recordedAttemptEnvironment({ store: f.s.store });
+  assert.deepEqual(read.reasons, []); assert.deepEqual(read.warnings, []); assert.equal(read.record.status, 'same');
+  await close();
+  // Stopped, the result is from an earlier run: shown as stale, never as a current same.
+  const view = attemptEnvironmentView(f.s.store);
+  assert.equal(view.status, 'stale'); assert.equal(view.recordedStatus, 'same'); assert.equal(view.current, false);
+  assert.equal(recordedAttemptEnvironment({ store: f.s.store }).record.status, 'unverified');
+});
+
+test('a differs result holds admission while running and is shown; a later start with the drop-in gone clears it', async t => {
+  const f = serviceFixture(t); standInIgnoringRun(f.env);
+  const first = await f.start();
+  await until(() => f.s.store.meta('attemptEnvironmentCheck'));
+  assert.equal(f.s.store.meta('attemptEnvironmentCheck').status, 'differs');
+  const held = f.held();
+  assert.equal(held.admission.length, 1); assert.match(held.admission[0], /checked at .*: An attempt unit resolves node to .*manager-bin\/node/);
+  assert.equal(held.queue.length, 1); assert.match(held.queue[0].text, /no new task flow or maintenance that runs the project's tools is started/);
+  const health = snapshot(f.s.store).health.attemptEnvironment;
+  assert.equal(health.status, 'differs'); assert.equal(health.holdsAdmission, true); assert.equal(health.reasons.length, 2);
+  assert.equal(dashboardSnapshot(f.s.store).health.attemptEnvironment.status, 'differs');
+  // Admission itself refuses, with the reason.
+  const refused = f.s.command('flow.start', { taskId: f.s.task.id, revision: f.s.store.need('task', f.s.task.id).revision });
+  assert.notEqual(refused.status, 'completed'); assert.match(JSON.stringify(refused), /attempt units resolve a different node or git/);
+  // Doctor never refuses for it: the running service's hold is what stops new work.
+  const read = recordedAttemptEnvironment({ store: f.s.store });
+  assert.deepEqual(read.reasons, []); assert.match(read.warnings.join(), /An attempt unit resolves node to .*The running project service holds admission/);
+  await first.close();
+  // Stopped: the difference is from an earlier run, and holds nothing.
+  assert.equal(attemptEnvironmentHold(f.s.store), null); assert.equal(attemptEnvironmentView(f.s.store).status, 'stale');
+  // The drop-in is removed; the next start finds no difference and the hold lifts.
+  standInProbeRun(f.env);
+  await f.start();
+  await until(() => f.s.store.meta('attemptEnvironmentCheck').status !== 'differs');
+  assert.equal(f.s.store.meta('attemptEnvironmentCheck').status, 'same');
+  assert.deepEqual(f.held(), { admission: [], queue: [] });
+  assert.equal(snapshot(f.s.store).health.attemptEnvironment.holdsAdmission, false);
+  assert.ok(f.s.store.events().some(e => e.type === 'attempt-environment.checked' && e.payload.status === 'same' && e.payload.previous === 'differs'));
+});
+
+// Review of dev.105, finding 4: ticks start at once, so new work waits while the start check is pending.
+test('while the start check is pending new work is held, up to the check\'s bound; an old same from an earlier run admits nothing', async t => {
+  const f = serviceFixture(t);
+  recordAttemptEnvironmentCheck(f.s.store, { status: 'same', checkedAt: '2026-11-20T10:00:00.000Z', serviceRunId: 'an-earlier-run', executorDigest: executorDigest(), reasons: [], warnings: [] });
+  let finish; const released = new Promise(resolve => { finish = resolve; });
+  const check = async (store, context) => { await released; return recordAttemptEnvironmentCheck(store, { status: 'same', checkedAt: new Date().toISOString(), serviceRunId: context.serviceRunId, trigger: context.trigger, reasons: [], warnings: [] }); };
+  const { close } = await f.start({ check });
+  const held = f.held();
+  assert.equal(held.admission.length, 1); assert.match(held.admission[0], /^attempt environment check pending: .* at most until /);
+  assert.equal(held.queue.length, 1); assert.equal(held.queue[0].pending, true);
+  assert.equal(snapshot(f.s.store).health.attemptEnvironment.status, 'pending');
+  const refused = f.s.command('flow.start', { taskId: f.s.task.id, revision: f.s.store.need('task', f.s.task.id).revision });
+  assert.notEqual(refused.status, 'completed'); assert.match(JSON.stringify(refused), /attempt environment check pending/);
+  // Bounded by the check's own deadline: past pendingUntil it holds nothing.
+  const run = f.s.store.meta('attemptEnvironmentRun');
+  assert.ok(Date.parse(run.pendingUntil) - Date.parse(run.startedAt) >= 30_000 && Date.parse(run.pendingUntil) - Date.parse(run.startedAt) <= 60_000, JSON.stringify(run));
+  assert.equal(attemptEnvironmentHold(f.s.store, attemptEnvironmentState(f.s.store, { nowMs: Date.parse(run.pendingUntil) + 1 })), null);
+  finish();
+  await until(() => f.s.store.meta('attemptEnvironmentCheck').serviceRunId === run.id);
+  assert.deepEqual(f.held(), { admission: [], queue: [] });
+  await close();
+});
+
+test('a check that throws records unverified for this run, which holds nothing', async t => {
+  const f = serviceFixture(t);
+  await f.start({ check: async () => { throw new Error('fictional failure'); } });
+  await until(() => f.s.store.meta('attemptEnvironmentCheck'));
+  const record = f.s.store.meta('attemptEnvironmentCheck');
+  assert.equal(record.status, 'unverified'); assert.equal(record.serviceRunId, f.s.store.meta('attemptEnvironmentRun').id); assert.match(record.reason, /fictional failure/);
+  assert.deepEqual(f.held(), { admission: [], queue: [] });
+});
+
+test('a hanging probe never delays the service\'s start; it ends at its bound as unverified', async t => {
+  const f = serviceFixture(t); standInHangingRun(f.env);
+  const started = Date.now();
+  const { app, close } = await f.start({ timeoutMs: 1500 });
+  const startedIn = Date.now() - started;
+  assert.ok(startedIn < 1000, `started after ${startedIn} ms`);
+  const shaken = await requestProject(app.socketPath, { path: '/v1/handshake', timeoutMs: 10000 });
+  assert.equal(shaken.projectId, f.s.project.projectId, 'the socket serves while the probe hangs');
+  assert.equal(f.s.store.meta('attemptEnvironmentCheck', null), null, 'nothing recorded while the probe runs');
+  await until(() => f.s.store.meta('attemptEnvironmentCheck'), { timeout: 30000 });
+  const record = f.s.store.meta('attemptEnvironmentCheck');
+  assert.equal(record.status, 'unverified'); assert.match(record.warnings.join(), /Could not check which node and git an attempt unit runs/);
+  assert.deepEqual(f.systemctlCalls(), [`--user stop ${unitOf(f.runCalls()[0])}`], 'its unit is stopped by its exact name');
+  assert.deepEqual(f.held(), { admission: [], queue: [] }, 'an unverified check does not hold admission');
+  const closing = Date.now(); await close(); assert.ok(Date.now() - closing < 5000);
+});
+
+test('a service closing while its probe hangs cancels it, stops its unit by name and records nothing', async t => {
+  const f = serviceFixture(t); standInHangingRun(f.env);
+  const { close } = await f.start({ timeoutMs: 20000 });
+  await until(() => f.runCalls().length === 1);
+  const closing = Date.now(); await close();
+  assert.ok(Date.now() - closing < 4000, `closed after ${Date.now() - closing} ms`);
+  assert.equal(f.s.store.meta('attemptEnvironmentCheck', null), null);
+  assert.deepEqual(f.systemctlCalls(), [`--user stop ${unitOf(f.runCalls()[0])}`]);
+  assert.ok(f.s.store.meta('attemptEnvironmentRun').stoppedAt, 'the run is recorded as stopped');
+});
+
+// Review of dev.105, finding 3: close() returned, but the probe's deadline timers and its subprocess
+// kept the process alive for seconds. A separate process starts a service whose probe hangs with
+// its output held open by a process outside its group, closes it and must exit promptly.
+test('a service process whose probe hangs exits promptly after close, with the probe cancelled', { timeout: 60000 }, async t => {
+  const f = probeFixture(t), holder = join(f.env.base, 'holder.pid'), script = join(f.env.base, 'close-child.mjs'), stateDir = join(f.env.base, 'child-state'), root = join(f.env.base, 'child-root');
+  let holderPid = null; const release = () => { try { holderPid ??= Number(readFileSync(holder, 'utf8')); } catch {} if (holderPid) { try { process.kill(holderPid, 'SIGKILL'); } catch {} } };
+  t.after(release);
+  writeFileSync(join(f.env.standIn, 'systemd-run'), `#!/bin/sh\necho "$@" >> ${sh(join(f.env.base, 'systemd-run.calls'))}\nsetsid sh -c 'echo $$ > ${holder.replace(/'/g, '')}; exec sleep 600' &\nexec sleep 600\n`, { mode: 0o755 });
+  mkdirSync(root); execFileSync('git', ['init', '-q'], { cwd: root });
+  const module = name => JSON.stringify(new URL(`../starter/factory/${name}`, import.meta.url).href);
+  writeFileSync(script, `import { initProject } from ${module('core/store.mjs')};
+import { startProjectService } from ${module('service/project-service.mjs')};
+import { checkAttemptEnvironment } from ${module('operations/attempt-environment-probe.mjs')};
+import { runProcess } from ${module('adapters/providers/index.mjs')};
+import { join } from 'node:path'; import { existsSync } from 'node:fs';
+const [stateDir, root, standIn, holder] = process.argv.slice(2);
+initProject({ stateDir, root, name: 'Fictional child', supervisor: 'systemd', workflow: { version: 1, start: 'done', nodes: { done: { kind: 'end', outcome: 'completed' } } } });
+const run = (command, args, options) => { if (!['systemd-run', 'systemctl'].includes(command)) throw new Error('unexpected ' + command); return runProcess(join(standIn, command), args, options); };
+const app = await startProjectService({ stateDir, socketPath: join(stateDir, 'c.sock'), operationTick: async () => {}, environmentCheckTimeoutMs: 20000, environmentCheck: (store, context) => checkAttemptEnvironment(store, { ...context, source: { PATH: process.env.PATH }, run }) });
+while (!existsSync(holder)) await new Promise(resolve => setTimeout(resolve, 20));
+await new Promise(resolve => setTimeout(resolve, 100));
+await app.close(); console.log('closed');
+`);
+  const begin = Date.now(); let closedAt = null, stderr = '';
+  const child = spawn(process.execPath, [script, stateDir, root, f.env.standIn, holder], { stdio: ['ignore', 'pipe', 'pipe'] });
+  t.after(() => { if (child.exitCode === null && child.signalCode === null) { try { process.kill(child.pid, 'SIGKILL'); } catch {} } });
+  child.stdout.on('data', () => { closedAt ??= Date.now(); }); child.stderr.on('data', chunk => { stderr += chunk; });
+  const code = await new Promise(resolve => child.on('exit', resolve)); const exitedAt = Date.now();
+  release();
+  assert.equal(code, 0, stderr); assert.ok(closedAt, 'close returned');
+  assert.ok(closedAt - begin < 15000, `closed after ${closedAt - begin} ms`);
+  assert.ok(exitedAt - closedAt < 1500, `the process exited ${exitedAt - closedAt} ms after close returned`);
+  assert.deepEqual(f.systemctlCalls(), [`--user stop ${unitOf(f.runCalls()[0])}`], 'the cancelled probe\'s unit is stopped by its exact name');
+});
+
+test('under the process supervisor the check is not applicable: no unit, no warning, no hold', async t => {
+  const f = serviceFixture(t); standInProbeRun(f.env);
+  f.s.store.setMeta('project', { ...f.s.store.meta('project'), supervisor: 'process' });
+  await f.start();
+  await until(() => f.s.store.meta('attemptEnvironmentCheck'));
+  const record = f.s.store.meta('attemptEnvironmentCheck');
+  assert.equal(record.status, 'not-applicable'); assert.deepEqual(record.warnings, []); assert.deepEqual(f.runCalls(), []);
+  assert.deepEqual(f.held(), { admission: [], queue: [] });
+  const read = recordedAttemptEnvironment({ store: f.s.store });
+  assert.deepEqual(read.warnings, []); assert.deepEqual(read.reasons, []);
+});
+
+// Review of dev.105, finding 2: during `upgrade apply` or recovery the service is stopped when doctor
+// runs, and a console-only upgrade leaves the executor digest unchanged. Any result from an earlier
+// service run is unverified evidence for doctor, never a refusal, and never holds anything.
+test('doctor reads the service\'s result: none, or one from an earlier run under the same code, is unverified with the next-start message', async t => {
+  const s = sandbox(t);
+  const none = recordedAttemptEnvironment({ store: s.store });
+  assert.deepEqual(none.reasons, []); assert.deepEqual(none.warnings, [NOT_YET_CHECKED]); assert.equal(none.record.status, 'unverified');
+  assert.match(NOT_YET_CHECKED, /the project service has not checked this since it last started\. It checks when it next starts/);
+  const run = beginAttemptEnvironmentRun(s.store, { id: 'fictional-run', pendingUntil: null });
+  recordAttemptEnvironmentCheck(s.store, { status: 'differs', checkedAt: '2026-11-20T10:00:00.000Z', serviceRunId: run.id, executorDigest: executorDigest(), reasons: ['An attempt unit resolves node to /fictional/shim'], warnings: [] });
+  assert.ok(attemptEnvironmentHold(s.store), 'held while that run is running');
+  endAttemptEnvironmentRun(s.store, run.id);
+  const stale = recordedAttemptEnvironment({ store: s.store });
+  assert.deepEqual(stale.reasons, [], 'an earlier run\'s difference never blocks doctor'); assert.equal(stale.warnings.length, 1); assert.ok(stale.warnings[0].startsWith(NOT_YET_CHECKED));
+  assert.match(stale.warnings[0], /An earlier run of the service recorded differs at 2026-11-20T10:00:00\.000Z/);
+  assert.deepEqual(stale.record.previous, { status: 'differs', checkedAt: '2026-11-20T10:00:00.000Z' });
+  assert.equal(attemptEnvironmentHold(s.store), null, 'and holds nothing once that run stopped');
+  // A run that crashed (its process gone, never stopped) is not live either.
+  s.store.setMeta('attemptEnvironmentRun', { ...run, stoppedAt: undefined, owner: { pid: 2 ** 22 + 7, bootId: 'fictional', startTime: '1' } });
+  assert.equal(attemptEnvironmentHold(s.store), null); assert.equal(attemptEnvironmentView(s.store).status, 'stale');
+});
+
+// Review of dev.105, finding 1: a known mismatch still let main.verify (and any check-running job) start.
+function maintenanceFixture(t) {
+  const base = mkdtempSync(join(tmpdir(), 'fct-env-maint-')), root = join(base, 'repo'), remote = join(base, 'remote.git'), stateDir = join(base, 'state'); mkdirSync(root);
+  const git = args => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  git(['init', '-q', '-b', 'main']); git(['config', 'user.email', 'fictional@example.invalid']); git(['config', 'user.name', 'Fictional']); writeFileSync(join(root, 'fixture.txt'), 'fictional'); git(['add', '.']); git(['commit', '-qm', 'Fictional baseline']);
+  execFileSync('git', ['init', '--bare', '-q', remote]); git(['remote', 'add', 'origin', remote]); git(['push', '-q', 'origin', 'main']);
+  initProject({ stateDir, root, name: 'Fictional', supervisor: 'systemd', workflow: { version: 1, start: 'done', nodes: { done: { kind: 'end', outcome: 'completed' } } } });
+  const store = new Store(stateDir), config = { version: 1, mode: 'delivery', repository: { slug: 'fictional/project', account: 'fictional', target: 'main', remote: 'origin' }, providers: { planner: { provider: 'codex', model: 'fictional' }, builder: { provider: 'codex', model: 'fictional' }, reviewer: { provider: 'claude', model: 'fictional' } }, policy: { maxFlows: 1 }, checks: [{ id: 'fixture', argv: [process.execPath, '-e', 'process.exit(0)'], timeoutMs: 60000 }], mainChecks: [{ id: 'main', argv: [process.execPath, '-e', 'process.exit(0)'], timeoutMs: 60000 }], context: { files: [], maxChars: 1000 }, resources: { coordinatorPath: join(base, 'host.sqlite') }, backupRoot: join(base, 'backups') };
+  store.setMeta('config', config); store.setMeta('configDigest', digest(config));
+  t.after(() => { store.close(); rmSync(base, { recursive: true, force: true }); });
+  const schedule = () => store.put('schedule', { id: 'main-check', enabled: true, type: 'interval', anchorMs: Date.now() - 2000, everyMs: 1000, operation: 'main.verify', createdAt: new Date(Date.now() - 2000).toISOString() });
+  const verifications = () => store.all('flow').filter(flow => flow.workflow?.nodes?.run?.action?.operation === 'main.verify');
+  return { store, schedule, verifications };
+}
+
+test('while the running service found a difference, a scheduled main.verify is held and says why; same lets it start', async t => {
+  const f = maintenanceFixture(t), run = beginAttemptEnvironmentRun(f.store, { id: 'fictional-run', pendingUntil: null });
+  recordAttemptEnvironmentCheck(f.store, { status: 'differs', checkedAt: new Date().toISOString(), serviceRunId: run.id, reasons: ['An attempt unit resolves node to /fictional/shim'], warnings: [] });
+  f.schedule();
+  await operationalTick(f.store);
+  assert.deepEqual(f.verifications(), [], 'no main.verify flow starts');
+  const job = f.store.all('job').find(row => row.operation === 'main.verify');
+  assert.equal(job.status, 'queued'); assert.equal(job.held.kind, 'attempt-environment'); assert.match(job.held.reason, /attempt units resolve a different node or git/);
+  const heldEvents = () => f.store.events(100).filter(e => e.type === 'maintenance.held' && e.payload.jobId === job.id).length;
+  assert.equal(heldEvents(), 1);
+  await operationalTick(f.store);
+  assert.equal(heldEvents(), 1, 'raised once per reason');
+  assert.deepEqual(f.verifications(), []);
+  recordAttemptEnvironmentCheck(f.store, { status: 'same', checkedAt: new Date().toISOString(), serviceRunId: run.id, reasons: [], warnings: [] });
+  await operationalTick(f.store);
+  assert.equal(f.verifications().length, 1, 'it starts once the service finds no difference');
+  assert.equal(f.store.need('job', job.id).held, undefined, 'and the hold is cleared from the job');
+  // Maintenance that runs no project tool is not held.
+  for (const operation of ['maintenance.backup', 'retention.archive', 'machine.sample', 'queue.dispatch']) assert.equal(environmentFreeOperation(operation), true);
+  for (const operation of ['main.verify', 'target.sync', 'audit', 'forge.lifecycle', 'source.sync', 'integration:fictional']) assert.equal(environmentFreeOperation(operation), false);
+});
+
+test('while the start check is pending a scheduled main.verify waits; past the bound, or after an unverified result, it starts', async t => {
+  const f = maintenanceFixture(t), run = beginAttemptEnvironmentRun(f.store, { id: 'fictional-run', pendingUntil: new Date(Date.now() + 60_000).toISOString() });
+  f.schedule();
+  await operationalTick(f.store);
+  assert.deepEqual(f.verifications(), []);
+  assert.match(f.store.all('job').find(row => row.operation === 'main.verify').held.reason, /^attempt environment check pending/);
+  recordAttemptEnvironmentCheck(f.store, { status: 'unverified', checkedAt: new Date().toISOString(), serviceRunId: run.id, reason: 'fictional timeout', reasons: [], warnings: ['Could not check'] });
+  await operationalTick(f.store);
+  assert.equal(f.verifications().length, 1, 'an unverified result holds nothing');
 });

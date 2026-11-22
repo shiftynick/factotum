@@ -1,3 +1,4 @@
+import { attemptEnvironmentView } from './attempt-environment-record.mjs';
 import { assert, recordId } from '../core/contracts.mjs';
 import { publicAttempt, publicFlow, taskView } from '../core/project.mjs';
 import { recoveryHoldReason } from './recovery-hold.mjs';
@@ -86,7 +87,7 @@ export function stateView(store, { inbox: inboxId, flow: flowId, task: taskId } 
       queueHolds: queueHolds(store),
       // Flow slots: per pool the slots in use and free, flows parked on an answer and answered flows waiting for a slot.
       capacity: capacity(store),
-      health: { operationsFault: store.meta('operationsFault', null) ?? null, notifications: notificationHealth(store) },
+      health: { operationsFault: store.meta('operationsFault', null) ?? null, notifications: notificationHealth(store), attemptEnvironment: attemptEnvironmentView(store) },
       spending: pick(spending, ['enabled', 'available', 'globalHold', 'actualMicros', 'heldMicros', 'reason']),
       mainHealth: { ...pick(main, ['status', 'head', 'checkedAt', 'tier']), scheduled: main.scheduled ? pick(main.scheduled, ['status', 'head', 'failed']) : null },
       operatorPresence: operatorPresence(store).state ?? null,

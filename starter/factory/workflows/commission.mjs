@@ -5,7 +5,7 @@ import { setTargetHealth } from '../operations/targets.mjs';
 import { compileCatalog, commissionedGraphs } from '../core/catalog.mjs';
 import { modelDefaults, modelSettingsVersion, modelSettingsView, selectFlowModels } from '../operations/model-settings.mjs';
 import { unitDiagnostics } from '../operations/services.mjs';
-import { probeAttemptEnvironment } from '../operations/attempt-environment-probe.mjs';
+import { recordedAttemptEnvironment } from '../operations/attempt-environment-record.mjs';
 import { adoptionCheck } from '../distribution.mjs';
 import { readAnchor, recordAuthentication } from '../core/adoption-anchor.mjs';
 import { inspectGhBinary } from '../adapters/github/environment.mjs';
@@ -253,14 +253,16 @@ export async function doctor(stateDir, options = {}) {
 // onProgress(phase, detail) is told as doctor enters each long phase (the CLI prints it as
 // "doctor: [<phase>] <detail>", which upgrade apply reads back to say where a doctor it ran stopped):
 // "permit wait", "probe of <route> (<provider>/<model>)", "forge check", "checkout check" and
-// "main verification"; with the real providers also "attempt environment check".
+// "main verification".
 export const doctorProgressLine = (phase, detail = '') => `doctor: [${phase}] ${detail}`.trimEnd();
 // sandboxProbe: the offline Codex sandbox check (dev.91, O2). It runs the real `codex sandbox` only with
 // the real provider preflight; a caller that fakes the providers gives its own or none.
-// attemptEnvironmentProbe: whether an attempt unit resolves the service's node and git (dev.104,
-// operations/attempt-environment-probe.mjs). Like the sandbox check, it starts a real transient unit
-// only with the real provider preflight; a caller that fakes the providers gives its own or none.
-async function doctorScoped(stateDir, { providerPreflight = preflight, sandboxProbe = providerPreflight === preflight ? codexSandboxSpawnProbe : null, attemptEnvironmentProbe = providerPreflight === preflight ? probeAttemptEnvironment : null, forgeTransport, run = runProcess, resourceWaitMs = LEASE_HOLD_BOUND_MS, onResourceWait, onProgress, retryPauseMs = PROBE_RETRY_PAUSE_MS } = {}) {
+// attemptEnvironmentProbe: whether an attempt unit resolves the service's node and git. Since dev.105
+// the running project service checks it and records the result (operations/attempt-environment-record.mjs);
+// doctor reads that record, starts no unit and never refuses for it (a difference warns; the running
+// service's admission hold is what stops new work). Read only with the real provider
+// preflight, as before; a caller that fakes the providers gives its own or none.
+async function doctorScoped(stateDir, { providerPreflight = preflight, sandboxProbe = providerPreflight === preflight ? codexSandboxSpawnProbe : null, attemptEnvironmentProbe = providerPreflight === preflight ? recordedAttemptEnvironment : null, forgeTransport, run = runProcess, resourceWaitMs = LEASE_HOLD_BOUND_MS, onResourceWait, onProgress, retryPauseMs = PROBE_RETRY_PAUSE_MS } = {}) {
   // Every string doctor reports (progress, reasons, warnings, provider entries, the event) is
   // redacted whole with the known secrets: the environment's until the configuration is read, then
   // the configuration's too. A route, provider or model that equals a secret is removed with it.
@@ -288,9 +290,9 @@ async function doctorScoped(stateDir, { providerPreflight = preflight, sandboxPr
     assert(!missing.length,`Git identity missing or empty in factory scope: ${missing.join(', ')}. Set each with git config --local; global configuration is ignored.`);
     reasons.push(...unitDiagnostics(project, stateDir));
     // Checks and providers must run the service's node and git, not the user manager's.
+    // The project service checks this itself; doctor reads what it recorded, as warnings only.
     if (attemptEnvironmentProbe) {
-      progress('attempt environment check', 'which node and git an attempt unit runs');
-      const probed = await attemptEnvironmentProbe({ project, stateDir, run });
+      const probed = await attemptEnvironmentProbe({ project, stateDir, store });
       reasons.push(...probed.reasons); warnings.push(...probed.warnings); attemptEnvironment = probed.record;
     }
     // Running code must be the adopted release: an installed file that differs from the lock (edited,

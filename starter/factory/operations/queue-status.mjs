@@ -8,6 +8,7 @@ import { capacityView } from './capacity.mjs';
 import { contextProviderHold } from './admission.mjs';
 import { openContextTask } from './upkeep-tasks.mjs';
 import { tickProblems } from './tick-problems.mjs';
+import { attemptEnvironmentHold, attemptEnvironmentState } from './attempt-environment-record.mjs';
 
 // What stops the queue as a whole from moving, for the Queue tab: holds, qualification and
 // main health, plus whether admission is automatic and the last manual dispatch's outcome.
@@ -23,6 +24,11 @@ export function queueStatus(store, { nowMs = Date.now() } = {}) {
   if (store.meta('retentionHold')) holds.push({ kind: 'retention', text: 'A retention hold is in place; see Operations.' });
   if (store.meta('moneyHold', false)) holds.push({ kind: 'money', text: 'A spending overrun hold is in place; see Operations.' });
   if (delivery && !(store.meta('commissioning')?.ready && store.meta('commissioning')?.configDigest === store.meta('configDigest'))) holds.push({ kind: 'doctor', text: 'The current configuration has not passed doctor yet; run doctor.' });
+  // The project service's attempt-environment check found another node or git, or its start check
+  // is still pending (dev.105): new task flows and maintenance that runs the project's tools wait.
+  if (delivery) { const state = attemptEnvironmentState(store), held = attemptEnvironmentHold(store, state); if (held) holds.push(state.pending
+    ? { kind: 'attempt-environment', pending: true, times: [state.run.startedAt, state.run.pendingUntil], text: `The project service is checking which node and git attempt units run (started ${state.run.startedAt}); new work waits until it records a result, at most until ${state.run.pendingUntil}.` }
+    : { kind: 'attempt-environment', times: [state.record.checkedAt].filter(Boolean), text: `Attempt units resolve a different node or git than the project service (checked at ${state.record.checkedAt}), so no new task flow or maintenance that runs the project's tools is started: ${state.record.reasons[0] ?? 'see status health.attemptEnvironment'}. Running work continues. It lifts when the project service next finds no difference (it checks at each start and after a configuration change).` }); }
   const maxAge = config.policy?.mainHealthMaxAgeMs ?? 3600000, targets = projectTargets(store);
   for (const target of delivery ? targets : []) {
     for (const hold of targetSyncHolds(store, target)) holds.push({ kind:'target-sync', scope:'change', target, text:`${hold.from} → ${hold.into}: ${hold.reason}` });
