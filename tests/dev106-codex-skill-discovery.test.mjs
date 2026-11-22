@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { tmpdir, userInfo } from 'node:os';
 import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { createProviderAdapter, codexOperatorSkills, codexSkillRules, operatorSkillFolders, CODEX_SKILL_DISCOVERY, CODEX_SKILL_WALK_LIMITS } from '../starter/factory/adapters/providers/index.mjs';
+import { createProviderAdapter, assertWorktreeIsolation, WORKTREE_ISOLATION, codexOperatorSkills, codexSkillRules, operatorSkillFolders, CODEX_SKILL_DISCOVERY, CODEX_SKILL_WALK_LIMITS } from '../starter/factory/adapters/providers/index.mjs';
 import { digest } from '../starter/factory/core/contracts.mjs';
 import { doctor } from '../starter/factory/workflows/commission.mjs';
 import { Store, initProject } from '../starter/factory/core/store.mjs';
@@ -24,7 +24,7 @@ function fixture(t) {
   return { dir, repo, home, codexSkills: join(home, '.codex/skills'), agentSkills: join(home, '.agents/skills'), environment: { HOME: home, PATH: '/bin' } };
 }
 // Starts the adapter with a scripted transport: --version reports `version`; the model call is recorded, never made.
-async function invoke(f, version) {
+async function invoke(f, version, spec = {}) {
   const calls = [];
   const transport = async (binary, args, opts) => {
     calls.push(args);
@@ -34,7 +34,7 @@ async function invoke(f, version) {
     return { code: 0, stdout: events.map(e => JSON.stringify(e)).join('\n'), stderr: '' };
   };
   const adapter = createProviderAdapter({ transport, environment: f.environment });
-  const run = adapter.invoke({ provider: 'codex', model: 'fictional', role: 'builder', prompt: 'Fictional', timeoutMs: 60000, cwd: f.repo, artifactDir: join(f.dir, `artifacts-${calls.length}-${Math.random().toString(36).slice(2)}`) });
+  const run = adapter.invoke({ provider: 'codex', model: 'fictional', role: 'builder', prompt: 'Fictional', timeoutMs: 60000, ...spec, cwd: f.repo, artifactDir: join(f.dir, `artifacts-${calls.length}-${Math.random().toString(36).slice(2)}`) });
   return { run, calls, modelCalls: () => calls.filter(args => args.includes('--output-schema')) };
 }
 const disabledSkills = args => [...args.find((arg, i) => args[i - 1] === '-c' && arg.startsWith('skills.config=')).matchAll(/\{path="([^"]*)",enabled=false\}/g)].map(match => match[1]);
@@ -82,9 +82,15 @@ function codexFinds(root, { depth: maxDepth = 6, directories: maxDirectories = 2
 const assertCovers = (f, disabled) => { for (const root of [f.codexSkills, f.agentSkills]) for (const path of codexFinds(root)) assert.ok(disabled.includes(path), `${path} is loadable by Codex but not disabled`); };
 
 test('the rules are chosen by the Codex version: checked releases use Codex\'s own discovery, any other the conservative scan', () => {
-  assert.deepEqual(codexSkillRules('codex-cli 0.171.0'), { version: '0.171.0', rules: 'codex' });
-  assert.deepEqual(codexSkillRules('codex-cli 0.163.0'), { version: '0.163.0', rules: 'codex' });
+  assert.deepEqual(codexSkillRules('codex-cli 0.171.0'), { version: '0.171.0', reported: 'codex-cli 0.171.0', rules: 'codex' });
+  assert.equal(codexSkillRules('codex-cli 0.163.0').rules, 'codex');
   for (const version of ['codex-cli 0.172.0', 'codex-cli 0.162.0', 'fictional', '', undefined]) assert.equal(codexSkillRules(version).rules, 'conservative', String(version));
+  // Review fix: only the exact one-line output of a checked stable release counts. A prerelease, a
+  // custom build, any other suffix or prefix, and a wrapper's banner with the version on another
+  // line all get the conservative scan.
+  assert.equal(codexSkillRules('codex-cli 0.171.0\n').rules, 'codex');
+  for (const version of ['codex-cli 0.171.0-alpha.1', 'codex-cli 0.171.0-custom', 'codex-cli 0.171.0.1', 'codex-cli 0.171.0 (fictional build)', 'codex 0.171.0', 'fictional-codex-cli 0.171.0', 'codex-cli  0.171.0',
+    'wrapper 0.171.0\ncodex-cli 0.172.0', 'Fictional wrapper banner\ncodex-cli 0.171.0', 'codex-cli 0.171.0\ncodex-cli 0.172.0']) assert.equal(codexSkillRules(version).rules, 'conservative', version);
   assert.equal(CODEX_SKILL_DISCOVERY.depth, 6); assert.equal(CODEX_SKILL_DISCOVERY.directoriesPerRoot, 2000); assert.equal(CODEX_SKILL_DISCOVERY.entriesPerRoot, 20000);
   // Codex reads HOME, and the account's home folder when HOME is unset or empty; an empty CODEX_HOME is unset.
   assert.deepEqual(operatorSkillFolders({ HOME: '/fictional', CODEX_HOME: '' }), ['/fictional/.codex/skills', '/fictional/.agents/skills', '/etc/codex/skills']);
@@ -117,8 +123,29 @@ test('the reported layout: a linked skill with a deep scripts/node_modules tree 
     assert.ok(!disabled.includes(r.tooDeep), 'nothing below depth 6 is read');
     assertCovers(f, disabled);
   }
-  // A Codex version whose discovery has not been checked keeps the conservative scan: refused, saying why.
+  // A Codex version whose discovery has not been checked keeps the conservative scan: refused, saying
+  // why. So does a prerelease or custom build of a checked version, and a wrapper's banner (review fix).
+  await refusedFor(f, /Codex "codex-cli 0\.171\.0-alpha\.1" is not a version whose skill discovery the factory has checked/, 'codex-cli 0.171.0-alpha.1');
+  await refusedFor(f, /Codex "wrapper 0\.171\.0" is not a version whose skill discovery the factory has checked/, 'wrapper 0.171.0\ncodex-cli 0.172.0');
   await refusedFor(f, /Codex 0\.172\.0 is not a version whose skill discovery the factory has checked \(0\.163\.0 to 0\.171\.0\), so it scans the operator's skill folders conservatively: a skill folder deeper than 8 levels/, 'codex-cli 0.172.0');
+});
+
+// Review fix: Codex loads skills from plugins too, outside the operator's skill folders (configured in
+// any layer, an administrator's /etc/codex/config.toml included, or remote-installed). The plugins
+// feature off (--disable plugins) loads no plugin, so no plugin skill root, on every Codex call.
+test('every Codex call, fresh and resumed, read-only and builder, turns plugins off; a call without it is refused', async t => {
+  const f = fixture(t);
+  for (const spec of [{}, { sessionId: session }, { role: 'planner' }, { role: 'reviewer' }]) {
+    // The scripted result fits only the builder's schema; the call's arguments are what is checked.
+    const a = await invoke(f, 'codex-cli 0.171.0', spec); await a.run.catch(() => {});
+    assert.equal(a.modelCalls().length, 1, JSON.stringify(spec));
+    const args = a.modelCalls().at(-1);
+    assert.ok(args.some((arg, i) => arg === '--disable' && args[i + 1] === 'plugins'), `${JSON.stringify(spec)}: ${args.join(' ')}`);
+  }
+  assert.ok(WORKTREE_ISOLATION.codex.some((arg, i) => arg === '--disable' && WORKTREE_ISOLATION.codex[i + 1] === 'plugins'));
+  const without = ['exec', ...WORKTREE_ISOLATION.codex.filter((arg, i, all) => !(arg === '--disable' && all[i + 1] === 'plugins') && !(arg === 'plugins' && all[i - 1] === '--disable')), '-c', 'sandbox_workspace_write.writable_roots=["/w"]', '-c', 'projects={}', '-c', 'skills.config=[]'];
+  assert.throws(() => assertWorktreeIsolation('codex', without, { workingRoot: '/r', worktree: '/w' }), error => error.code === 'PROVIDER_REJECTED');
+  assert.doesNotThrow(() => assertWorktreeIsolation('codex', ['exec', ...WORKTREE_ISOLATION.codex, '-c', 'sandbox_workspace_write.writable_roots=["/w"]', '-c', 'projects={}', '-c', 'skills.config=[]'], { workingRoot: '/r', worktree: '/w' }));
 });
 
 test('every SKILL.md Codex would load is disabled: nested in a skill, at depth 6, through links, in each skill folder', async t => {

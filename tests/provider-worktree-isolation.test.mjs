@@ -84,7 +84,7 @@ test('every Codex step, fresh and resumed, runs from an empty working root outsi
     assert.equal(args[1] === 'resume', Boolean(sessionId), label);
     assert.ok(contiguous(args, ['--ignore-user-config', '--ignore-rules']), label);
     assert.ok(contiguous(args, WORKTREE_ISOLATION.codex), `${label}: ${args.join(' ')}`);
-    assert.deepEqual(WORKTREE_ISOLATION.codex, ['--disable', 'hooks', '--skip-git-repo-check', '-c', 'project_doc_max_bytes=0', '-c', 'skills.include_instructions=false', '-c', 'skills.bundled.enabled=false', '-c', 'project_root_markers=[]']);
+    assert.deepEqual(WORKTREE_ISOLATION.codex, ['--disable', 'hooks', '--disable', 'plugins', '--skip-git-repo-check', '-c', 'project_doc_max_bytes=0', '-c', 'skills.include_instructions=false', '-c', 'skills.bundled.enabled=false', '-c', 'project_root_markers=[]']);
     // The working root is a fresh, empty, private folder in the step's artifact folder, outside the worktree.
     const root = call.opts.cwd;
     assert.ok(root.startsWith(join(call.artifactDir, 'codex-root-')) && !root.startsWith(`${r.repo}/`) && root !== r.repo, `${label}: ${root}`);

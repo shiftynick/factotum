@@ -189,6 +189,9 @@ const claudeConfig=['--safe-mode','--setting-sources','','--disable-slash-comman
 //   discovered at all, whenever it was written; a $name or linked mention resolves only to a
 //   discovered skill. With --ignore-user-config and --ignore-rules (above):
 //   --disable hooks                     features.hooks off: no hook from any layer;
+//   --disable plugins                   features.plugins off: no plugin is loaded, configured
+//                                       (an administrator's /etc/codex/config.toml included) or
+//                                       remote-installed, so no plugin skill root (dev.106);
 //   --skip-git-repo-check               the working root is not a Git repository;
 //   -c project_doc_max_bytes=0          no AGENTS.override.md, AGENTS.md or fallback project document;
 //   -c skills.include_instructions=false  no skills catalog in the model's context;
@@ -210,7 +213,7 @@ const claudeConfig=['--safe-mode','--setting-sources','','--disable-slash-comman
 // The adapter fails closed: an invocation whose arguments or working root lack these is refused
 // before the CLI starts.
 export const WORKTREE_ISOLATION = Object.freeze({
-  codex: Object.freeze(['--disable','hooks','--skip-git-repo-check','-c','project_doc_max_bytes=0','-c','skills.include_instructions=false','-c','skills.bundled.enabled=false','-c','project_root_markers=[]']),
+  codex: Object.freeze(['--disable','hooks','--disable','plugins','--skip-git-repo-check','-c','project_doc_max_bytes=0','-c','skills.include_instructions=false','-c','skills.bundled.enabled=false','-c','project_root_markers=[]']),
   claude: Object.freeze(['--safe-mode','--setting-sources','','--disable-slash-commands']),
 });
 // The governance-edit change's name for the same flags (a step of a task approved to change
@@ -248,7 +251,13 @@ export const CODEX_SKILL_WALK_LIMITS = Object.freeze({ entries: 100000, skills: 
 // 2,000 folders in all, 4,096 entries in one folder or 256 skills.
 export const CODEX_SKILL_SCAN_LIMITS = Object.freeze({ depth: 8, directories: 2000, entries: 4096, skills: 256 });
 // The discovery rules the factory applies for a Codex version string, such as 'codex-cli 0.171.0'.
-export const codexSkillRules = version => { const v = String(version ?? '').match(/\b\d+\.\d+\.\d+\b/)?.[0] ?? null; return { version: v, rules: v && CODEX_SKILL_DISCOVERY.versions.includes(v) ? 'codex' : 'conservative' }; };
+// Only the exact output of a checked stable release counts: one line, `codex-cli <major.minor.patch>`.
+// A suffix (a prerelease or custom build), another line (a wrapper's banner) or anything else gets the
+// conservative scan.
+export const codexSkillRules = version => {
+  const text = String(version ?? '').trim(), v = text.match(/^codex-cli (\d+\.\d+\.\d+)$/)?.[1] ?? null;
+  return { version: v, reported: text.split('\n')[0].slice(0, 80), rules: v && CODEX_SKILL_DISCOVERY.versions.includes(v) ? 'codex' : 'conservative' };
+};
 const isolationRefused = message => new ProviderError(`${message}; the provider is not started, since it could load instructions the factory did not deliver`,{code:'PROVIDER_REJECTED'});
 // A TOML basic string. Paths with control characters or unpaired surrogates are refused, never escaped.
 function tomlString(text) {
@@ -348,11 +357,11 @@ export function operatorSkillFolders(environment = {}) {
 // rules for that version (codexSkillRules). Refuses (PROVIDER_REJECTED) past a bound. Doctor runs
 // the same scan to warn ahead of time.
 export async function codexOperatorSkills({ environment = {}, version } = {}) {
-  const { version: checked, rules } = codexSkillRules(version);
+  const { version: checked, reported, rules } = codexSkillRules(version);
   const found = { paths: new Set(), real: new Set() }, budget = { directories: 0, seen: new Set() };
   try { for (const folder of operatorSkillFolders(environment)) await (rules === 'codex' ? codexSkillWalk(folder, found) : skillFiles(folder, found, budget)); }
   catch (error) {
-    if (rules === 'conservative' && error instanceof ProviderError) error.message = `Codex ${checked ?? '(version unknown)'} is not a version whose skill discovery the factory has checked (${CODEX_SKILL_DISCOVERY.versions[0]} to ${CODEX_SKILL_DISCOVERY.versions.at(-1)}), so it scans the operator's skill folders conservatively: ${error.message}`;
+    if (rules === 'conservative' && error instanceof ProviderError) error.message = `Codex ${checked ?? (reported ? JSON.stringify(reported) : '(version unknown)')} is not a version whose skill discovery the factory has checked (${CODEX_SKILL_DISCOVERY.versions[0]} to ${CODEX_SKILL_DISCOVERY.versions.at(-1)}), so it scans the operator's skill folders conservatively: ${error.message}`;
     throw Object.assign(error, { skillRules: rules });
   }
   return { rules, version: checked, paths: [...found.paths].sort(), skills: found.real.size };

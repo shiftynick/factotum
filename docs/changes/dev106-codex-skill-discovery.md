@@ -104,6 +104,25 @@ So the smaller fix is the safe one now. A separate `CODEX_HOME`, which would als
 - `skills/.system/imagegen` is no longer expected in the disabled list (Codex never enters it, and `skills.bundled.enabled=false` drops its folder);
 - a link's own spelling is listed.
 
+## Review fixes
+
+An independent review (GPT-6.1 Sol) verified the discovery rules above against Codex's source: depth counting, links, hidden folders, the caps (the whole-level reading covers both), the roots, `HOME` and `.system`. It approved with two fixes, each now tested; both tests fail on the first commit of this change.
+
+**1. Only an exact checked release gets Codex's rules (medium).** `codexSkillRules` took the first three-part number anywhere in the `--version` output. So `codex-cli 0.171.0-alpha.1`, `codex-cli 0.171.0-custom`, or a wrapper's banner with `0.171.0` on its first line got the relaxed scan, although none of them is a checked release.
+- **Now:** the trimmed output must be exactly one line, `codex-cli <major>.<minor>.<patch>`, and the version must be in the checked list.
+- **Anything else** gets the conservative scan: a suffix, a prefix, a second line or a different program name. Its refusal quotes the first line of the output.
+
+**2. Plugin skills are turned off (high, present since dev.90).** Codex also loads skills from plugins, outside the three skill folders. The plugins feature was on, and `--ignore-user-config` leaves the system layer (`/etc/codex/config.toml`) in place. So a plugin enabled there, or a remote-installed plugin with a cached bundle, could load its skills.
+- **How Codex loads them:** it merges configured and remote-installed plugins (`core-plugins/src/loader.rs:152-190`) and loads each one's skill folders (`loader.rs:905-908`, `1071`). The session takes its plugin skill folders only from `PluginsManager::plugins_for_config` (`core/src/session/session.rs:596-604`, `session/turn_context.rs:1392`).
+- **The switch:** `plugins_for_config` returns no plugins when `plugins_enabled` is false (`core-plugins/src/manager.rs:994-997`). The cached skill snapshots are withheld too (`manager.rs:966-972`). `plugins_enabled` is the `plugins` feature (`core/src/config/mod.rs:1909-1914`), a stable feature on by default (`features/src/lib.rs:1930-1934`; `codex features list` on 0.171.0: `plugins  stable  true`).
+- **Now:** `--disable plugins` is part of the isolation flags (`WORKTREE_ISOLATION.codex`) on every Codex call, fresh and resumed. `--disable` sets the feature in the session-flags layer, above the user and system layers. `assertWorktreeIsolation` refuses an invocation without it.
+- **Versions:** at 0.163.0 the same holds: the feature (`features/src/lib.rs:1620-1623`), the gate (`manager.rs:821-823`), the config input (`config/mod.rs:1772`) and the session's use (`session/session.rs:650`). The feature definition, the gate and the config input are identical in every checked tag from 0.163.0 to 0.171.0.
+- **One limit, accepted as administrator policy:** a managed requirement can pin a feature (`requirements.toml` `[features]`, from `/etc/codex/requirements.toml` or a managed source). A pin overrides any other setting (`core/src/config/managed_features.rs:207-219`). An administrator who pins `plugins = true` therefore keeps plugins on. That is a policy the administrator sets for every Codex on the host, in the same trusted position as `/etc/codex/skills`; a candidate cannot write it.
+
+**A test that read the real home.** `tests/protocol-recordings.test.mjs` replays recorded streams with `environment: {}`. Since this change, an unset `HOME` means the account's home folder, as Codex resolves it, so that test scanned the build host's own skill folders. Its recorded `--version` (`0.163.0`, without `codex-cli`) is no longer a checked release's output, so the conservative scan refused on a host with a deep skill folder. The test now gives the adapter a fictional `HOME` inside its own temporary folder.
+
+**A known window, as before.** The scan runs while the invocation is built, and Codex reads the skill folders when it starts. A skill installed or relinked in the operator's folders between the two can be left enabled. This is an accepted limitation, the same as in dev.90: those folders are the operator's, and a candidate reaches them only through a process writing outside its worktree (see [containment](../runtime-followups.md#containment-of-builder-and-check-processes-p2)).
+
 ## What an adopter does
 
 Nothing on a checked Codex version: Codex steps that the scan refused now start. Run `doctor` after upgrading.

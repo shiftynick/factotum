@@ -54,6 +54,7 @@ The cost: a project whose Codex steps depended on a root `AGENTS.md` that is not
 | Codex | working directory: `<artifact folder>/codex-root-<random>` (new) | Every discovery from the worktree: repository skills, `AGENTS.md`, the project `.codex/` layer |
 | Codex | `--ignore-user-config --ignore-rules` (unchanged) | `$CODEX_HOME/config.toml` (and with it every project trust record), and user and project execpolicy `.rules` |
 | Codex | `--disable hooks` | `features.hooks`: "Enable lifecycle hooks loaded from `hooks.json` or inline `[hooks]` config". No hook loads from any layer |
+| Codex | `--disable plugins` (dev.106) | `features.plugins` off: no plugin, configured or remote-installed, is loaded, so no plugin skill root. See [dev.106](dev106-codex-skill-discovery.md#review-fixes) |
 | Codex | `--skip-git-repo-check` (new) | Codex's refusal to run outside a Git repository: the working root is not one |
 | Codex | `-c project_doc_max_bytes=0` | No `AGENTS.override.md`, `AGENTS.md` or fallback project document |
 | Codex | `-c skills.include_instructions=false` | "Include the automatic skills instructions in the model context": off, so no skills catalog |
@@ -224,6 +225,7 @@ This is right as defence in depth. The working root already keeps every Codex st
   - **Codex** runs from a fresh, empty working root outside the worktree, for every task, fresh and resumed. It works in the worktree by its path: the worktree is its writable root, and the prompt starts with `Repository: <worktree>`. So nothing in the worktree is discovered as skills, `AGENTS.md` or project configuration, whenever it was written.
   - **Codex flags:**
     - `--disable hooks`;
+    - `--disable plugins` (since dev.106);
     - `--skip-git-repo-check`;
     - `project_doc_max_bytes=0`;
     - `skills.include_instructions=false`;

@@ -12,6 +12,7 @@ import { createProviderAdapter, BUILD_SCHEMA, REVIEW_SCHEMA } from '../starter/f
 const recordings=fileURLToPath(new URL('../evals/recordings/',import.meta.url));
 const provenance=JSON.parse(await readFile(join(recordings,'provenance.json'),'utf8'));
 const help='--ignore-user-config --ignore-rules --disable --skip-git-repo-check --output-schema --json --model --config --safe-mode --setting-sources --disable-slash-commands --strict-mcp-config --mcp-config --json-schema --tools --restricted --permission-mode --permission-prompts';
+// A fictional HOME: with HOME unset, the skill-folder scan reads the account home, as Codex does (dev.106).
 function replayTransport(capture,stream) {
   // Deliberate test doubles: these preflight replies do not come from the recording
   // and establish no live authentication, isolation, billing or tool capability.
@@ -30,7 +31,7 @@ for(const capture of provenance.captures) {
     const events=stream.trim().split('\n').map(line=>JSON.parse(line));assert.equal(events.length,capture.events);
     const expected=capture.provider==='codex'?JSON.parse(events.find(event=>event.type==='item.completed').item.text):events.find(event=>event.type==='result').structured_output;
     const expectedSession=capture.provider==='codex'?events[0].thread_id:events[0].session_id;
-    const adapter=createProviderAdapter({transport:replayTransport(capture,stream),environment:{}});
+    const adapter=createProviderAdapter({transport:replayTransport(capture,stream),environment:{HOME:join(directory,"home")}});
     const receipt=await adapter.invoke({provider:capture.provider,model:capture.requestedModel,role:capture.role,prompt:'Replay only the recorded fictional protocol projection.',cwd:await workIn(directory),artifactDir:join(directory,'artifacts'),timeoutMs:60000,schema:capture.role==='builder'?BUILD_SCHEMA:REVIEW_SCHEMA});
     assert.equal(receipt.final,true);assert.equal(receipt.started,true);assert.equal(receipt.sessionId,expectedSession);assert.deepEqual(receipt.result,expected);
     assert.deepEqual(receipt.usage,capture.provider==='codex'?events.find(event=>event.type==='turn.completed').usage:events.find(event=>event.type==='result').usage);
@@ -57,6 +58,6 @@ test('observed final projections still require the provider completion boundary'
   const capture=provenance.captures.find(item=>item.provider==='codex');
   const stream=(await readFile(join(recordings,capture.file),'utf8')).trim().split('\n').filter(line=>JSON.parse(line).type!=='turn.completed').join('\n');
   const directory=await mkdtemp(join(tmpdir(),'factotum-incomplete-recording-'));t.after(()=>rm(directory,{recursive:true,force:true}));
-  const adapter=createProviderAdapter({transport:replayTransport(capture,stream),environment:{}});
+  const adapter=createProviderAdapter({transport:replayTransport(capture,stream),environment:{HOME:join(directory,"home")}});
   await assert.rejects(adapter.invoke({provider:'codex',model:capture.requestedModel,role:'builder',prompt:'Incomplete recorded projection.',cwd:await workIn(directory),artifactDir:join(directory,'artifacts'),timeoutMs:60000}),error=>error.code==='INVALID_RESULT'&&error.started&&!error.safeToRetry);
 });

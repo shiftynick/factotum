@@ -22,6 +22,8 @@ Includes dev.105. **The operator's Codex skill folders are now scanned the way C
   - a folder in Codex's reach that cannot be listed.
 - **Any other Codex version keeps the dev.90 scan**, which refuses past depth 8. Its refusal says that this version's discovery has not been checked.
 - **`HOME` unset.** The operator's folders are found as Codex finds them: the account's home folder is used when `HOME` is unset or empty.
+- **Only an exact checked release gets Codex's rules** (review fix). The `--version` output must be exactly `codex-cli <major.minor.patch>` with a checked version. A prerelease, a custom build or a wrapper's banner gets the conservative scan.
+- **Plugin skills are turned off** (review fix, a gap since dev.90). Every Codex step now passes `--disable plugins`. Before, a plugin enabled in `/etc/codex/config.toml`, or a remote-installed one, could load its skills from outside the skill folders. An administrator's managed requirement that pins `plugins = true` still wins; that is the administrator's policy.
 - **Doctor warns ahead of time.** For each Codex version its probes report, doctor runs the same scan and warns when it would refuse every Codex step. The warning names the folder, the bound and the remedy; it never blocks commissioning. New progress phase: `codex skill folder check`.
 
 **What to do.** Run `doctor` after upgrading; it warns if a skill folder would still refuse Codex steps. On a Codex newer than 0.171.0 the old scan applies: stay on a checked version until a release checks the new one, or keep large dependency trees out of the operator's skill folders. Drain before upgrading, as for any release.
@@ -36,6 +38,7 @@ Includes dev.105. **The operator's Codex skill folders are now scanned the way C
   - Codex's 2,000-folder and 20,000-entry caps;
   - the entry, skill and unreadable-folder bounds still refusing;
   - doctor's warning and remedy.
+  - review fixes: prerelease, custom and banner version outputs get the conservative scan, and every Codex call, fresh and resumed, for every role, passes `--disable plugins`.
 
 ## 0.2.0-dev.20261022.105
 
