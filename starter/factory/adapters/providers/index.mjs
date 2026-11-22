@@ -3,8 +3,9 @@ import { randomUUID } from 'node:crypto';
 import { usageObservation } from '../../operations/usage-accounting.mjs';
 import { limitSignals, exhausted } from '../../operations/provider-limits.mjs';
 import { spawn } from 'node:child_process';
-import { mkdir, mkdtemp, writeFile, readFile, chmod, opendir, realpath, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile, readFile, chmod, opendir, realpath, stat, lstat } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
+import { userInfo } from 'node:os';
 
 const object = properties => ({ type:'object', properties, required:Object.keys(properties), additionalProperties:false });
 const text = { type:'string' }, strings = { type:'array', items:text };
@@ -188,6 +189,9 @@ const claudeConfig=['--safe-mode','--setting-sources','','--disable-slash-comman
 //   discovered at all, whenever it was written; a $name or linked mention resolves only to a
 //   discovered skill. With --ignore-user-config and --ignore-rules (above):
 //   --disable hooks                     features.hooks off: no hook from any layer;
+//   --disable plugins                   features.plugins off: no plugin is loaded, configured
+//                                       (an administrator's /etc/codex/config.toml included) or
+//                                       remote-installed, so no plugin skill root (dev.106);
 //   --skip-git-repo-check               the working root is not a Git repository;
 //   -c project_doc_max_bytes=0          no AGENTS.override.md, AGENTS.md or fallback project document;
 //   -c skills.include_instructions=false  no skills catalog in the model's context;
@@ -198,7 +202,8 @@ const claudeConfig=['--safe-mode','--setting-sources','','--disable-slash-comman
 //                                       folder above them explicitly untrusted;
 //   -c skills.config=[{path=<SKILL.md>,enabled=false}, ...]  each of the operator's own skills
 //                                       ($CODEX_HOME/skills, $HOME/.agents/skills, /etc/codex/skills),
-//                                       found at invocation. These folders are the operator's, not the
+//                                       found at invocation as Codex discovers them (dev.106,
+//                                       codexOperatorSkills). These folders are the operator's, not the
 //                                       candidate's: a candidate reaches them only by a process writing
 //                                       outside its worktree, which no provider option can prevent.
 // - Claude Code: --safe-mode (CLAUDE.md, skills, plugins, hooks, MCP servers, custom commands and
@@ -208,17 +213,51 @@ const claudeConfig=['--safe-mode','--setting-sources','','--disable-slash-comman
 // The adapter fails closed: an invocation whose arguments or working root lack these is refused
 // before the CLI starts.
 export const WORKTREE_ISOLATION = Object.freeze({
-  codex: Object.freeze(['--disable','hooks','--skip-git-repo-check','-c','project_doc_max_bytes=0','-c','skills.include_instructions=false','-c','skills.bundled.enabled=false','-c','project_root_markers=[]']),
+  codex: Object.freeze(['--disable','hooks','--disable','plugins','--skip-git-repo-check','-c','project_doc_max_bytes=0','-c','skills.include_instructions=false','-c','skills.bundled.enabled=false','-c','project_root_markers=[]']),
   claude: Object.freeze(['--safe-mode','--setting-sources','','--disable-slash-commands']),
 });
 // The governance-edit change's name for the same flags (a step of a task approved to change
 // governing files requires them; every step now has them).
 export const WORKTREE_INSTRUCTION_SUPPRESSION = WORKTREE_ISOLATION;
 // The operator's own Codex skill folders, relative to the environment's CODEX_HOME (default
-// $HOME/.codex) and HOME, and the administrator's.
+// $HOME/.codex) and HOME, and the administrator's. Codex reads HOME, and the account's home folder
+// when HOME is unset (dirs::home_dir); CODEX_HOME counts only when set and not empty.
 export const OPERATOR_SKILL_FOLDERS = Object.freeze([['CODEX_HOME', 'skills'], ['HOME', '.agents/skills'], [null, '/etc/codex/skills']]);
-// Bounds on that scan: folder depth, folders read, entries in one folder, and distinct skills (by real path).
+// How Codex discovers skills in those folders, read from its source at every stable release tag from
+// rust-v0.163.0 to rust-v0.171.0, which agree (docs/changes/dev106-codex-skill-discovery.md):
+// - each folder is its own walk, breadth first, from the folder's real path; folder links are
+//   followed, and a folder already visited in that walk (by real path) is not read again;
+// - folders down to depth 6 are read (the skill folder is depth 0), so a SKILL.md at most 7 path
+//   parts below it is found; nothing deeper is read;
+// - a folder whose name starts with '.' is not entered (skills/.system is the bundled skills' own
+//   root, which skills.bundled.enabled=false removes);
+// - a walk stops queueing folders at 2,000 (the skill folder included) and stops at 20,000 entries;
+// - only a regular file named exactly SKILL.md is a skill (a link to a file is skipped); a skill
+//   folder is entered like any other, so a SKILL.md inside another skill is a skill too;
+// - a disabled path matches the skill's real path.
+// The factory reads at least what Codex reads, never less: it skips what Codex cannot reach, and
+// reads every folder of a level Codex might reach, so it does not depend on Codex's order within a
+// level. For a Codex version not in this list, the conservative scan below applies.
+export const CODEX_SKILL_DISCOVERY = Object.freeze({
+  versions: Object.freeze(['0.163.0', '0.164.0', '0.165.0', '0.166.0', '0.167.0', '0.167.1', '0.167.2', '0.168.0', '0.169.0', '0.169.1', '0.170.0', '0.171.0']),
+  depth: 6, directoriesPerRoot: 2000, entriesPerRoot: 20000,
+});
+// The factory's own bounds on that walk: entries read in each skill folder (more than Codex's cap,
+// because the factory reads whole levels; every folder read is an entry of the one above, so this
+// bounds the folders too), and distinct skills (by real path) in all.
+export const CODEX_SKILL_WALK_LIMITS = Object.freeze({ entries: 100000, skills: 256 });
+// The conservative scan, for a Codex version whose discovery has not been checked: every folder
+// whatever its name, any letter case of SKILL.md, links to files too, and a refusal past depth 8,
+// 2,000 folders in all, 4,096 entries in one folder or 256 skills.
 export const CODEX_SKILL_SCAN_LIMITS = Object.freeze({ depth: 8, directories: 2000, entries: 4096, skills: 256 });
+// The discovery rules the factory applies for a Codex version string, such as 'codex-cli 0.171.0'.
+// Only the exact output of a checked stable release counts: one line, `codex-cli <major.minor.patch>`.
+// A suffix (a prerelease or custom build), another line (a wrapper's banner) or anything else gets the
+// conservative scan.
+export const codexSkillRules = version => {
+  const text = String(version ?? '').trim(), v = text.match(/^codex-cli (\d+\.\d+\.\d+)$/)?.[1] ?? null;
+  return { version: v, reported: text.split('\n')[0].slice(0, 80), rules: v && CODEX_SKILL_DISCOVERY.versions.includes(v) ? 'codex' : 'conservative' };
+};
 const isolationRefused = message => new ProviderError(`${message}; the provider is not started, since it could load instructions the factory did not deliver`,{code:'PROVIDER_REJECTED'});
 // A TOML basic string. Paths with control characters or unpaired surrogates are refused, never escaped.
 function tomlString(text) {
@@ -226,8 +265,57 @@ function tomlString(text) {
   return `"${text.replace(/\\/g,'\\\\').replace(/"/g,'\\"')}"`;
 }
 const within = (path, root) => path === root || path.startsWith(root.endsWith('/') ? root : `${root}/`);
-// Every SKILL.md (any letter case) under a skill folder, following links as Codex does. Bounded:
-// a folder that cannot be read, or a tree past the bounds, refuses the invocation.
+// An entry's kind, following a link: 'directory', 'file', 'other', or null for a broken or
+// unreadable link.
+async function entryKind(path, entry) {
+  let item = entry;
+  if (![entry.isFile(), entry.isDirectory(), entry.isSymbolicLink(), entry.isFIFO(), entry.isSocket(), entry.isBlockDevice(), entry.isCharacterDevice()].some(Boolean)) { try { item = await lstat(path); } catch { return null; } }
+  if (!item.isSymbolicLink()) return item.isDirectory() ? 'directory' : item.isFile() ? 'file' : 'other';
+  try { const target = await stat(path); return target.isDirectory() ? 'directory' : target.isFile() ? 'file' : 'other'; } catch { return null; }
+}
+const addSkill = async (found, path, limit) => {
+  let real; try { real = await realpath(path); } catch (error) { throw isolationRefused(`${path} cannot be resolved (${error?.code ?? 'error'})`); }
+  // Both spellings are disabled; only distinct files count against the bound.
+  found.paths.add(path); found.paths.add(real); found.real.add(real);
+  if (found.real.size > limit) throw isolationRefused(`more than ${limit} skills in the operator's skill folders`);
+};
+// Every SKILL.md Codex can discover under one skill folder (CODEX_SKILL_DISCOVERY), and any other
+// SKILL.md (any letter case, or a link) in a folder it reads. Codex counts an entry before looking
+// at it and a folder when it queues it; the factory counts only what Codex counts, so it never stops
+// a level before Codex would.
+async function codexSkillWalk(root, found) {
+  const rules = CODEX_SKILL_DISCOVERY, own = CODEX_SKILL_WALK_LIMITS;
+  let rootReal;
+  try { if (!(await stat(root)).isDirectory()) return; rootReal = await realpath(root); }
+  catch (error) { if (['ENOENT','ENOTDIR'].includes(error?.code)) return; throw isolationRefused(`the skill folder ${root} cannot be listed (${error?.code ?? 'error'})`); }
+  const seen = new Set([rootReal]);
+  let level = [root], queued = 1, counted = 0, listed = 0;
+  for (let depth = 0; level.length; depth++) {
+    // Codex queues no folder below depth 6, nor any once it has queued 2,000.
+    const descend = depth < rules.depth && queued < rules.directoriesPerRoot, next = [];
+    for (const folder of level) {
+      let dir; try { dir = await opendir(folder); } catch (error) { throw isolationRefused(`the skill folder ${folder} cannot be listed (${error?.code ?? 'error'})`); }
+      const entries = [];
+      try { for await (const entry of dir) { if (++listed > own.entries) throw isolationRefused(`more than ${own.entries} entries to read in the skill folder ${root} within Codex's discovery bounds`); entries.push(entry); } }
+      catch (error) { await dir.close().catch(() => {}); if (error instanceof ProviderError) throw error; throw isolationRefused(`the skill folder ${folder} cannot be listed (${error?.code ?? 'error'})`); }
+      for (const entry of entries) {
+        const path = join(folder, entry.name), kind = await entryKind(path, entry);
+        if (kind === null) continue; // Codex omits a broken link and does not count it.
+        counted++;
+        if (kind === 'file') { if (entry.name.toLowerCase() === 'skill.md') await addSkill(found, path, own.skills); continue; }
+        if (kind !== 'directory' || !descend || entry.name.startsWith('.')) continue;
+        let real; try { real = await realpath(path); } catch (error) { throw isolationRefused(`${path} cannot be resolved (${error?.code ?? 'error'})`); }
+        if (seen.has(real)) continue; seen.add(real); next.push(path);
+      }
+    }
+    queued += next.length;
+    // Codex reads no entry of the next level once it has counted 20,000.
+    if (counted >= rules.entriesPerRoot) break;
+    level = next;
+  }
+}
+// The conservative scan (CODEX_SKILL_SCAN_LIMITS): every SKILL.md (any letter case) under a skill
+// folder, following links. A folder that cannot be read, or a tree past the bounds, refuses.
 async function skillFiles(root, found, budget, depth=0) {
   let dir;
   try { dir = await opendir(root); }
@@ -258,20 +346,37 @@ const ancestorsOf = path => { const out = []; for (let dir = path; ; dir = dirna
 // The per-invocation part of Codex's isolation: a fresh empty working root in the step's artifact
 // folder, outside the worktree, and the arguments that depend on it, the worktree and the
 // operator's skill folders.
-export async function codexWorktreeIsolation({ cwd, artifactDir, environment = {} }) {
+const accountHome = () => { try { return userInfo().homedir || null; } catch { return null; } };
+// The operator's skill folders for an environment, as Codex resolves them.
+export function operatorSkillFolders(environment = {}) {
+  const home = environment.HOME || accountHome(), codexHome = environment.CODEX_HOME || (home ? join(home, '.codex') : null);
+  const bases = { CODEX_HOME: codexHome, HOME: home };
+  return OPERATOR_SKILL_FOLDERS.flatMap(([base, folder]) => !base ? [folder] : bases[base] ? [join(bases[base], folder)] : []);
+}
+// Every SKILL.md a Codex of this version could load from the operator's skill folders, under the
+// rules for that version (codexSkillRules). Refuses (PROVIDER_REJECTED) past a bound. Doctor runs
+// the same scan to warn ahead of time.
+export async function codexOperatorSkills({ environment = {}, version } = {}) {
+  const { version: checked, reported, rules } = codexSkillRules(version);
+  const found = { paths: new Set(), real: new Set() }, budget = { directories: 0, seen: new Set() };
+  try { for (const folder of operatorSkillFolders(environment)) await (rules === 'codex' ? codexSkillWalk(folder, found) : skillFiles(folder, found, budget)); }
+  catch (error) {
+    if (rules === 'conservative' && error instanceof ProviderError) error.message = `Codex ${checked ?? (reported ? JSON.stringify(reported) : '(version unknown)')} is not a version whose skill discovery the factory has checked (${CODEX_SKILL_DISCOVERY.versions[0]} to ${CODEX_SKILL_DISCOVERY.versions.at(-1)}), so it scans the operator's skill folders conservatively: ${error.message}`;
+    throw Object.assign(error, { skillRules: rules });
+  }
+  return { rules, version: checked, paths: [...found.paths].sort(), skills: found.real.size };
+}
+export async function codexWorktreeIsolation({ cwd, artifactDir, environment = {}, version }) {
   let worktree; try { worktree = await realpath(cwd); } catch (error) { throw isolationRefused(`the working directory ${cwd} cannot be resolved (${error?.code ?? 'error'})`); }
   const root = await realpath(await mkdtemp(join(resolve(artifactDir), 'codex-root-')));
   await chmod(root, 0o700);
   if (within(root, worktree) || within(worktree, root)) throw isolationRefused(`the step's artifact folder ${artifactDir} is inside the worktree ${worktree} (or holds it), so Codex cannot be given a working root the worktree does not contain`);
-  const home = environment.HOME, codexHome = environment.CODEX_HOME || (home ? join(home, '.codex') : null);
-  const bases = { CODEX_HOME: codexHome, HOME: home };
-  const found = { paths: new Set(), real: new Set() }, budget = { directories: 0, seen: new Set() };
-  for (const [base, folder] of OPERATOR_SKILL_FOLDERS) { const from = base ? bases[base] : ''; if (base && !from) continue; await skillFiles(base ? join(from, folder) : folder, found, budget); }
+  const skills = await codexOperatorSkills({ environment, version });
   const untrusted = [...new Set([...ancestorsOf(root), ...ancestorsOf(worktree)])];
-  return { root, worktree, args: [
+  return { root, worktree, skillRules: skills.rules, args: [
     '-c', `sandbox_workspace_write.writable_roots=[${tomlString(worktree)}]`,
     '-c', `projects={${untrusted.map(dir => `${tomlString(dir)}={trust_level="untrusted"}`).join(',')}}`,
-    '-c', `skills.config=[${[...found.paths].sort().map(path => `{path=${tomlString(path)},enabled=false}`).join(',')}]`,
+    '-c', `skills.config=[${skills.paths.map(path => `{path=${tomlString(path)},enabled=false}`).join(',')}]`,
   ] };
 }
 // What the model is told about where it works, ahead of the factory's prompt (Codex only).
@@ -353,7 +458,7 @@ export function createProviderAdapter({ transport=runProcess, environment=proces
     await writeFile(schemaFile,JSON.stringify(schema),{mode:0o600});
     const readOnly=spec.role!=='builder'||spec.readOnly===true;
     let args;
-    const isolation = spec.provider==='codex' ? await codexWorktreeIsolation({ cwd: spec.cwd, artifactDir, environment: env }) : null;
+    const isolation = spec.provider==='codex' ? await codexWorktreeIsolation({ cwd: spec.cwd, artifactDir, environment: env, version: qualification.version }) : null;
     if(spec.provider==='codex') args=['exec',...(spec.sessionId?['resume']:[]),...codexConfig,...WORKTREE_ISOLATION.codex,...isolation.args,...(spec.effort?['-c',`model_reasoning_effort=${JSON.stringify(spec.effort)}`]:[]),'-c',`sandbox_mode="${readOnly?'read-only':'workspace-write'}"`,'--json','--model',spec.model,'--output-schema',schemaFile,...(spec.sessionId?[spec.sessionId]:[]),'-'];
     else args=[...claudeConfig,'--restricted','--print','--verbose','--output-format','stream-json','--model',spec.model,...(spec.effort?['--effort',spec.effort]:[]),'--json-schema',JSON.stringify(schema),'--permission-mode',readOnly?'plan':'acceptEdits','--permission-prompts','none','--tools',readOnly?'Read,Glob,Grep':'Read,Glob,Grep,Edit,Write,Bash','--allowedTools',readOnly?'Read,Glob,Grep':'Read,Glob,Grep,Edit,Write,Bash',...(spec.sessionId?['--resume',spec.sessionId]:[]),...(spec.maxTurns?['--max-turns',String(spec.maxTurns)]:[])];
     // Fail closed: no model step, of any task, runs without its provider's worktree isolation.

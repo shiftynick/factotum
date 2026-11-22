@@ -254,6 +254,22 @@ What the factory does (dev.91):
 - `sandbox_workspace_write.network_access=true` lifts the whole network filter, so the builder's commands get outbound network. It is not a safe default.
 - A permission profile (`default_permissions`, beta) with `network.enabled=true` and the experimental `network_proxy` feature, with no allowed domains, put commands in a network namespace where direct connections, DNS and UDP failed and the proxy refused every domain, while `spawnSync` worked. The docs say a profile must not be combined with `sandbox_mode` or `[sandbox_workspace_write]`, which the factory's isolation uses, and both features are pre-release. Adopting it would need its own isolation and qualification work; it is a [runtime follow-up](runtime-followups.md#codex-builders-a-sandbox-that-lets-node-start-child-processes-deferred-dev91).
 
+### Codex and the operator's skills
+
+Every Codex step disables each of the operator's own skills (`$CODEX_HOME/skills`, `$HOME/.agents/skills`, `/etc/codex/skills`) by path. To find them, the factory scans those folders before Codex starts ([provider worktree isolation](changes/provider-worktree-isolation.md)).
+
+- **A checked Codex version (0.163.0 to 0.171.0).** The scan follows Codex's own discovery ([dev.106](changes/dev106-codex-skill-discovery.md)): it reads folders down to depth 6, does not enter hidden folders, and follows folder links. A skill's own `node_modules` deeper than that is not read.
+- **Any other Codex version.** The conservative scan applies: every folder, refused past depth 8, 2,000 folders, 4,096 entries in one folder or 256 skills.
+- **Under either scan,** the step is refused before Codex starts in these cases:
+  - more entries in one skill folder than the factory reads (100,000 within Codex's reach);
+  - more than 256 skills;
+  - a folder in reach that cannot be listed.
+
+Such a refusal stops every Codex step on the host. `doctor` runs the same scan and warns ahead of time, naming the folder. The remedy:
+- move a large dependency tree out of the operator's skill folders;
+- remove the extra skills, or make the folder readable;
+- on an unchecked Codex version, install a checked one.
+
 ### Builders and provider configuration
 
 A task may change `.claude/`, `.codex/`, `.agents/` or `.mcp.json` content only when its `paths` declare it ([provider worktree isolation](changes/provider-worktree-isolation.md)). The builder's own CLI also limits what it will write, so the factory checks the declared paths against the builder's provider at admission (dev.91):

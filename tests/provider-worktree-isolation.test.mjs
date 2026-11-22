@@ -24,12 +24,12 @@ const events = {
   codex: [{ type: 'thread.started', thread_id: session }, { type: 'item.completed', item: { type: 'agent_message', text: JSON.stringify({ status: 'implemented', summary: 'Done' }) } }, { type: 'turn.completed', usage: { input_tokens: 1, output_tokens: 1 } }],
   claude: [{ type: 'result', subtype: 'success', is_error: false, session_id: session, usage: { input_tokens: 1, output_tokens: 1 }, structured_output: { status: 'implemented', summary: 'Done' } }],
 };
-function adapter(provider, { help = HELP, onModel, environment = ENVIRONMENT } = {}) {
+function adapter(provider, { help = HELP, onModel, environment = ENVIRONMENT, version = 'codex-cli 0.169.0' } = {}) {
   const calls = [];
   let artifactDir;
   const transport = async (binary, args, opts) => {
     calls.push({ args, opts, artifactDir });
-    if (args.includes('--version')) return { code: 0, stdout: provider === 'codex' ? 'codex-cli 0.169.0' : '2.1.325', stderr: '' };
+    if (args.includes('--version')) return { code: 0, stdout: provider === 'codex' ? version : '2.1.325', stderr: '' };
     if (args.includes('--help')) return { code: 0, stdout: help, stderr: '' };
     if (args.includes('status')) return { code: 0, stdout: provider === 'codex' ? 'Logged in using ChatGPT' : JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', subscriptionType: 'max' }), stderr: '' };
     onModel?.(args, opts);
@@ -84,7 +84,7 @@ test('every Codex step, fresh and resumed, runs from an empty working root outsi
     assert.equal(args[1] === 'resume', Boolean(sessionId), label);
     assert.ok(contiguous(args, ['--ignore-user-config', '--ignore-rules']), label);
     assert.ok(contiguous(args, WORKTREE_ISOLATION.codex), `${label}: ${args.join(' ')}`);
-    assert.deepEqual(WORKTREE_ISOLATION.codex, ['--disable', 'hooks', '--skip-git-repo-check', '-c', 'project_doc_max_bytes=0', '-c', 'skills.include_instructions=false', '-c', 'skills.bundled.enabled=false', '-c', 'project_root_markers=[]']);
+    assert.deepEqual(WORKTREE_ISOLATION.codex, ['--disable', 'hooks', '--disable', 'plugins', '--skip-git-repo-check', '-c', 'project_doc_max_bytes=0', '-c', 'skills.include_instructions=false', '-c', 'skills.bundled.enabled=false', '-c', 'project_root_markers=[]']);
     // The working root is a fresh, empty, private folder in the step's artifact folder, outside the worktree.
     const root = call.opts.cwd;
     assert.ok(root.startsWith(join(call.artifactDir, 'codex-root-')) && !root.startsWith(`${r.repo}/`) && root !== r.repo, `${label}: ${root}`);
@@ -103,13 +103,17 @@ test('every Codex step, fresh and resumed, runs from an empty working root outsi
 test("the operator's own Codex skills are disabled too, bundled ones by configuration", async t => {
   const dir = scratch(t), repo = join(dir, 'repo'); mkdirSync(repo); git(repo, 'init', '-q');
   const home = join(dir, 'home'), codexHome = join(dir, 'codex-home');
-  const own = [skill(join(codexHome, 'skills/mine'), 'mine'), skill(join(codexHome, 'skills/.system/imagegen'), 'imagegen'), skill(join(home, '.agents/skills/shared'), 'shared')];
+  const own = [skill(join(codexHome, 'skills/mine'), 'mine'), skill(join(home, '.agents/skills/shared'), 'shared')];
+  // skills/.system is the bundled skills' own root: Codex does not enter a hidden folder of the
+  // operator's skill folders, and skills.bundled.enabled=false removes that root (dev.106).
+  skill(join(codexHome, 'skills/.system/imagegen'), 'imagegen');
   symlinkSync(join(home, '.agents/skills/shared'), join(codexHome, 'skills/shared-alias'));
   const a = adapter('codex', { environment: { ...ENVIRONMENT, HOME: home, CODEX_HOME: codexHome } }); await a.invoke({ cwd: repo });
   const disabled = disabledSkills(a.modelCalls().at(-1).args);
   // Each skill by its real path (Codex matches a disabled path through links, checked with the
   // offline capture); a link's own spelling is listed when the scan reached the skill through it.
   for (const path of own) assert.ok(disabled.includes(path), path);
+  assert.ok(disabled.includes(join(codexHome, 'skills/shared-alias/SKILL.md')));
   assert.ok(contiguous(a.modelCalls().at(-1).args, ['-c', 'skills.bundled.enabled=false']));
   // CODEX_HOME defaults to $HOME/.codex.
   const plainHome = join(dir, 'plain-home'); const defaulted = skill(join(plainHome, '.codex/skills/default'), 'default');
@@ -135,12 +139,14 @@ test('every Claude Code step, fresh and resumed, starts in safe mode with no set
 test("the operator's skill folders are read within bounds, a folder's entries one at a time, each distinct skill counted once", async t => {
   const dir = scratch(t), repo = join(dir, 'repo'); mkdirSync(repo); git(repo, 'init', '-q');
   const home = join(dir, 'home'), environment = { ...ENVIRONMENT, HOME: home, CODEX_HOME: join(home, '.codex') };
-  const refused = async (pattern) => { const a = adapter('codex', { environment }); await assert.rejects(a.invoke({ cwd: repo }), error => error.code === 'PROVIDER_REJECTED' && !error.started && pattern.test(error.message)); assert.equal(a.modelCalls().length, 0); };
+  // The depth and per-folder entry bounds are the conservative scan's, for a Codex version whose
+  // discovery has not been checked (dev.106; tests/dev106-codex-skill-discovery.test.mjs has the rest).
+  const refused = async (pattern, version = 'codex-cli 0.172.0') => { const a = adapter('codex', { environment, version }); await assert.rejects(a.invoke({ cwd: repo }), error => error.code === 'PROVIDER_REJECTED' && !error.started && pattern.test(error.message)); assert.equal(a.modelCalls().length, 0); };
   // The operator's skill folders are read within bounds; past one, the step is refused rather than
   // leaving a skill enabled. Depth:
   let deep = join(home, '.agents/skills'); for (let i = 0; i <= CODEX_SKILL_SCAN_LIMITS.depth; i++) deep = join(deep, `d${i}`);
   skill(deep, 'deep');
-  await refused(/deeper than 8 levels/);
+  await refused(/Codex 0\.172\.0 is not a version whose skill discovery the factory has checked .*deeper than 8 levels/);
   rmSync(join(home, '.agents/skills/d0'), { recursive: true });
   // Entries in one folder (read one at a time, never all at once):
   const crowded = join(home, '.codex/skills/crowded'); mkdirSync(crowded, { recursive: true });
@@ -150,7 +156,7 @@ test("the operator's skill folders are read within bounds, a folder's entries on
   // A folder that cannot be listed (skipped when running as root, which can list it anyway).
   if (process.getuid?.() !== 0) {
     const locked = join(home, '.agents/skills/locked'); mkdirSync(locked); chmodSync(locked, 0o000);
-    try { await refused(/cannot be listed \(EACCES\)/); } finally { chmodSync(locked, 0o700); }
+    try { await refused(/cannot be listed \(EACCES\)/); await refused(/cannot be listed \(EACCES\)/, 'codex-cli 0.169.0'); } finally { chmodSync(locked, 0o700); }
   }
   // Aliases do not count against the bound: as many links as skills, at the bound, is accepted.
   const many = join(dir, 'many-home');

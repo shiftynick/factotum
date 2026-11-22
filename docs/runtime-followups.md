@@ -57,6 +57,17 @@ Found while closing the Codex follow-up above ([provider worktree isolation](cha
 
 This needs a design: provider CLIs need their login and caches, toolchains need parts of the home, and the factory's own reconciliation must keep working. Until then, the factory's isolation holds against candidate content, not against a candidate process that targets the operator's account.
 
+## Codex: a separate `CODEX_HOME` for factory steps (dev.106)
+
+Found while fixing the third adopter's skill-folder report ([dev.106](changes/dev106-codex-skill-discovery.md)). Every Codex step uses the operator's own `CODEX_HOME`. The factory disables each operator skill by path, after scanning the folders the way Codex discovers skills. `$CODEX_HOME/AGENTS.md` is still loaded (see [containment](#containment-of-builder-and-check-processes-p2)).
+
+A separate `CODEX_HOME` holding only the login and the factory's settings would put `$CODEX_HOME/skills` and `AGENTS.md` out of reach. It needs a design for three things:
+- **The login.** Codex saves `auth.json` by writing a new file and renaming it over the old one, so neither a link nor a copy survives a token refresh without forking the refresh token.
+- **Resumed sessions.** `codex exec resume` reads `$CODEX_HOME/sessions`.
+- **Skill folders outside it.** `$HOME/.agents/skills` and `/etc/codex/skills` are outside `CODEX_HOME`, so the scan stays needed either way.
+
+**Also:** each new Codex release needs its skill discovery checked against its source before the factory applies Codex's rules to it. Until then, that version gets the conservative dev.90 scan, which refuses past depth 8.
+
 ## Codex builders: a sandbox that lets Node start child processes (deferred, dev.91)
 
 Found in the dev.90 re-test ([dev.91 O items, O2](changes/dev91-o-items.md#o2-codexs-sandbox-and-node-child-processes)). On some Linux hosts Codex's `workspace-write` sandbox denies `shutdown(2)` and `getsockopt(2)` even on a local socket pair. So Node's `spawnSync`, `execSync` and `execFileSync` with a piped stdin fail with `EPERM` inside a Codex build, and so do the project's own checks that start processes that way. dev.91 makes this visible: doctor warns, the builder is told the factory's checks decide, and a sandbox-blocked build question says so. The docs recommend a Claude builder for such projects.
