@@ -56,6 +56,8 @@ npm run eval
 node evals/run.mjs --systemd
 ```
 
+`npm test` (`tests/run.mjs`) runs the suite in its own transient systemd user service when `systemd-run --user` works, so that a host which kills processes in the shell's process tree (seen from agent sessions) cannot reach it; elsewhere, or with `FACTOTUM_TEST_DIRECT=1`, it runs as a child process. See [changes/test-suite-external-kills.md](changes/test-suite-external-kills.md).
+
 Tests use real temporary SQLite databases and supervised processes. They exercise controller SIGKILL/restart, one-time settlement, missing receipts, stop/revocation, stale decisions, evidence identity, safe restore, protocol compatibility and console recovery. Each creates its own disposable project and state.
 
 The evaluation installs the entire starter into two independent temporary Git repositories: a JavaScript task persistence module and a Python task CLI. It proves the baseline passes, the requested feature initially fails, and the feature passes after the synthetic implementation. Both projects deliberately share local task/flow IDs and use different project identities. Their final answers travel through the shared console and remain scoped to one project.
