@@ -2,6 +2,20 @@
 
 Date: 2026-10-22. Target: one trusted Linux account, local project sockets, GitHub, and subscription-backed Codex/Claude CLIs. This record separates executed observations from adapter contracts and installation prerequisites. "The main thread" and "the parent" below mean the coordinating agent session; see [how the change records were written](changes/README.md#how-these-records-were-written).
 
+## Codex skill discovery release, 2026-11-22
+
+Dev.106 passed **2,031 tests, zero failures and one skip** on its first full run, plus both fictional process-evaluation projects and the shared console (`npm run eval`).
+
+- **Manifest:** `c6397d12bec2483022e9d3f601af6077df26c755db894939304838109784b419`.
+- **Payload:** `7154c4991ca9ef2b98e52dff8fd8d94b61465b3dec6d8ecbbf20ff9f38284030`.
+- **Source:** built from clean commit `a8b9445d3765899e68ef3623864c79f3c5397322`, with no test files in the payload.
+- **Install check:** the release's own CLI adopted it at the root and under a prefix. `adopt status` was clean and authenticated in both.
+- **Codex evidence:** discovery rules read from Codex's public source for 0.163.0 to 0.171.0, checked again by the reviewer; see [the change note](changes/dev106-codex-skill-discovery.md).
+
+**Not qualified:**
+- a real Codex step on a host with a deep operator skill (tests use scripted transports);
+- the doctor skill-scan warning on a real host.
+
 ## Service environment check release, 2026-11-21
 
 Dev.105 passed **2,024 tests, zero failures and one skip** on its first full run, with the suite in its own user service, plus both fictional process-evaluation projects and the shared console (`npm run eval`).
