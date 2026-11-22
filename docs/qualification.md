@@ -2,6 +2,19 @@
 
 Date: 2026-10-22. Target: one trusted Linux account, local project sockets, GitHub, and subscription-backed Codex/Claude CLIs. This record separates executed observations from adapter contracts and installation prerequisites. "The main thread" and "the parent" below mean the coordinating agent session; see [how the change records were written](changes/README.md#how-these-records-were-written).
 
+## Service environment check release, 2026-11-21
+
+Dev.105 passed **2,024 tests, zero failures and one skip** on its first full run, with the suite in its own user service, plus both fictional process-evaluation projects and the shared console (`npm run eval`).
+
+- **Manifest:** `bb310b88edaa5ff10c4b30767b2610c564249a649e75d619334e75d08935a326`.
+- **Payload:** `ffa59be25b85f43a9099e7d9944936052a6454750a67afd9f499f2d63366c13b`.
+- **Source:** built from clean commit `5bd8024b05e139a7b95a403b4c79800bfab2c67d`, with no test files in the payload.
+- **Install check:** the release's own CLI adopted it at the root and under a prefix. `adopt status` was clean and authenticated in both.
+
+**Not qualified:**
+- the service's start-time check against a real systemd user manager (tests use stand-ins);
+- the upgrade path on an adopter host.
+
 ## Attempt environment release, 2026-11-21
 
 Dev.104 passed 2,001 tests with three failures and one skip in a full run on a heavily loaded host; the three failing files passed alone (41 of 41). Both fictional process-evaluation projects and the shared console passed (`npm run eval`).
