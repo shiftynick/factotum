@@ -84,6 +84,7 @@ The cost: a project whose Codex steps depended on a root `AGENTS.md` that is not
     - a folder holds more than 4096 entries (entries are read one at a time, so a huge folder is never read whole);
     - the scan goes deeper than 8 levels or reads more than 2000 folders;
     - there are more than 256 distinct skills, counted by real path, so a link to a skill is not a second one.
+    - Since dev.106 these bounds apply only to a Codex version whose skill discovery has not been checked. For a checked version, the scan follows Codex's own discovery: depth 6, no hidden folders, and its 2,000-folder and 20,000-entry caps. See [dev.106](dev106-codex-skill-discovery.md).
 - **Every invocation.** `assertWorktreeIsolation` checks the arguments and the working root before the CLI starts. Codex needs:
   - the static flags;
   - the writable root, the untrusted projects and the disabled skills;

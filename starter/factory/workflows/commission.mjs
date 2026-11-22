@@ -14,7 +14,7 @@ import { validateConfig } from '../core/configuration.mjs';
 import { assert, digest, now, uid } from '../core/contracts.mjs';
 import { executeCommand, blocksDrain } from '../core/project.mjs';
 import { createGitHub, createGhTransport } from '../adapters/github/index.mjs';
-import { preflight, runProcess, ProviderError, PREFLIGHT_CALL_TIMEOUT_MS, PREFLIGHT_CALLS, codexSandboxSpawnProbe } from '../adapters/providers/index.mjs';
+import { preflight, runProcess, ProviderError, PREFLIGHT_CALL_TIMEOUT_MS, PREFLIGHT_CALLS, codexSandboxSpawnProbe, codexOperatorSkills, subscriptionEnvironment, CODEX_SKILL_DISCOVERY } from '../adapters/providers/index.mjs';
 import { knownSecrets } from '../operations/known-secrets.mjs';
 import { outputExcerpt } from '../core/command-failure.mjs';
 import { redactSecretText, redactSecretValues } from '../core/redact.mjs';
@@ -252,24 +252,28 @@ export async function doctor(stateDir, options = {}) {
 }
 // onProgress(phase, detail) is told as doctor enters each long phase (the CLI prints it as
 // "doctor: [<phase>] <detail>", which upgrade apply reads back to say where a doctor it ran stopped):
-// "permit wait", "probe of <route> (<provider>/<model>)", "forge check", "checkout check" and
-// "main verification".
+// "permit wait", "probe of <route> (<provider>/<model>)", "codex sandbox check", "codex skill folder
+// check", "forge check", "checkout check" and "main verification".
 export const doctorProgressLine = (phase, detail = '') => `doctor: [${phase}] ${detail}`.trimEnd();
 // sandboxProbe: the offline Codex sandbox check (dev.91, O2). It runs the real `codex sandbox` only with
 // the real provider preflight; a caller that fakes the providers gives its own or none.
+// skillFolderCheck: the scan of the operator's Codex skill folders that every Codex step makes before
+// it starts (dev.106), run once for each Codex version the probes found, to warn when a folder would
+// refuse every Codex step. Run on this host's folders only with the real provider preflight; a caller
+// that fakes the providers gives its own or none.
 // attemptEnvironmentProbe: whether an attempt unit resolves the service's node and git. Since dev.105
 // the running project service checks it and records the result (operations/attempt-environment-record.mjs);
 // doctor reads that record, starts no unit and never refuses for it (a difference warns; the running
 // service's admission hold is what stops new work). Read only with the real provider
 // preflight, as before; a caller that fakes the providers gives its own or none.
-async function doctorScoped(stateDir, { providerPreflight = preflight, sandboxProbe = providerPreflight === preflight ? codexSandboxSpawnProbe : null, attemptEnvironmentProbe = providerPreflight === preflight ? recordedAttemptEnvironment : null, forgeTransport, run = runProcess, resourceWaitMs = LEASE_HOLD_BOUND_MS, onResourceWait, onProgress, retryPauseMs = PROBE_RETRY_PAUSE_MS } = {}) {
+async function doctorScoped(stateDir, { providerPreflight = preflight, sandboxProbe = providerPreflight === preflight ? codexSandboxSpawnProbe : null, skillFolderCheck = providerPreflight === preflight ? codexOperatorSkills : null, attemptEnvironmentProbe = providerPreflight === preflight ? recordedAttemptEnvironment : null, forgeTransport, run = runProcess, resourceWaitMs = LEASE_HOLD_BOUND_MS, onResourceWait, onProgress, retryPauseMs = PROBE_RETRY_PAUSE_MS } = {}) {
   // Every string doctor reports (progress, reasons, warnings, provider entries, the event) is
   // redacted whole with the known secrets: the environment's until the configuration is read, then
   // the configuration's too. A route, provider or model that equals a secret is removed with it.
   let secrets = knownSecrets({});
   const progress = (phase, detail = '') => { try { onProgress?.(redactSecretText(phase, secrets), redactSecretText(detail, secrets)); } catch {} };
   const runGit = async (args, options) => { const prepared = await prepareGitInvocation(args, { cwd: options.cwd, env: options.env }); return run('git', prepared.args, { ...options, env: prepared.env }); };
-  const store = new Store(stateDir); const checkedConfigDigest = store.meta('configDigest'), checkedModelVersion = modelSettingsVersion(store); const checkedAt = now(), reasons = [], warnings = [], providers = {}; let gh = {}; let config, mainHealth, codexSandbox = null, attemptEnvironment = null;
+  const store = new Store(stateDir); const checkedConfigDigest = store.meta('configDigest'), checkedModelVersion = modelSettingsVersion(store); const checkedAt = now(), reasons = [], warnings = [], providers = {}; let gh = {}; let config, mainHealth, codexSandbox = null, attemptEnvironment = null; const codexVersions = new Set();
   try {
     assert(!store.live('flow').some(f => blocksDrain(store, f)), 'doctor requires drained or abandoned flows (task flows waiting on a question may stay)');
     assert(store.live('attempt').every(a => a.settledAt || ['passed','failed','not-dispatched','aborted'].includes(a.status)), 'doctor requires reconciled attempts');
@@ -318,7 +322,7 @@ async function doctorScoped(stateDir, { providerPreflight = preflight, sandboxPr
       const attempts = [];
       for (let attempt = 1; ; attempt++) {
         progress(`probe of ${route} (${spec.provider}/${spec.model})`, `attempt ${attempt} of ${PROBE_ATTEMPTS}`);
-        try { const result = await providerPreflight(spec); accept(result); return { result, ...(attempts.length ? { retry: { attempts: attempts.length + 1, firstFailure: attempts[0].failure, firstError: attempts[0].error } } : {}) }; }
+        try { const result = await providerPreflight(spec); accept(result); if (spec.provider === 'codex' && typeof result?.version === 'string') codexVersions.add(result.version); return { result, ...(attempts.length ? { retry: { attempts: attempts.length + 1, firstFailure: attempts[0].failure, firstError: attempts[0].error } } : {}) }; }
         catch (error) {
           const failed = probeFailure(error, secrets); attempts.push(failed);
           if (attempt < PROBE_ATTEMPTS && failed.transient) { await new Promise(resolve => setTimeout(resolve, retryPauseMs)); continue; }
@@ -359,6 +363,19 @@ async function doctorScoped(stateDir, { providerPreflight = preflight, sandboxPr
       codexSandbox = sandbox;
       if (sandbox?.spawn === 'refused') warnings.push(`Codex's workspace-write sandbox on this host refuses part of process handling: Node's spawnSync with a piped stdin failed with ${sandbox.error} under codex sandbox. A Codex builder's own runs of project checks that start processes this way (node --test suites that spawn a CLI, execSync, …) fail inside its sandbox; the factory's fast checks, gate and main verification run outside it and decide. For a project whose checks start processes, prefer a Claude builder (providers.builder, or task.models for one task). See docs/running.md, "Codex builders and the sandbox"`);
       else if (sandbox?.spawn === 'unknown') warnings.push(`The Codex sandbox check could not run (${sandbox.detail ?? 'no detail'}); whether a Codex builder can run the project's process-starting checks inside its sandbox is unknown`);
+    }
+    // Every Codex step first scans the operator's skill folders and is refused past a bound
+    // (adapters/providers, codexOperatorSkills), so one such folder stops all Codex work on this host.
+    // Doctor runs the same scan and warns, naming the folder; it never blocks commissioning.
+    if (skillFolderCheck) for (const version of codexVersions) {
+      progress('codex skill folder check', `the operator's skill folders under Codex ${version}'s discovery rules`);
+      try { await skillFolderCheck({ environment: subscriptionEnvironment(process.env), version }); }
+      catch (error) {
+        const remedy = error?.skillRules === 'conservative'
+          ? `Install a Codex version whose skill discovery the factory has checked (${CODEX_SKILL_DISCOVERY.versions[0]} to ${CODEX_SKILL_DISCOVERY.versions.at(-1)}), or remove the cause from the folder named`
+          : `Remove the cause from the folder named: move a large dependency tree (such as a skill's node_modules) out of the operator's skill folders, remove the extra skills, or make the folder readable`;
+        warnings.push(`Every Codex step on this host will be refused before it starts: ${String(error?.message ?? error)}. ${remedy}, then check again with doctor. See docs/running.md, "Codex and the operator's skills"`);
+      }
     }
     progress('forge check', `GitHub repository ${config.repository.slug}`);
     const transport = forgeTransport ?? createGhTransport({ account: config.repository.account, hostname: config.repository.hostname, ghPath: config.repository.ghPath });

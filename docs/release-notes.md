@@ -2,6 +2,41 @@
 
 Development builds of the reference implementation. Each entry lists changes an adopter needs to act on. "The main thread" in review notes is the coordinating agent session; see [how the change records were written](changes/README.md#how-these-records-were-written).
 
+## 0.2.0-dev.20261022.106
+
+Includes dev.105. **The operator's Codex skill folders are now scanned the way Codex discovers skills.** Reported by the third adopter: an operator skill linked into `$CODEX_HOME/skills` bundles its dependencies in `scripts/node_modules`, deeper than the scan's 8-level bound. So the factory refused every Codex step on that host, in every project, and the adopter's first task stopped at plan review. Codex itself never reads that deep. Nothing to migrate; queued tasks need no re-approval.
+
+**Fixed** See [the change record](changes/dev106-codex-skill-discovery.md), which cites Codex's source for each rule.
+
+- **Codex's own rules, for the Codex versions checked (0.163.0 to 0.171.0).** Read from Codex's source at every stable tag in that range, which all agree:
+  - each skill folder is its own breadth-first walk;
+  - folders deeper than depth 6 are not read, and hidden folders are not entered;
+  - folder links are followed;
+  - a walk stops at 2,000 folders or 20,000 entries;
+  - every `SKILL.md` reached is a skill, including one inside another skill.
+
+  The factory now skips what Codex cannot reach and reads at least everything Codex can, so depth no longer refuses a step. The reported layout starts Codex with that skill disabled.
+- **Bounds that still refuse:**
+  - more than 100,000 entries read in one skill folder (a normal folder stays far below it under Codex's caps);
+  - more than 256 skills;
+  - a folder in Codex's reach that cannot be listed.
+- **Any other Codex version keeps the dev.90 scan**, which refuses past depth 8. Its refusal says that this version's discovery has not been checked.
+- **`HOME` unset.** The operator's folders are found as Codex finds them: the account's home folder is used when `HOME` is unset or empty.
+- **Doctor warns ahead of time.** For each Codex version its probes report, doctor runs the same scan and warns when it would refuse every Codex step. The warning names the folder, the bound and the remedy; it never blocks commissioning. New progress phase: `codex skill folder check`.
+
+**What to do.** Run `doctor` after upgrading; it warns if a skill folder would still refuse Codex steps. On a Codex newer than 0.171.0 the old scan applies: stay on a checked version until a release checks the new one, or keep large dependency trees out of the operator's skill folders. Drain before upgrading, as for any release.
+
+**Validation**
+
+- **Local validation:** TBD.
+- **Review:** TBD.
+- **New tests:** `tests/dev106-codex-skill-discovery.test.mjs`, with a scripted transport and a transcription of Codex's discovery that every fixture is checked against:
+  - the reported layout under 0.171.0, 0.169.0 and 0.163.0 (started, skill disabled), and refused under 0.172.0;
+  - a nested skill, one at depth 6, one at depth 7 reached at depth 2 through a link, and one reached only through another skill folder's link, all disabled;
+  - Codex's 2,000-folder and 20,000-entry caps;
+  - the entry, skill and unreadable-folder bounds still refusing;
+  - doctor's warning and remedy.
+
 ## 0.2.0-dev.20261022.105
 
 Includes dev.104. **The project service now checks its own attempt environment, and doctor reads the result.** Reported by the first adopter of dev.104: an upgrade could never verify doctor's attempt-environment probe. `upgrade apply` stops the service before doctor runs, so the probe found no running service and reported unverified; with the service up, a console doctor was refused because doctor had already passed; and a CLI doctor needs the service stopped. Nothing to migrate; queued tasks need no re-approval.
