@@ -30,8 +30,8 @@ Includes dev.105. **The operator's Codex skill folders are now scanned the way C
 
 **Validation**
 
-- **Local validation:** TBD.
-- **Review:** TBD.
+- **Local validation:** **2,031 tests passed**, zero failures, one skip, on the first full run after the merge. The skipped test needs the external Unicode source. Both fictional process evaluations and the shared console passed.
+- **Review:** independently reviewed by GPT-6.1 Sol, which checked the cited Codex rules against the source itself. Its two findings were fixed: the version gate now accepts only an exact stable `codex-cli x.y.z` line, and plugins (which could bring skills from their cache past the scan; this predates dev.106) are now disabled on every Codex call with `--disable plugins`. Accepted limits: a managed requirement pinning `plugins = true` is the administrator's policy, and a skill installed between the scan and Codex's start can stay enabled.
 - **New tests:** `tests/dev106-codex-skill-discovery.test.mjs`, with a scripted transport and a transcription of Codex's discovery that every fixture is checked against:
   - the reported layout under 0.171.0, 0.169.0 and 0.163.0 (started, skill disabled), and refused under 0.172.0;
   - a nested skill, one at depth 6, one at depth 7 reached at depth 2 through a link, and one reached only through another skill folder's link, all disabled;
