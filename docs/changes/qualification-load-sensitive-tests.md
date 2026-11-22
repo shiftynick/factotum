@@ -26,6 +26,8 @@ The suite's own signalling (`runProcess`, the supervisor's group and descendant 
 
 Neither failure needs a Factotum change. Release qualification runs should run where host tooling does not terminate child processes. The stress runs below used `systemd-run --user`.
 
+**Update (2026-11-21).** The same external `SIGKILL`s were reproduced and measured again in [test-suite-external-kills.md](test-suite-external-kills.md): 9 of 11 full runs from an agent shell lost processes, and 0 of 9 did as user services. Since then `tests/run.mjs` runs the suite in its own transient user service whenever `systemd-run --user` is available, so `npm test` no longer needs to be moved out of the agent's process tree by hand.
+
 ## Causes and fixes
 
 | # | Test | Cause | Fix |

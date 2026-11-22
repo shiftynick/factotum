@@ -187,7 +187,11 @@ test('workspace setup in a main.verify is cut to the step\'s time left, so a han
 
 // A check that starts a process holding its stdout open, then exits: `kind` 'group' stays in the
 // check's process group, 'escaped' starts its own session (setsid), out of the runner's reach.
-const holder = (id, kind, pidFile) => ({ id, ...node(`const { spawn } = require('node:child_process'); const c = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 600000)'], { stdio: ['ignore', 'inherit', 'inherit'], detached: ${kind === 'escaped'} }); require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(c.pid)); console.log('started a helper'); process.exit(0);`, { timeoutMs: 8000 }) });
+// Its timeout is far above the bound the tests assert (half of it), so finishing within the bound
+// proves the verifier did not wait for the timeout however slowly the host starts Node. The 2 s exit
+// grace itself is proven by the recorded evidence.
+const HOLDER_TIMEOUT_MS = 60000, HOLDER_BOUND_MS = HOLDER_TIMEOUT_MS / 2;
+const holder = (id, kind, pidFile) => ({ id, ...node(`const { spawn } = require('node:child_process'); const c = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 600000)'], { stdio: ['ignore', 'inherit', 'inherit'], detached: ${kind === 'escaped'} }); require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(c.pid)); console.log('started a helper'); process.exit(0);`, { timeoutMs: HOLDER_TIMEOUT_MS }) });
 const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
 
 test('a check whose own process exited is not kept waiting by a child holding its output: the child is stopped and the check is named', async t => {
@@ -198,7 +202,7 @@ test('a check whose own process exited is not kept waiting by a child holding it
   const outcome = await runMaintenanceAction({ ...attempt.intent, action: { ...attempt.intent.action, config: f.config, resource: false } });
   const elapsed = Date.now() - started, pid = Number(readFileSync(pidFile, 'utf8'));
   t.after(() => { if (alive(pid)) process.kill(pid, 'SIGKILL'); });
-  assert.ok(elapsed < 6000, `the verifier should stop waiting about 2 s after the check exited, took ${elapsed} ms`);
+  assert.ok(elapsed < HOLDER_BOUND_MS, `the verifier should stop waiting about 2 s after the check exited, not at its ${HOLDER_TIMEOUT_MS} ms timeout; took ${elapsed} ms`);
   // It finished; a process it left behind is a containment problem (unknown health), not a timeout (red).
   assert.equal(outcome.route, 'blocked'); assert.equal(outcome.timedOut, undefined);
   const evidence = JSON.parse(readFileSync(join(attempt.intent.action.artifactDir, outcome.mainHealth.checks[0].artifact), 'utf8'));
@@ -217,7 +221,7 @@ test('a helper that left the check\'s process group cannot be stopped, but the v
   const pid = Number(readFileSync(pidFile, 'utf8'));
   // This test started it, so this test stops it (by its recorded PID).
   t.after(() => { if (alive(pid)) process.kill(pid, 'SIGKILL'); });
-  assert.ok(Date.now() - started < 6000);
+  assert.ok(Date.now() - started < HOLDER_BOUND_MS, `the verifier should not wait for the escaped helper or the check's ${HOLDER_TIMEOUT_MS} ms timeout; took ${Date.now() - started} ms`);
   assert.equal(outcome.route, 'blocked');
   assert.equal(alive(pid), true, 'a process in another session is out of reach (documented known limit)');
 });
