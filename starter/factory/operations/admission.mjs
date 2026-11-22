@@ -48,7 +48,8 @@ function admissionReasonList(store, task, { nowMs, policy, modelOverrides, fact,
   if (!task || task.approvedRevision !== task.revision || task.closed || task.blocked) reasons.push('current approval and open unblocked task required');
   if (store.meta('config', {}).mode === 'delivery' && !(store.meta('commissioning')?.ready && store.meta('commissioning')?.configDigest === store.meta('configDigest'))) reasons.push(fact('project doctor qualification required; run doctor for the current configuration', { code: 'commissioning' }));
   if(task?.source&&task.source.kind!=='command'&&(task.source.repository!==store.meta('config',{}).repository?.slug||task.id!==`${store.meta('config',{}).repository?.issueProfile?.dependencyIdPrefix??'github:'}${task.source.issue}`))reasons.push('source repository or task namespace changed; synchronize before admission');
-  // The project service found that attempt units run another node or git than it does (dev.105).
+  // The running project service found that attempt units run another node or git than it does (dev.105).
+  // Also while its start check is still pending, up to the check's own bound.
   if (store.meta('config', {}).mode === 'delivery') { const hold = attemptEnvironmentHold(store); if (hold) reasons.push(fact(hold, { code: 'attempt-environment' })); }
   if (store.meta('paused') || store.meta('recoveryHold') || store.meta('retentionHold')) reasons.push(fact('project held', { code: 'held', holds: [store.meta('paused') && 'paused', store.meta('recoveryHold') && 'recovery', store.meta('retentionHold') && 'retention'].filter(Boolean) }));
   if (selection) reasons.push(...selection.reasons);

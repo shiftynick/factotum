@@ -6,7 +6,6 @@ import { compileCatalog, commissionedGraphs } from '../core/catalog.mjs';
 import { modelDefaults, modelSettingsVersion, modelSettingsView, selectFlowModels } from '../operations/model-settings.mjs';
 import { unitDiagnostics } from '../operations/services.mjs';
 import { recordedAttemptEnvironment } from '../operations/attempt-environment-record.mjs';
-import { executorDigest } from '../core/effects.mjs';
 import { adoptionCheck } from '../distribution.mjs';
 import { readAnchor, recordAuthentication } from '../core/adoption-anchor.mjs';
 import { inspectGhBinary } from '../adapters/github/environment.mjs';
@@ -260,7 +259,8 @@ export const doctorProgressLine = (phase, detail = '') => `doctor: [${phase}] ${
 // the real provider preflight; a caller that fakes the providers gives its own or none.
 // attemptEnvironmentProbe: whether an attempt unit resolves the service's node and git. Since dev.105
 // the running project service checks it and records the result (operations/attempt-environment-record.mjs);
-// doctor reads that record under the code it runs and starts no unit. Read only with the real provider
+// doctor reads that record, starts no unit and never refuses for it (a difference warns; the running
+// service's admission hold is what stops new work). Read only with the real provider
 // preflight, as before; a caller that fakes the providers gives its own or none.
 async function doctorScoped(stateDir, { providerPreflight = preflight, sandboxProbe = providerPreflight === preflight ? codexSandboxSpawnProbe : null, attemptEnvironmentProbe = providerPreflight === preflight ? recordedAttemptEnvironment : null, forgeTransport, run = runProcess, resourceWaitMs = LEASE_HOLD_BOUND_MS, onResourceWait, onProgress, retryPauseMs = PROBE_RETRY_PAUSE_MS } = {}) {
   // Every string doctor reports (progress, reasons, warnings, provider entries, the event) is
@@ -290,9 +290,9 @@ async function doctorScoped(stateDir, { providerPreflight = preflight, sandboxPr
     assert(!missing.length,`Git identity missing or empty in factory scope: ${missing.join(', ')}. Set each with git config --local; global configuration is ignored.`);
     reasons.push(...unitDiagnostics(project, stateDir));
     // Checks and providers must run the service's node and git, not the user manager's.
-    // The project service checks this itself; doctor reads what it recorded (never refused for it).
+    // The project service checks this itself; doctor reads what it recorded, as warnings only.
     if (attemptEnvironmentProbe) {
-      const probed = await attemptEnvironmentProbe({ project, stateDir, store, executor: executorDigest() });
+      const probed = await attemptEnvironmentProbe({ project, stateDir, store });
       reasons.push(...probed.reasons); warnings.push(...probed.warnings); attemptEnvironment = probed.record;
     }
     // Running code must be the adopted release: an installed file that differs from the lock (edited,

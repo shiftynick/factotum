@@ -124,7 +124,9 @@ export function runProcess(binary,args,{cwd,env,input='',signal,timeoutMs=30_000
     const child=spawn(binary,args,{cwd,env,detached:true,stdio:['pipe','pipe','pipe']});
     let stdout='',stderr='',spawned=false,reason=null,killTimer;
     const kill = sig => { try { process.kill(-child.pid,sig); } catch {} };
-    const stop = why => { if(reason) return; reason=why;kill('SIGTERM');killTimer=setTimeout(()=>kill('SIGKILL'),1000); };
+    // A cancelled process whose output something outside its group still holds open would never
+    // close: after the SIGKILL its pipes are let go, so the caller (a service stopping) can exit.
+    const stop = why => { if(reason) return; reason=why;kill('SIGTERM');killTimer=setTimeout(()=>{kill('SIGKILL');if(why==='CANCELLED'){child.stdout.destroy();child.stderr.destroy();child.unref();}},1000); };
     const abort=()=>stop('CANCELLED'); signal?.addEventListener('abort',abort,{once:true});
     const timer=setTimeout(()=>stop('TIMEOUT'),timeoutMs);
     child.on('spawn',()=>{spawned=true;}); child.stdin.on('error',()=>{}); child.stdin.end(input);

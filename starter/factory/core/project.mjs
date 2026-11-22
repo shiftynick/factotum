@@ -1,4 +1,4 @@
-import { attemptEnvironmentView } from '../operations/attempt-environment-record.mjs';
+import { attemptEnvironmentHold, attemptEnvironmentView } from '../operations/attempt-environment-record.mjs';
 import { cliCommand } from './install-layout.mjs';
 import { failureRouteWarning, unsettledAttemptMessage } from './unsettled-attempt.mjs';
 import { projectTargets, setTargetHealth } from '../operations/targets.mjs';
@@ -722,6 +722,9 @@ export function admitFlow(store, task, p = {}) {
   }
   // A durable decision that holds the build boundary keeps new work from starting (migrated projects only).
   assertNoDecisionHold(store, task.id, task.revision, 'build', 'admission');
+  // The running service's attempt-environment check, in every mode: a difference, or its start check
+  // still pending (operations/attempt-environment-record.mjs). Delivery also lists it in admissionReasons.
+  { const held = attemptEnvironmentHold(store); assert(!held, `admission: ${held}`); }
   const config = store.meta('config', {});
   if (p.revision !== undefined || config.mode === 'delivery') assert(p.revision === task.revision, 'current task revision required for admission');
   if (config.mode === 'delivery') {

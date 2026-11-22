@@ -41,6 +41,7 @@ import { upkeepWorkState } from '../operations/upkeep-records.mjs';
 import { UPKEEP_CLOSE_OPERATION, upkeepCloseTickInTransaction } from '../operations/upkeep-pr-close.mjs';
 import { routeHoldReasons } from '../operations/provider-limits.mjs';
 import { clearTickProblem, recordTickProblem } from '../operations/tick-problems.mjs';
+import { attemptEnvironmentHold, environmentFreeOperation } from '../operations/attempt-environment-record.mjs';
 import { claimQueue } from '../operations/queue-claim.mjs';
 import { ensureUpkeepRoutePinnedInTransaction } from '../operations/upkeep-route.mjs';
 import { startUpkeepRunInTransaction, upkeepTickInTransaction } from '../operations/upkeep-runs.mjs';
@@ -123,6 +124,20 @@ export async function operationalTick(store, { transport = fetchTransport, nowMs
   } });
   // Revoke stale grants, then start at most one queued job per lane. `only` limits both to the jobs
   // it accepts: while paused, scheduled backups alone; any other queued job is left as it is.
+  // The project service's attempt-environment check (dev.105): while it found another node or git,
+  // or its start check is still pending, new maintenance that runs the project's tools (main.verify,
+  // target.sync, audits, scheduled tasks, integrations, ...) stays queued; running work continues.
+  // Each held job says why (job.held, event maintenance.held, once per reason), and the hold is
+  // cleared from the job when it starts. Read once per tick, only when a job is looked at.
+  let environment; const environmentHeld = () => environment === undefined ? (environment = attemptEnvironmentHold(store)) : environment;
+  const markEnvironmentHeld = jobs => {
+    const dependent = jobs.filter(row => !environmentFreeOperation(row.operation)); if (!dependent.length) return;
+    const reason = environmentHeld(); if (!reason) return;
+    for (const job of dependent.filter(row => row.held?.reason !== reason)) store.tx(() => {
+      const current = store.get('job', job.id); if (current?.status !== 'queued') return;
+      store.put('job', { ...current, held: { kind: 'attempt-environment', reason, since: now() } }); store.event('maintenance.held', { jobId: job.id, operation: job.operation, hold: 'attempt-environment', reason });
+    });
+  };
   const startMaintenance = (only, { upkeep = upkeepRuns.length > 0 } = {}) => {
     // Revoke stale grants rather than letting one stale head poison every later tick.
     for (const pending of store.live('job').filter(j => j.status === 'queued' && only(j))) {
@@ -133,17 +148,19 @@ export async function operationalTick(store, { transport = fetchTransport, nowMs
     // Lanes: built-in maintenance jobs share one (one unfinished non-integration maintenance flow at
     // a time), each installed integration workflow has its own, and knowledge upkeep has its own
     // (5.2): at most one upkeep flow at a time, never counted against the built-in lane.
-    const canStart = job => (job.operation !== 'maintenance.backup' || !backupHolds(store).length) && !store.meta('maintenanceHeld') && (!store.meta('retentionHold') || job.operation==='retention.archive' && job.payload?.operationId===store.meta('retentionHold').operationId) && !store.live('flow').some(f => f.kind === 'maintenance' && !['completed','failed'].includes(f.state) && (isUpkeepJob(job) ? isUpkeepFlow(f) : installedOperation(config,job.operation) ? f.integration && (config.integrationWorkflows[f.integration.id]?.singleton ?? f.integration.id) === (config.integrationWorkflows[job.operation.slice(9)]?.singleton ?? job.operation.slice(9)) : !f.integration && !isUpkeepFlow(f)));
+    const canStart = job => (job.operation !== 'maintenance.backup' || !backupHolds(store).length) && (environmentFreeOperation(job.operation) || !environmentHeld()) && !store.meta('maintenanceHeld') && (!store.meta('retentionHold') || job.operation==='retention.archive' && job.payload?.operationId===store.meta('retentionHold').operationId) && !store.live('flow').some(f => f.kind === 'maintenance' && !['completed','failed'].includes(f.state) && (isUpkeepJob(job) ? isUpkeepFlow(f) : installedOperation(config,job.operation) ? f.integration && (config.integrationWorkflows[f.integration.id]?.singleton ?? f.integration.id) === (config.integrationWorkflows[job.operation.slice(9)]?.singleton ?? job.operation.slice(9)) : !f.integration && !isUpkeepFlow(f)));
     // The built-in pick ignores upkeep jobs entirely, so a main.verify or target.sync queued before
     // or after an upkeep job is chosen exactly as it would be without one. The upkeep lane is looked
     // at only when the meta row read above names a run, and its job starts after the built-in one.
     const queuedJobs = store.live('job').filter(j => j.status === 'queued');
+    markEnvironmentHeld(queuedJobs.filter(only));
     const candidates = [queuedJobs.find(j => !isUpkeepJob(j) && only(j) && canStart(j)), upkeep ? queuedJobs.find(j => isUpkeepJob(j) && only(j) && canStart(j)) : null].filter(Boolean);
     for (const candidate of candidates) store.tx(() => {
       const job = store.need('job', candidate.id); assert(allowed.has(job.operation) || installedOperation(config,job.operation) || isScheduledOperation(config,job.operation), 'unsupported maintenance job');
       // A backup hold placed since the job was picked (an upgrade starting, say) leaves it queued.
       if (job.operation === 'maintenance.backup' && backupHolds(store).length) return;
       assert(canStart(job), 'maintenance capacity changed');
+      delete job.held;
       let schedule;
       if (job.scheduleId) { schedule = store.need('schedule', job.scheduleId); assert(schedule.enabled && (scheduleGrantDigest(schedule)) === job.scheduleRevision, 'schedule grant changed'); }
       else assert(manualJobGrant(job.grant) && job.grant.note && job.grant.configDigest === store.meta('configDigest'), 'explicit scoped operator (or delegated) job grant required');

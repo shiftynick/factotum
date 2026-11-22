@@ -245,17 +245,24 @@ test('doctor blocks when an attempt unit would run a different node than the pro
   const unprobed = await doctor(f.stateDir, { providerPreflight, forgeTransport });
   assert.equal(unprobed.ready, true); assert.equal(unprobed.attemptEnvironment, undefined);
 });
-// dev.105: doctor reads the result the project service recorded. During `upgrade apply` the service
-// is stopped and has not checked this code: unverified, a warning with the next-start message, and
-// doctor still passes. A difference the service recorded under this code blocks.
-test('doctor with the service stopped and no check for this release is unverified, never refused; a recorded difference blocks', async t => {
-  const f = fixture(t), { recordedAttemptEnvironment, NOT_YET_CHECKED } = await import('../starter/factory/operations/attempt-environment-record.mjs'), { executorDigest } = await import('../starter/factory/core/effects.mjs');
-  f.store.setMeta('attemptEnvironmentCheck', { status: 'same', checkedAt: '2026-11-20T10:00:00.000Z', executorDigest: 'the-release-before', reasons: [], warnings: [] });
-  const upgrading = await doctor(f.stateDir, { providerPreflight, forgeTransport, attemptEnvironmentProbe: recordedAttemptEnvironment });
-  assert.equal(upgrading.ready, true, JSON.stringify(upgrading.reasons)); assert.ok(upgrading.warnings.includes(NOT_YET_CHECKED), upgrading.warnings.join(' | '));
-  assert.equal(upgrading.attemptEnvironment.status, 'unverified');
+// dev.105: doctor reads the result the project service recorded and never refuses for it. During
+// `upgrade apply` or recovery the service is stopped: a result from an earlier service run, even under
+// the same code (a console-only upgrade leaves the executor digest unchanged), is unverified, a warning
+// with the next-start message, and doctor still passes. A difference blocks only through the running
+// service's admission hold, so doctor never stops the service from restarting to check again.
+test('doctor with the service stopped passes with an earlier run\'s result as a warning, even a difference under the same code', async t => {
+  const f = fixture(t), { recordedAttemptEnvironment, NOT_YET_CHECKED, beginAttemptEnvironmentRun, endAttemptEnvironmentRun, recordAttemptEnvironmentCheck } = await import('../starter/factory/operations/attempt-environment-record.mjs'), { executorDigest } = await import('../starter/factory/core/effects.mjs');
   const reason = 'An attempt unit resolves node to /fictional/shims/node, but the project service resolves it to /fictional/node24/bin/node';
-  f.store.setMeta('attemptEnvironmentCheck', { status: 'differs', checkedAt: '2026-11-21T10:00:00.000Z', executorDigest: executorDigest(), reasons: [reason], warnings: [] });
-  const differs = await doctor(f.stateDir, { providerPreflight, forgeTransport, attemptEnvironmentProbe: recordedAttemptEnvironment });
-  assert.equal(differs.ready, false); assert.ok(differs.reasons.includes(reason)); assert.equal(differs.attemptEnvironment.status, 'differs');
+  const run = beginAttemptEnvironmentRun(f.store, { id: 'fictional-earlier-run', pendingUntil: null });
+  recordAttemptEnvironmentCheck(f.store, { status: 'differs', checkedAt: '2026-11-21T10:00:00.000Z', serviceRunId: run.id, executorDigest: executorDigest(), reasons: [reason], warnings: [] });
+  endAttemptEnvironmentRun(f.store, run.id);
+  const upgrading = await doctor(f.stateDir, { providerPreflight, forgeTransport, attemptEnvironmentProbe: recordedAttemptEnvironment });
+  assert.equal(upgrading.ready, true, JSON.stringify(upgrading.reasons)); assert.ok(upgrading.warnings.some(warning => warning.startsWith(NOT_YET_CHECKED) && warning.includes('recorded differs')), upgrading.warnings.join(' | '));
+  assert.equal(upgrading.attemptEnvironment.status, 'unverified');
+  // Run inside the service (a console doctor) with a current difference: a warning, still never a refusal.
+  const live = beginAttemptEnvironmentRun(f.store, { id: 'fictional-running', pendingUntil: null });
+  recordAttemptEnvironmentCheck(f.store, { status: 'differs', checkedAt: '2026-11-21T11:00:00.000Z', serviceRunId: live.id, executorDigest: executorDigest(), reasons: [reason], warnings: [] });
+  const running = await doctor(f.stateDir, { providerPreflight, forgeTransport, attemptEnvironmentProbe: recordedAttemptEnvironment });
+  assert.equal(running.ready, true, JSON.stringify(running.reasons)); assert.ok(running.warnings.some(warning => warning.startsWith(reason)), running.warnings.join(' | '));
+  assert.equal(running.attemptEnvironment.status, 'differs');
 });

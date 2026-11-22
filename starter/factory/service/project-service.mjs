@@ -9,7 +9,7 @@ import { Store } from '../core/store.mjs';
 import { Engine } from '../core/engine.mjs';
 import { executeCommand, handshake, taskView, publicFlow, publicAttempt } from '../core/project.mjs';
 import { operationalTick } from '../workflows/maintenance.mjs';
-import { assert, recordId } from '../core/contracts.mjs';
+import { assert, recordId, uid } from '../core/contracts.mjs';
 import { captureConflictScope } from '../operations/conflicts.mjs';
 import { flowCapacity } from '../operations/capacity.mjs';
 import { learningCitationsOf } from '../operations/learnings.mjs';
@@ -18,16 +18,22 @@ import { decisionView } from '../core/decisions.mjs';
 import { placeRecoveryHold, recordOperationsFault, clearOperationsFault } from '../operations/recovery-hold.mjs';
 import { grantView } from '../core/grants.mjs';
 import { migrateStateLayout } from '../operations/state-layout.mjs';
+import { ATTEMPT_ENVIRONMENT_PROBE_TIMEOUT_MS, attemptEnvironmentCheckBoundMs } from '../operations/attempt-environment-probe.mjs';
+import { beginAttemptEnvironmentRun, endAttemptEnvironmentRun, recordAttemptEnvironmentCheck } from '../operations/attempt-environment-record.mjs';
 
 // environmentCheck: the attempt-environment check (dev.105, operations/attempt-environment-probe.mjs
-// checkAttemptEnvironment), called as environmentCheck(store, { trigger, closing }). The CLI's `serve`
-// passes the real one; without it (tests, evaluations) no check runs. It runs in the background once
-// the socket is served, again when the configuration digest changes, one at a time, and never delays
-// startup or a tick: its own bounds (a runtime limit on its unit, a deadline, a stop by exact unit
-// name) end it. Closing waits for it at most ENVIRONMENT_CHECK_CLOSE_WAIT_MS; a check still running
-// then records nothing.
-const ENVIRONMENT_CHECK_CLOSE_WAIT_MS = 2000;
-export async function startProjectService({ stateDir, socketPath, tickMs = 75, run = true, operationalIntervalMs = 1000, operationTick = operationalTick, environmentCheck = null }) {
+// checkAttemptEnvironment), called as environmentCheck(store, { trigger, serviceRunId, timeoutMs,
+// closing, signal }). The CLI's `serve` passes the real one; without it (tests, evaluations) no
+// check runs and nothing is recorded. With it, the service records its run before its first tick
+// (operations/attempt-environment-record.mjs), and while that run's start check is pending, new
+// task flows and new maintenance that runs the project's tools are held, at most for the check's
+// own bound (attemptEnvironmentCheckBoundMs). The check runs in the background once the socket is
+// served, again when the configuration digest changes, one at a time; it never delays startup or a
+// tick. Closing cancels it (its systemd-run client is stopped, its waits end, its unit is stopped
+// by exact name with a short bounded call) and waits for it at most ENVIRONMENT_CHECK_CLOSE_WAIT_MS;
+// a cancelled check records nothing.
+const ENVIRONMENT_CHECK_CLOSE_WAIT_MS = 4000;
+export async function startProjectService({ stateDir, socketPath, tickMs = 75, run = true, operationalIntervalMs = 1000, operationTick = operationalTick, environmentCheck = null, environmentCheckTimeoutMs = ATTEMPT_ENVIRONMENT_PROBE_TIMEOUT_MS }) {
   const store = new Store(stateDir), engine = new Engine(store);
   const socket = resolve(socketPath);
   assert(Buffer.byteLength(socket) <= 100, 'Unix socket path too long; choose a shorter private runtime path');
@@ -92,12 +98,25 @@ export async function startProjectService({ stateDir, socketPath, tickMs = 75, r
   };
   // The attempt-environment check: at start, and after the configuration changes (read once per
   // operations interval only when a check is configured).
-  let environmentChecking = null, environmentCheckedConfig;
+  let environmentChecking = null, environmentCheckedConfig, environmentRun = null;
+  const environmentAbort = new AbortController();
+  if (run && environmentCheck) {
+    const supervisor = store.meta('project').supervisor;
+    try { environmentRun = beginAttemptEnvironmentRun(store, { id: uid(), supervisor, pendingUntil: new Date(Date.now() + attemptEnvironmentCheckBoundMs(environmentCheckTimeoutMs)).toISOString() }); }
+    catch (error) { console.error(`attempt environment check run could not be recorded: ${error.message}`); }
+  }
   const checkEnvironment = trigger => {
-    if (!environmentCheck || closing || environmentChecking) return;
+    if (!environmentCheck || !environmentRun || closing || environmentChecking) return;
     try { environmentCheckedConfig = store.meta('configDigest') ?? null; } catch { return; }
-    environmentChecking = new Promise(resolve => setImmediate(resolve)).then(() => closing ? null : environmentCheck(store, { trigger, closing: () => closing }))
-      .catch(error => { if (!closing) { try { store.tx(() => store.event('attempt-environment.check-failed', { trigger, error: String(error?.message ?? error).slice(0, 300) })); } catch (recordError) { console.error(`attempt environment check failed and could not be recorded: ${error?.message}; ${recordError.message}`); } } })
+    const context = { trigger, serviceRunId: environmentRun.id, timeoutMs: environmentCheckTimeoutMs, closing: () => closing, signal: environmentAbort.signal };
+    environmentChecking = new Promise(resolve => setImmediate(resolve)).then(() => closing ? null : environmentCheck(store, context))
+      .catch(error => {
+        if (closing) return;
+        // A check that threw records unverified for this run, so its pending hold ends now.
+        const message = String(error?.message ?? error).slice(0, 300);
+        try { recordAttemptEnvironmentCheck(store, { status: 'unverified', reason: message, warnings: [`Could not check which node and git an attempt unit runs (${message})`], trigger, serviceRunId: environmentRun.id, checkedAt: new Date().toISOString(), supervisor: store.meta('project').supervisor, configDigest: store.meta('configDigest') ?? null }); }
+        catch (recordError) { console.error(`attempt environment check failed and could not be recorded: ${message}; ${recordError.message}`); }
+      })
       .finally(() => { environmentChecking = null; });
   };
   const operations = () => {
@@ -115,8 +134,10 @@ export async function startProjectService({ stateDir, socketPath, tickMs = 75, r
     closing = true;
     if (timer) clearInterval(timer);
     if (operationsTimer) clearInterval(operationsTimer);
+    environmentAbort.abort();
     await Promise.all([pending, pendingOperations].filter(Boolean));
     if (environmentChecking) await Promise.race([environmentChecking, new Promise(resolve => setTimeout(resolve, ENVIRONMENT_CHECK_CLOSE_WAIT_MS).unref())]);
+    if (environmentRun) { try { endAttemptEnvironmentRun(store, environmentRun.id); } catch (error) { console.error(`attempt environment check run could not be closed: ${error.message}`); } }
     await new Promise(resolve => { server.close(resolve); server.closeAllConnections(); });
     if (existsSync(socket)) unlinkSync(socket);
     await new Promise(resolve => lock.close(resolve));
@@ -191,7 +212,7 @@ export function collection(store,kind,params) {
 // read projected to its lifecycle fields, never its payload or grant.
 function jobDetail(store,jobId) {
   recordId(jobId,'job id');const job=store.get('job',jobId);if(!job)throw unavailable('unknown job');
-  return {projectId:store.meta('project').projectId,job:Object.fromEntries(['id','operation','status','outcome','reason','flowId','dispatchedFlowId','createdAt','finishedAt'].filter(key=>job[key]!==undefined).map(key=>[key,job[key]]))};
+  return {projectId:store.meta('project').projectId,job:Object.fromEntries(['id','operation','status','outcome','reason','held','flowId','dispatchedFlowId','createdAt','finishedAt'].filter(key=>job[key]!==undefined).map(key=>[key,job[key]]))};
 }
 function flowDetails(store,flowId) {
   recordId(flowId,'flow id');const flow=store.get('flow',flowId);if(!flow)throw unavailable('unknown flow');

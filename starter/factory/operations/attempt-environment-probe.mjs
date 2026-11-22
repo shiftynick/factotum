@@ -22,18 +22,30 @@ import { recordAttemptEnvironmentCheck } from './attempt-environment-record.mjs'
 // by its exact unit name. It is started without --pipe, so it never holds the service's pipes, and
 // the service stops waiting at its own deadline whatever the systemd-run client does.
 export const ATTEMPT_ENVIRONMENT_PROBE_TIMEOUT_MS = 30_000;
-const STOP_TIMEOUT_MS = 10_000, GRACE_MS = 3_000;
+const STOP_TIMEOUT_MS = 10_000, CANCEL_STOP_TIMEOUT_MS = 2_000, GRACE_MS = 3_000;
+// The longest a check can take with a given probe timeout: the probe, its stop and their graces.
+// The service holds admission at most this long while its start check is pending.
+export const attemptEnvironmentCheckBoundMs = (timeoutMs = ATTEMPT_ENVIRONMENT_PROBE_TIMEOUT_MS) => timeoutMs + GRACE_MS + STOP_TIMEOUT_MS + GRACE_MS;
 const COMMANDS = ['node', 'git'];
 const probeScript = fileURLToPath(import.meta.url);
 
 const resolved = path => Object.fromEntries(COMMANDS.map(name => [name, resolveCommand(name, path)]));
 const shown = entry => entry ? (entry.realPath !== entry.path ? `${entry.path} (${entry.realPath})` : entry.path) : 'nothing';
-// A call that cannot keep the service past its own bound: a client whose output stays open is left behind.
-const bounded = (promise, ms, what) => { let timer; return Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${what} did not return within ${Math.round(ms / 1000)} s`)), ms); })]).finally(() => clearTimeout(timer)); };
+// A call that cannot keep the service past its own bound: a client whose output stays open is left
+// behind. A cancelled check (the service closing) stops waiting at once, and its timer is cleared.
+const bounded = (promise, ms, what, signal) => {
+  let timer, onAbort;
+  return Promise.race([promise, new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what} did not return within ${Math.round(ms / 1000)} s`)), ms);
+    if (signal) { onAbort = () => reject(new Error(`${what} was cancelled: the project service is stopping`)); if (signal.aborted) onAbort(); else signal.addEventListener('abort', onAbort, { once: true }); }
+  })]).finally(() => { clearTimeout(timer); if (onAbort) signal.removeEventListener('abort', onAbort); });
+};
 
 // environment: the service's own allowlisted variables (serviceEnvironment(process.env) in the
 // service), as its engine records them in an intent.
-export async function probeAttemptEnvironment({ project, stateDir, environment, from = 'the project service', run = runProcess, timeoutMs = ATTEMPT_ENVIRONMENT_PROBE_TIMEOUT_MS } = {}) {
+// signal: cancels the probe (the service closing): its systemd-run client is stopped, the wait ends
+// at once and its unit is stopped by its exact name with a short bounded call.
+export async function probeAttemptEnvironment({ project, stateDir, environment, from = 'the project service', run = runProcess, timeoutMs = ATTEMPT_ENVIRONMENT_PROBE_TIMEOUT_MS, signal } = {}) {
   const reasons = [], warnings = [];
   if (!environment?.PATH) {
     warnings.push(`Not verified that attempt units run the project service's node and git: ${from} has no PATH`);
@@ -53,7 +65,7 @@ export async function probeAttemptEnvironment({ project, stateDir, environment, 
     writeFileSync(request, JSON.stringify({ environment: serviceEnvironment(environment) }), { mode: 0o600 });
     const limitSec = Math.max(1, Math.floor(timeoutMs / 2000));
     stop = true;
-    const result = await bounded(run('systemd-run', ['--user', '--wait', '--collect', '--quiet', `--unit=${unit}`, '--property=Type=exec', `--property=RuntimeMaxSec=${limitSec}`, process.execPath, probeScript, request], { env: process.env, timeoutMs }), timeoutMs + GRACE_MS, 'systemd-run');
+    const result = await bounded(run('systemd-run', ['--user', '--wait', '--collect', '--quiet', `--unit=${unit}`, '--property=Type=exec', `--property=RuntimeMaxSec=${limitSec}`, process.execPath, probeScript, request], { env: process.env, timeoutMs, signal }), timeoutMs + GRACE_MS, 'systemd-run', signal);
     if (result.code !== 0) throw new Error(`systemd-run exited ${result.code}: ${String(result.stderr ?? '').trim().slice(0, 300)}`);
     try { probed = JSON.parse(readFileSync(join(dir, 'result.json'), 'utf8')); } catch { throw new Error('the probe unit wrote no result'); }
     stop = false;
@@ -62,7 +74,7 @@ export async function probeAttemptEnvironment({ project, stateDir, environment, 
     return { reasons, warnings, record: { ...record, reason: error.message } };
   } finally {
     // A probe that timed out or failed is stopped by its own name, never by a pattern.
-    if (stop) { try { await bounded(run('systemctl', ['--user', 'stop', unit], { env: process.env, timeoutMs: STOP_TIMEOUT_MS }), STOP_TIMEOUT_MS + GRACE_MS, 'systemctl stop'); } catch {} }
+    if (stop) { const ms = signal?.aborted ? CANCEL_STOP_TIMEOUT_MS : STOP_TIMEOUT_MS; try { await bounded(run('systemctl', ['--user', 'stop', unit], { env: process.env, timeoutMs: ms }), ms + (signal?.aborted ? 0 : GRACE_MS), 'systemctl stop'); } catch {} }
     if (dir) { try { rmSync(dir, { recursive: true, force: true }); } catch {} }
   }
   Object.assign(record, { status: 'same', attempt: probed.attempt, manager: probed.manager });
@@ -80,16 +92,16 @@ export async function probeAttemptEnvironment({ project, stateDir, environment, 
 // from the service process itself, which passes its own environment: nothing to probe, recorded
 // as not-applicable. Under `systemd` the probe above runs with the service's own environment.
 // The result is recorded unless the service is closing meanwhile.
-export async function checkAttemptEnvironment(store, { trigger = 'start', source = process.env, run = runProcess, timeoutMs = ATTEMPT_ENVIRONMENT_PROBE_TIMEOUT_MS, executor = executorDigest(), closing = () => false } = {}) {
+export async function checkAttemptEnvironment(store, { trigger = 'start', serviceRunId = null, source = process.env, run = runProcess, timeoutMs = ATTEMPT_ENVIRONMENT_PROBE_TIMEOUT_MS, executor = executorDigest(), closing = () => false, signal } = {}) {
   const project = store.meta('project'), configDigest = store.meta('configDigest') ?? null, startedAt = now();
   let result;
   if (project.supervisor !== 'systemd') result = { status: 'not-applicable', reason: `the ${project.supervisor} supervisor starts attempts from the project service itself, with its environment` };
   else {
-    const probed = await probeAttemptEnvironment({ project, stateDir: store.stateDir, environment: serviceEnvironment(source), from: 'the project service', run, timeoutMs });
+    const probed = await probeAttemptEnvironment({ project, stateDir: store.stateDir, environment: serviceEnvironment(source), from: 'the project service', run, timeoutMs, signal });
     result = { ...probed.record, reasons: probed.reasons, warnings: probed.warnings };
   }
-  if (closing()) return null;
-  return recordAttemptEnvironmentCheck(store, { ...result, trigger, startedAt, checkedAt: now(), executorDigest: executor, configDigest, supervisor: project.supervisor });
+  if (closing() || signal?.aborted) return null;
+  return recordAttemptEnvironmentCheck(store, { ...result, trigger, serviceRunId, startedAt, checkedAt: now(), executorDigest: executor, configDigest, supervisor: project.supervisor });
 }
 
 // Inside the probe unit: the supervisor's environment for an intent recording the service's.
